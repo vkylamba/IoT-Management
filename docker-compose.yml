@@ -1,0 +1,83 @@
+version: '3'
+services:
+  database:
+    image: postgres:13.0
+    env_file:
+      - ./src/iot_server/.env
+    ports:
+      - 5436:5432
+    volumes:
+      - psql-data:/var/lib/postgresql/data
+      - ./src:/application
+
+  database-clickhouse:
+    image: yandex/clickhouse-server:latest
+    volumes:
+      - clickhouse-db-data:/var/lib/clickhouse
+      - ./config/clickhouse-db-users/:/etc/clickhouse-server/users.d
+    ports:
+      - 9000:9000
+      - 8123:8123
+
+  redis:
+    image: redis:3.2
+    ports:
+      - 6379:6379
+    env_file:
+      - ./src/iot_server/.env
+
+  app:
+    build: .
+    command: "tail -f /dev/null"
+    restart: on-failure
+    links:
+      - database
+      - redis
+    ports:
+      - 8113:8000
+    volumes:
+      - ./src:/home/application
+      - ./static:/home/application/static
+      - media_volume:/home/application/media
+    env_file:
+      - ./src/iot_server/.env
+
+  # beat:
+  #   build: .
+  #   restart: on-failure
+  #   links:
+  #     - database
+  #     - redis
+  #   volumes:
+  #     - ./src:/home/application
+  #     - ./static:/src/static
+  #     - media_volume:/src/media
+  #   environment:
+  #     - IS_CELERY_BEAT=1
+  #   env_file:
+  #     - ./src/iot_server/.env
+
+  # worker:
+  #   build: .
+  #   command: "celery -A iot_server worker -l info"
+  #   # command: "tail -f /dev/null"
+  #   restart: on-failure
+  #   links:
+  #     - database
+  #     - redis
+  #   volumes:
+  #     - ./src:/home/application
+  #     - ./static:/src/static
+  #     - media_volume:/src/media
+  #   env_file:
+  #     - ./src/iot_server/.env
+  #   environment:
+  #     - IS_CELERY_WORKER=1
+
+volumes:
+  psql-data:
+    driver: local
+  media_volume:
+    driver: local
+  clickhouse-db-data:
+    driver: local

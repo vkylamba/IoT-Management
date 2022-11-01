@@ -1,0 +1,307 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#", 
+	"$id": "https://example.com/object1653392316.json", 
+	"title": "Root", 
+	"type": "object",
+	"required": [
+		"config"
+	],
+    "optional": [
+        "adc",
+		"meters",
+		"network",
+	    "dht",
+        "modbus_data"
+    ],
+	"properties": {
+		"config": {
+			"$id": "#root/config", 
+			"title": "Config", 
+			"type": "object",
+			"required": [
+				"devType",
+				"devId",
+				"workmode",
+				"mac"
+			],
+			"properties": {
+				"devType": {
+					"$id": "#root/config/devType", 
+					"title": "Devtype", 
+					"type": "string",
+					"default": "",
+					"examples": [
+						"IOT-GW-V1"
+					],
+					"pattern": "^.*$"
+				},
+				"devId": {
+					"$id": "#root/config/devId", 
+					"title": "Devid", 
+					"type": "integer",
+					"examples": [
+						7
+					],
+					"default": 0
+				},
+				"workmode": {
+					"$id": "#root/config/workmode", 
+					"title": "Workmode", 
+					"type": "integer",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"mac": {
+					"$id": "#root/config/mac", 
+					"title": "Mac", 
+					"type": "string",
+					"default": "",
+					"examples": [
+						"4C:EB:D6:74:3E:2C"
+					],
+					"pattern": "^.*$"
+				}
+			}
+		}
+,
+		"adc": {
+			"$id": "#root/adc", 
+			"title": "Adc", 
+			"type": "object",
+			"required": [
+				"1",
+				"2",
+				"3",
+				"4",
+				"5",
+				"6"
+			],
+			"properties": {
+				"1": {
+					"$id": "#root/adc/1", 
+					"title": "1", 
+					"type": "integer",
+					"examples": [
+						253
+					],
+					"default": 0
+				},
+				"2": {
+					"$id": "#root/adc/2", 
+					"title": "2", 
+					"type": "integer",
+					"examples": [
+						1957
+					],
+					"default": 0
+				},
+				"3": {
+					"$id": "#root/adc/3", 
+					"title": "3", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				},
+				"4": {
+					"$id": "#root/adc/4", 
+					"title": "4", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				},
+				"5": {
+					"$id": "#root/adc/5", 
+					"title": "5", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				},
+				"6": {
+					"$id": "#root/adc/6", 
+					"title": "6", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				}
+			}
+		}
+,
+		"dht": {
+			"$id": "#root/dht", 
+			"title": "Dht", 
+			"type": "object",
+			"required": [
+				"state",
+				"temperature",
+				"humidity",
+				"hic"
+			],
+			"properties": {
+				"state": {
+					"$id": "#root/dht/state", 
+					"title": "State", 
+					"type": "integer",
+					"examples": [
+						2
+					],
+					"default": 0
+				},
+				"temperature": {
+					"$id": "#root/dht/temperature", 
+					"title": "Temperature", 
+					"type": "number",
+					"examples": [
+						200
+					],
+					"default": 0
+				},
+				"humidity": {
+					"$id": "#root/dht/humidity", 
+					"title": "Humidity", 
+					"type": "number",
+					"examples": [
+						200
+					],
+					"default": 0
+				},
+				"hic": {
+					"$id": "#root/dht/hic", 
+					"title": "Hic", 
+					"type": "number",
+					"examples": [
+						11553.46
+					],
+					"default": 0.0
+				}
+			}
+		}
+,
+		"meters": {
+			"$id": "#root/meters", 
+			"title": "Meters", 
+			"type": "object",
+			"required": [
+				"1",
+				"2",
+				"3",
+				"4",
+				"5",
+				"6"
+			],
+			"properties": {
+				"1": {
+					"$id": "#root/meters/1", 
+					"title": "1", 
+					"type": "number",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"2": {
+					"$id": "#root/meters/2", 
+					"title": "2", 
+					"type": "number",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"3": {
+					"$id": "#root/meters/3", 
+					"title": "3", 
+					"type": "number",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"4": {
+					"$id": "#root/meters/4", 
+					"title": "4", 
+					"type": "number",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"5": {
+					"$id": "#root/meters/5", 
+					"title": "5", 
+					"type": "number",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"6": {
+					"$id": "#root/meters/6", 
+					"title": "6", 
+					"type": "number",
+					"examples": [
+						0
+					],
+					"default": 0
+				}
+			}
+		},
+		"network": {
+			"$id": "#root/network", 
+			"title": "Network", 
+			"type": "object",
+			"required": [
+				"state",
+				"ip",
+				"tts"
+			],
+			"properties": {
+				"state": {
+					"$id": "#root/network/state", 
+					"title": "State", 
+					"type": "string",
+					"default": "",
+					"examples": [
+						"4, 2"
+					],
+					"pattern": "^.*$"
+				},
+				"ip": {
+					"$id": "#root/network/ip", 
+					"title": "Ip", 
+					"type": "string",
+					"default": "",
+					"examples": [
+						"192.168.0.136"
+					],
+					"pattern": "^.*$"
+				},
+				"tts": {
+					"$id": "#root/network/tts", 
+					"title": "Tts", 
+					"type": "integer",
+					"examples": [
+						0
+					],
+					"default": 0
+				}
+			}
+		},
+		"modbus_data": {
+			"$id": "#root/modbus_data", 
+			"title": "Modbus_data", 
+			"type": "object"
+		}
+
+	}
+}
