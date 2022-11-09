@@ -1,0 +1,115 @@
+from django.urls import include, path, re_path
+from rest_framework import routers
+
+from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
+                          DeviceViewSet, EventViewSet, HeartbeatViewSet,
+                          UserViewSet, VerifyAuthViewSet, WidgetViewSet)
+
+router = routers.DefaultRouter()
+router.register(r'user/details', UserViewSet)
+
+# Wire up our API using automatic URL routing.
+# Additionally, we include login URLs for the browse-able API.
+urlpatterns = [
+    # Auth Views
+    re_path(
+        r'^api-token-auth/$',
+        AuthViewSet.as_view({'post': 'sign_in'}),
+        name='login'
+    ),
+    re_path(
+        r'^api-token-auth/register/$',
+        AuthViewSet.as_view({'post': 'sign_up'})
+    ),
+    re_path(
+        r'^verifyauth',
+        VerifyAuthViewSet.as_view({'get': 'verify_auth'})
+    ),
+
+    # Dashboard views
+    re_path(r'^dashboard/widgets', WidgetViewSet.as_view({'get': 'get_widgets'})),
+
+    # Device views
+    re_path(
+        r'^devices/types$',
+        DeviceViewSet.as_view({'get': 'get_device_types'})
+    ),
+    re_path(
+        r'^devices/$',
+        DeviceViewSet.as_view({'get': 'get_devices'})
+    ),
+    re_path(
+        r'^devices/$',
+        DeviceViewSet.as_view({'post': 'create_device'})
+    ),
+    re_path(
+        r'^devices/markfavorite/(?P<device_id>[\w.]+)$',
+        DeviceViewSet.as_view({'get': 'mark_as_favorite'})
+    ),
+    re_path(
+        r'^devices/removefavorite/(?P<device_id>[\w.]+)$',
+        DeviceViewSet.as_view({'delete': 'unmark_as_favorite'})
+    ),
+
+    # Device details views
+    re_path(
+        r'^device/settings/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({
+            'get': 'device_settings_data',
+            'post': 'set_settings_data',
+        })
+    ),
+    re_path(
+        r'^device/staticdata/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({
+            'get': 'device_static_data',
+            'post': 'update_static_data'
+        })
+    ),
+    re_path(
+        r'^device/dynamicdata/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_dynamic_data'})
+    ),
+    re_path(
+        r'^device/sendcommand/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({'post': 'send_command'})
+    ),
+    re_path(
+        r'^device/reportdata/(?P<device_id>[\w.]+)/(?P<report_type>[\w]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_report'})
+    ),
+
+    # Data views
+    re_path(
+        r'^data/$',
+        DataViewSet.as_view({'post': 'create'})
+    ),
+
+    # Device heartbeat views
+    re_path(
+        r'^heartbeat/$',
+        HeartbeatViewSet.as_view({'get': 'get', 'post': 'post'})
+    ),
+
+    # Event views
+    re_path(
+        r'^events/past$',
+        EventViewSet.as_view({'get': 'get_past_events'})
+    ),
+    re_path(r'^events/past/(?P<device_id>[\w.]+)$',
+        EventViewSet.as_view({'get': 'get_past_events'})),
+    re_path(r'^events/list$', EventViewSet.as_view({'get': 'get_events'})),
+    re_path(r'^events/list/(?P<device_id>[\w.]+)?$',
+        EventViewSet.as_view({'get': 'get_events'})),
+    re_path(r'^events/types(/)?$',
+        EventViewSet.as_view({'get': 'get_event_types'})),
+    re_path(r'^events/(?P<dev_event_id>[\w.]+)$',
+        EventViewSet.as_view({'get': 'get_event'})),
+    re_path(r'^events/create/(?P<dev_event_id>[\w.]+)?$',
+        EventViewSet.as_view({'post': 'create_event'})),
+    re_path(r'^events/delete/(?P<dev_event_id>[\w.]+)$',
+        EventViewSet.as_view({'delete': 'delete_event'})),
+    re_path(r'^api-auth/', include('dj_rest_auth.urls')),
+]
+
+urlpatterns += router.urls

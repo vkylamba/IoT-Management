@@ -1,0 +1,160 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "type": "object",
+    "properties": {
+      "config": {
+        "type": "object",
+        "properties": {
+          "devType": {
+            "type": "string"
+          },
+          "device": {
+            "type": "integer"
+          },
+          "mac": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "devType",
+          "device",
+          "mac"
+        ]
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "Device": {
+            "type": "object",
+            "properties": {
+              "rUptime_s": {
+                "type": "integer"
+              },
+              "rErrorFlags": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rUptime_s",
+              "rErrorFlags"
+            ]
+          },
+          "Battery": {
+            "type": "object",
+            "properties": {
+              "rMeas_V": {
+                "type": "number"
+              },
+              "rMeas_A": {
+                "type": "number"
+              },
+              "rSOC_pct": {
+                "type": "integer"
+              },
+              "pEstUsable_Ah": {
+                "type": "number"
+              },
+              "pChgDay_Wh": {
+                "type": "number"
+              },
+              "pDisDay_Wh": {
+                "type": "number"
+              },
+              "pDeepDisCount": {
+                "type": "integer"
+              },
+              "pDis_Ah": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rMeas_V",
+              "rMeas_A",
+              "rSOC_pct",
+              "pEstUsable_Ah",
+              "pChgDay_Wh",
+              "pDisDay_Wh",
+              "pDeepDisCount",
+              "pDis_Ah"
+            ]
+          },
+          "Charger": {
+            "type": "object",
+            "properties": {
+              "rState": {
+                "type": "integer"
+              },
+              "rDCDCState": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rState",
+              "rDCDCState"
+            ]
+          },
+          "Solar": {
+            "type": "object",
+            "properties": {
+              "rMeas_V": {
+                "type": "number"
+              },
+              "rMeas_A": {
+                "type": "number"
+              },
+              "pInDay_Wh": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "rMeas_V",
+              "rMeas_A",
+              "pInDay_Wh"
+            ]
+          },
+          "Load": {
+            "type": "object",
+            "properties": {
+              "rMeas_A": {
+                "type": "number"
+              },
+              "rState": {
+                "type": "integer"
+              },
+              "pOutDay_Wh": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "rMeas_A",
+              "rState",
+              "pOutDay_Wh"
+            ]
+          },
+          "USB": {
+            "type": "object",
+            "properties": {
+              "rState": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rState"
+            ]
+          }
+        },
+        "required": [
+          "Device",
+          "Battery",
+          "Charger",
+          "Solar",
+          "Load",
+          "USB"
+        ]
+      }
+    },
+    "required": [
+      "config",
+      "data"
+    ]
+  }

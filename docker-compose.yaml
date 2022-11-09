@@ -1,0 +1,63 @@
+version: '3.9'
+
+services:
+
+  database-clickhouse:
+    image: yandex/clickhouse-server:latest
+    volumes:
+      - clickhouse-db-data:/var/lib/clickhouse
+      - ./config/clickhouse-db-users/:/etc/clickhouse-server/users.d
+    env_file:
+      - ./src/iot_server/.env
+    ports:
+      # - 9000:9000
+      - 8123:8123
+
+  mongo:
+    image: mongo
+    restart: always
+    ports:
+      - 27017:27017
+    volumes:
+      - mongodb-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+
+  mongo-express:
+    image: mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: example
+      ME_CONFIG_MONGODB_URL: mongodb://root:example@mongo:27017/
+
+  app:
+    build: .
+    command: "tail -f /dev/null"
+    restart: on-failure
+    links:
+      - mongo
+      - database-clickhouse
+      # - redis
+    ports:
+      - 8113:8000
+    volumes:
+      - ./src:/home/application
+      - ./static:/home/application/static
+      - media_volume:/home/application/media
+      - python-packages:/usr/local/lib/python3.11/site-packages/
+    env_file:
+      - ./src/iot_server/.env
+
+volumes:
+  media_volume:
+    driver: local
+  mongodb-data:
+    driver: local
+  clickhouse-db-data:
+    driver: local
+  python-packages:
+    driver: local

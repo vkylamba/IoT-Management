@@ -1,0 +1,114 @@
+[
+    {
+        "target": "meter",
+        "name": "battery_meter",
+        "type": "DC_METER",
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "data.Battery.rMeas_V",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "data.Battery.rMeas_A",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "calculated",
+                "source": "data.Battery.rMeas_V * data.Battery.rMeas_A",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "state",
+                "type": "raw",
+                "source": "data.Battery.rSOC_pct",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
+    },
+    {
+        "target": "meter",
+        "name": "solar_meter",
+        "type": "DC_METER",
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "data.Solar.rMeas_V",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "data.Solar.rMeas_A",
+                "multiplier": -1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "calculated",
+                "source": "data.Solar.rMeas_V * data.Solar.rMeas_A",
+                "multiplier": -1,
+                "offset": 0
+            },
+            {
+                "target": "energy",
+                "type": "calculated",
+                "source": "lastValue__data.Solar.pInDay_Wh + data.Solar.pInDay_Wh",
+                "multiplier": 0.001,
+                "offset": 0
+            },
+            {
+                "target": "state",
+                "type": "calculated",
+                "source": "data.Charger.rState * data.Charger.rDCDCState",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
+    },
+    {
+        "target": "meter",
+        "name": "load_meter",
+        "type": "LOAD_DC_METER",
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "data.Battery.rMeas_V",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "data.Load.rMeas_A",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "calculated",
+                "source": "data.Battery.rMeas_V * data.Load.rMeas_A",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "energy",
+                "type": "calculated",
+                "source": "lastValue__data.Load.pOutDay_Wh + data.Load.pOutDay_Wh",
+                "multiplier": 0.001,
+                "offset": 0
+            }
+        ]
+    }
+]
