@@ -238,7 +238,8 @@ class InputDataConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         logger.info(f"Data received from {self.room_group_name}: {text_data}")
-        await sync_to_async(self.device_message)({"message": text_data})
+        resp = await sync_to_async(self.device_message)({"message": text_data})
+        await self.send(text_data=resp)
 
     def device_message(self, event):
         message = event['message']
@@ -252,4 +253,4 @@ class InputDataConsumer(AsyncWebsocketConsumer):
             logger.exception(ex)
 
         logger.info(f"Sending to {self.room_group_name}: {resp}")
-        self.send(text_data=resp)
+        return resp
