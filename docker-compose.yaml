@@ -2,6 +2,12 @@ version: '3.9'
 
 services:
 
+  redis:
+    image: redis:6.2
+    ports:
+      - 6379:6379
+    env_file:
+      - ./src/iot_server/.env
   database-clickhouse:
     image: yandex/clickhouse-server:latest
     volumes:
@@ -41,7 +47,7 @@ services:
     links:
       - mongo
       - database-clickhouse
-      # - redis
+      - redis
     ports:
       - 8113:8000
     volumes:
