@@ -10,9 +10,9 @@ from rest_framework import permissions
 
 schema_view = get_schema_view(
    openapi.Info(
-      title="IoT Monotoring API",
+      title="IoT Monitoring API",
       default_version='v1',
-      description="IoT Monotoring API"
+      description="IoT Monitoring API"
    ),
    public=True,
    permission_classes=[permissions.AllowAny],
@@ -25,7 +25,7 @@ urlpatterns = [
     url(r'^ckeditor/', include('ckeditor_uploader.urls')),
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-    re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    re_path(r'^apidocs/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
 
 

@@ -426,12 +426,11 @@ DEFAULT_SYNC_FREQUENCY_MINUTES = 10
 
 # django-clickhouse library setup
 CLICKHOUSE_DATABASES = {
-    # Connection name to refer in using(...) method 
     'default': {
-        'db_url': f'http://{env("CLICKHOUSE_DATABASE_URL", default="database-clickhouse")}:8123',
-        'db_name': env("CLICKHOUSE_DATABASE_NAME", default="iotdatabase"),
-        'username': env("CLICKHOUSE_DATABASE_USERNAME", default="iotuser"),
-        'password': env("CLICKHOUSE_DATABASE_PASSWORD", default="iotuser"),
+        'db_url': f'http://{env("CLICKHOUSE_DATABASE_HOST")}:{env("CLICKHOUSE_DATABASE_PORT")}',
+        'db_name': env("CLICKHOUSE_DATABASE_NAME"),
+        'username': env("CLICKHOUSE_DATABASE_USERNAME"),
+        'password': env("CLICKHOUSE_DATABASE_PASSWORD"),
         'migrate': True
     }
 }
