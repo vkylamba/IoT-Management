@@ -163,7 +163,7 @@ DEV_PROPERTIES = {
             "update": False
         }
     ],
-     "Charge Controller": [
+    "Charge Controller": [
         {
             "name": "currency",
             "type": "String",
@@ -462,5 +462,112 @@ DEV_PROPERTIES = {
             "update": True,
             "update_method": update_system_status
         }
-    ]
+    ],
+    "Solar Pump": [
+        {
+            "name": "currency",
+            "type": "String",
+            "value": "₹",
+            "update": True,
+            "update_method": update_currency
+        },
+        {
+            "name": "pay_per_unit",
+            "type": "Float",
+            "value": "5.0",
+            "update": True,
+            "update_method": update_pay_per_unit
+        },
+        {
+            "name": "cost_savings_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_cost_savings
+        },
+        {
+            "name": "cost_savings_limit_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        },
+        {
+            "name": "energy_generated_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_energy_generated_this_month
+        },
+        {
+            "name": "energy_generation_limit_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        },
+        {
+            "name": "energy_generated_this_day",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_energy_generated_this_day
+        },
+        {
+            "name": "energy_generation_limit_this_day",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        },
+        {
+            "name": "energy_consumed_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_energy_consumed_this_month
+        },
+        {
+            "name": "energy_consumption_limit_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        },
+        {
+            "name": "energy_exported_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_energy_exported_this_month
+        },
+        {
+            "name": "energy_export_limit_this_month",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        },
+        {
+            "name": "energy_consumed_this_day",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_energy_consumed_this_day
+        },
+        {
+            "name": "energy_consumption_limit_this_day",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        },
+        {
+            "name": "energy_exported_this_day",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_energy_exported_this_day
+        },
+        {
+            "name": "energy_export_limit_this_day",
+            "type": "Float",
+            "value": "0.0",
+            "update": False
+        }
+    ],
 }

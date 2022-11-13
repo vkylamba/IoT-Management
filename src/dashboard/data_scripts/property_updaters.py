@@ -35,16 +35,16 @@ def get_energy_data_current_month(dr):
 
 def update_monthly_bill(dev_prop, device, **kwargs):
     energy_this_month = kwargs.get("energy_this_month")
-    pay_per_unit = DeviceProperty.objects.get(
+    pay_per_unit, created = DeviceProperty.objects.get_or_create(
         device=device,
         name="pay_per_unit"
     )
-    pay_per_unit = float(pay_per_unit.value)
+    pay_per_unit = float(pay_per_unit.value) if pay_per_unit.value != '' else 0
     kwh = energy_this_month.get("load_meter", 0)
     dev_prop['value'] = pay_per_unit * kwh
 
 def update_currency(dev_prop, device, **kwargs):
-    currency = DeviceProperty.objects.get(
+    currency, created = DeviceProperty.objects.get_or_create(
         device=device,
         name="currency"
     )
@@ -52,20 +52,20 @@ def update_currency(dev_prop, device, **kwargs):
     dev_prop['value'] = currency
 
 def update_pay_per_unit(dev_prop, device, **kwargs):
-    pay_per_unit = DeviceProperty.objects.get(
+    pay_per_unit, created = DeviceProperty.objects.get_or_create(
         device=device,
         name="pay_per_unit"
     )
-    pay_per_unit = float(pay_per_unit.value)
+    pay_per_unit = float(pay_per_unit.value) if pay_per_unit.value != '' else 0
     dev_prop['value'] = pay_per_unit
 
 def update_cost_savings(dev_prop, device, **kwargs):
     energy_this_month = kwargs.get("energy_this_month")
-    pay_per_unit = DeviceProperty.objects.get(
+    pay_per_unit, created = DeviceProperty.objects.get_or_create(
         device=device,
         name="pay_per_unit"
     )
-    pay_per_unit = float(pay_per_unit.value)
+    pay_per_unit = float(pay_per_unit.value) if pay_per_unit.value != '' else 0
     kwh = energy_this_month.get("solar_meter", 0)
     dev_prop['value'] = pay_per_unit * kwh
 
@@ -263,14 +263,16 @@ def update_system_status(dev_prop, device, **kwargs):
 def update_device_properties(device, meters_and_data):
     from .device_properties import DEV_PROPERTIES
     dr = DataReports(device)
-    dev_props = DEV_PROPERTIES.get(dr.device_types[0], [])
+    dev_props = []
+    for dev_type in dr.device_types:
+        dev_props.extend(DEV_PROPERTIES.get(dev_type, []))
+
     energy_this_month = get_energy_data_current_month(dr)
     energy_this_day = get_energy_data_current_day(dr)
     device_localtime = dr.get_device_local_time()
     device_weather_data = dr.get_local_weather_data()
 
     data = {}
-
     for dev_prop in dev_props:
         logger.info("Updating property {} for device {}".format(dev_prop, device.ip_address))
         if dev_prop['update']:

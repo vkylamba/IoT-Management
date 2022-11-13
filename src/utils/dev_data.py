@@ -34,7 +34,7 @@ class DataReports(object):
 
     def get_statistics_current_month(self, params='all'):
         """
-            Get device statistics gourped by meter name. 
+            Get device statistics grouped by meter name. 
             Device's timezone is used in querying the data.
         """
         to_time = self.get_device_local_time()
@@ -116,7 +116,7 @@ class DataReports(object):
 
         logger.debug("Getting statistics: {}, {}, {}, {}".format(device_ip_address, aggregation_period, from_time_string, to_time_string))
         columns = [
-            "meter_name",
+            "meter",
             "aggregation_time",
             "data_points",
             "initial_time",
@@ -188,8 +188,15 @@ class DataReports(object):
             from_time_string=from_time_string,
             to_time_string=to_time_string
         )).split('\n')
-        return (
+
+        data_list = (
             dict(zip(columns, row.split('\t'))) for row in rows
+        )
+        return (
+            {
+                **x,
+                'meter_name': meter_names.get(x['meter'], ''),
+            } for x in data_list
         )
 
     def get_latest_data(self):

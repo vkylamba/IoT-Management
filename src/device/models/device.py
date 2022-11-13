@@ -70,6 +70,7 @@ DEVICE_TYPE_CHOICES = (
     ('WEATHER_STATION', 'WEATHER STATION'),
     ('SOLAR HYBRID INVERTER', 'SOLAR HYBRID INVERTER'),
     ('IOT_GATEWAY', 'IOT_GATEWAY'),
+    ('SOLAR_PUMP', 'SOLAR PUMP'),
     ('OTHER', 'OTHER'),
 )
 
@@ -84,6 +85,7 @@ class DeviceType(models.Model):
     SOLAR_HYBRID_INVERTER = 'SOLAR HYBRID INVERTER'
     WEATHER_STATION = 'WEATHER STATION'
     IOT_GATEWAY = 'IOT_GATEWAY'
+    SOLAR_PUMP = 'SOLAR PUMP'
     OTHER = 'OTHER'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

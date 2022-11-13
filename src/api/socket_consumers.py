@@ -3,121 +3,15 @@ import logging
 import re
 from datetime import datetime
 
-from asgiref.sync import async_to_sync, sync_to_async
-from channels.db import database_sync_to_async
+from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
-from device.clickhouse_models import (DerivedData, MeterData,
-                                      create_model_instance)
-from device.models import Device, Meter, RawData
+from device.models import Device
 from device_schemas.device_types import IOT_GW_DEVICES
-from device_schemas.schema import validate_data_schema
 from django.conf import settings
-
-logger = logging.getLogger('django')
-# logger = logging.getLogger('application')
-
-AVAILABLE_METER_DATA_FIELDS = {
-        "voltage": float,
-        "current": float,
-        "power": float,
-        "frequency": float,
-        "energy": float,
-        "runtime": int,
-        "humidity": float,
-        "temperature": float,
-        "latitude": float,
-        "longitude": float,
-        "state": int,
-        "cpu_temperature": float,
-}
-
-EXTRA_METER_DATA_FIELD = "more_data"
+from api.utils import process_raw_data
 
 
-def get_latest_raw_data(device):
-    try:
-        raw_data = RawData.objects.filter(
-            device=device
-        ).order_by(
-            '-data_arrival_time'
-        )[0]
-        return json.loads(raw_data.data)
-    except Exception as ex:
-        return None
-
-def filter_meter_data(data, meter, data_arrival_time):
-    meter_name = meter.name
-    meter_data = {}
-    extra_data = {}
-    for key, val in data.get(meter_name, {}).items():
-        if val is not None:
-            if key in AVAILABLE_METER_DATA_FIELDS.keys() and isinstance(val, AVAILABLE_METER_DATA_FIELDS[key]):
-                meter_data[key] = val
-            else:
-                extra_data["key"] = val
-
-    if data_arrival_time is None:
-        data_arrival_time = datetime.utcnow()
-
-    meter_data['data_arrival_time'] = data_arrival_time
-    meter_data['meter'] = meter
-
-    if extra_data:
-        meter_data[EXTRA_METER_DATA_FIELD] = json.dumps(extra_data)
-    return meter_data
-
-
-def process_raw_data(device, message_data):
-    data_arrival_time = datetime.utcnow()
-    last_raw_data = get_latest_raw_data(device)
-    raw_data = RawData(
-        device=device,
-        data_arrival_time=data_arrival_time,
-        data=message_data
-    )
-    raw_data.save()
-
-    config_data = message_data.get("config", {})
-    dev_type = config_data.get("devType", "")
-
-    if dev_type in IOT_GW_DEVICES:
-        configured_schema_type = device.other_data.get("data_schema_type")
-        if configured_schema_type is None:
-            configured_schema_type = dev_type
-
-        validated_data = validate_data_schema(configured_schema_type, message_data, last_raw_data)
-        if validated_data is not None:
-            message_data = validated_data
-
-    meters_and_data = []
-    for meter_name in message_data:
-        if 'meter' not in meter_name:
-            continue
-        if all(value == None for value in message_data.get(meter_name, {}).values()):
-            continue
-        meters = Meter.objects.filter(
-            name=meter_name,
-            device=device
-        )
-        if meters.count() == 0:
-            meter = create_model_instance(Meter, {
-                "name": meter_name,
-                "device": device
-            })
-        else:
-            meter = meters[0]
-        try:
-            meter_data = filter_meter_data(message_data, meter, data_arrival_time)
-            data_obj = create_model_instance(
-                MeterData,
-                meter_data
-            )
-            meters_and_data.append({
-                "meter": meter,
-                "data": meter_data
-            })
-        except TypeError as e:
-            logger.exception(e)
+logger = logging.getLogger('application')
 
 # @database_sync_to_async
 def process_device_message_sync(message):
