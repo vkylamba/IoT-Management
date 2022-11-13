@@ -1,0 +1,20 @@
+{
+	"$schema": "http://json-schema.org/draft-04/schema#",
+	"type": "object",
+	"properties": {
+	  "key": {
+		"type": "string"
+	  },
+	  "Register": {
+		"type": "string"
+	  },
+	  "Value": {
+		"type": "integer"
+	  }
+	},
+	"required": [
+	  "key",
+	  "Register",
+	  "Value"
+	]
+}

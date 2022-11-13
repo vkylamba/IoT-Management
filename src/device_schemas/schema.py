@@ -78,20 +78,31 @@ def translate_field_value(field_config: Dict, data: Dict, last_raw_data: Dict):
 
     target = field_config.get("target")
     type = field_config.get("type")
+    source_match_key = field_config.get("sourceMatchKey")
+    source_match_key_value = field_config.get("sourceMatchKeyValue")
     source = field_config.get("source")
     multiplier = field_config.get("multiplier", 1)
     offset = field_config.get("offset", 0)
 
-    logger.info(f"Extracting value for source: {source} {type} {multiplier} {offset}")
     value = None
-    if type == "raw":
-        raw_val = extract_data(source, data)
-        if raw_val is not None:
-            value = raw_val * multiplier + offset
-    elif type == "calculated":
-        raw_val = extract_calculated_data(source, data, last_raw_data)
-        if raw_val is not None:
-            value = float(raw_val) * multiplier + offset
+    should_pick = False
+
+    if source_match_key is None or source_match_key_value is None:
+        should_pick = True
+    else:
+        source_match_key_current_value = extract_data(source_match_key, data)
+        should_pick = source_match_key_current_value == source_match_key_value
+
+    if should_pick:
+        logger.info(f"Extracting value for source: {source} {type} {multiplier} {offset}")
+        if type == "raw":
+            raw_val = extract_data(source, data)
+            if raw_val is not None:
+                value = raw_val * multiplier + offset
+        elif type == "calculated":
+            raw_val = extract_calculated_data(source, data, last_raw_data)
+            if raw_val is not None:
+                value = float(raw_val) * multiplier + offset
 
     return value
 

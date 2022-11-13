@@ -198,7 +198,9 @@ class DataReports(object):
             latest_meter_data = {}
 
         latest_raw_data = self.get_latest_raw_data()
-        latest_meter_data.update(latest_raw_data)
+        latest_meter_data.update({
+            "raw_data_last_5": latest_raw_data
+        })
         return latest_meter_data
 
     def get_latest_raw_data(self):
@@ -206,9 +208,11 @@ class DataReports(object):
             device=self.device
         ).order_by(
             '-data_arrival_time'
-        )[0]
-        return json.loads(raw_data.data) if isinstance(raw_data.data, str) else raw_data.data
-
+        )[0:5]
+        return [{
+            "data_arrival_time": x.data_arrival_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "data": json.loads(x.data) if isinstance(x.data, str) else x.data 
+        } for x in raw_data]
 
     def get_all_data(self, start_time, end_time, meter_type=None):
         meters = Meter.objects.filter(

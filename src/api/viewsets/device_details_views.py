@@ -63,7 +63,7 @@ def filter_meter_data(data, meter, data_arrival_time):
     extra_data = {}
     for key, val in data.get(meter_name, {}).items():
         if val is not None:
-            if key in AVAILABLE_METER_DATA_FIELDS.keys() and isinstance(val, AVAILABLE_METER_DATA_FIELDS[key]):
+            if key in AVAILABLE_METER_DATA_FIELDS.keys(): # and isinstance(val, AVAILABLE_METER_DATA_FIELDS[key]):
                 meter_data[key] = val
             else:
                 extra_data["key"] = val
@@ -164,7 +164,11 @@ class DataViewSet(viewsets.ViewSet):
         data = request.data
 
         config_data = data.get("config", {})
-        dev_type = config_data.get("devType", "")
+        dev_type = config_data.get("devType")
+
+        if dev_type is None:
+            dev_types = [x.name for x in device.types.all()]
+            dev_type = dev_types[-1] if len(dev_types) > 0 else None
         logger.info(f"Data from {dev_type} device: {data}")
 
         # Save the raw data
@@ -267,7 +271,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if isinstance(device, list):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        cached_data = cache.get("device_static_data_{}".format(device_id))
+        cached_data = None # cache.get("device_static_data_{}".format(device_id))
 
         if cached_data is not None:
             return Response(json.loads(cached_data))

@@ -1,0 +1,27 @@
+[
+    {
+        "target": "meter",
+        "name": "load_meter",
+        "type": "DC_METER",
+        "fields": [
+            {
+                "sourceMatchKey": "key",
+                "sourceMatchKeyValue": "total_energy_kwh",
+                "source": "Value",
+                "multiplier": 1,
+                "offset": 0,
+                "target": "energy",
+                "type": "raw"
+            },
+            {
+                "sourceMatchKey": "key",
+                "sourceMatchKeyValue": "vfd_master_switch_state",
+                "source": "Value",
+                "multiplier": 1,
+                "offset": 0,
+                "target": "state",
+                "type": "raw"
+            }
+        ]
+    }
+]
