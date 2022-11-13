@@ -194,9 +194,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device_data['tips'] = data_report.get_energy_saving_tips(
             device_data['current_load'])
 
-        # ToDo: Remove data_today, and weather_data_today
-        device_data['data_today'] = [x for x in data_report.get_current_day_data()]
-        device_data['weather_data_today'] = [x for x in data_report.get_current_day_weather_data()]
         device_data['status_data_today'] = data_report.get_current_day_status_data()
         device_data['loads_today'] = data_report.get_appliances_current_day()
 
