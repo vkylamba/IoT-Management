@@ -108,7 +108,7 @@ def update_energy_imported_this_day(dev_prop, device, **kwargs):
     dev_prop['value'] = energy_data.get("import_energy_meter", 0)
 
 
-def update_battery_charging_status(dev_prop, device, **kwargs):
+def update_battery_charging_status_solar_inverter(dev_prop, device, **kwargs):
     meters_and_data = kwargs.get("meters_and_data")
     inverter_power = 0
     battery_power = 0
@@ -129,6 +129,28 @@ def update_battery_charging_status(dev_prop, device, **kwargs):
         status = "Charging"
         battery_power =  -1 * inverter_power if inverter_power < 0 else inverter_power
     elif battery_current < 0:
+        status = "Charging"
+    else:
+        status = "Discharging"
+
+    dev_prop['value'] = f"{status} {round(battery_power, 2)} W"
+
+
+def update_battery_charging_status(dev_prop, device, **kwargs):
+    meters_and_data = kwargs.get("meters_and_data")
+    battery_power = 0
+    battery_current = 0
+    status = ""
+
+    for meter_and_data in meters_and_data:
+        meter = meter_and_data["meter"]
+        data_point = meter_and_data["data"]
+        if meter.name == "battery_meter":
+            battery_power = data_point.get("power", 0)
+            battery_current = data_point.get("current", 0)
+
+    battery_power = -1 * battery_power if battery_power < 0 else battery_power
+    if battery_current < 0:
         status = "Charging"
     else:
         status = "Discharging"
@@ -185,6 +207,10 @@ def update_load_status(dev_prop, device, **kwargs):
             load_power += data_point.get("power", 0)
 
     dev_prop['value'] = f"{round(load_power, 2)} W"
+
+
+def update_weather_status(dev_prop, device, **kwargs):
+    dev_prop['value'] = kwargs.get("device_weather_data")
 
 
 def update_system_status(dev_prop, device, **kwargs):

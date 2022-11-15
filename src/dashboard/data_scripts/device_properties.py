@@ -12,10 +12,12 @@ from .property_updaters import (
     update_energy_exported_this_day,
     update_energy_imported_this_day,
     update_battery_charging_status,
+    update_battery_charging_status_solar_inverter,
     update_net_meter_status,
     update_solar_status,
     update_load_status,
-    update_system_status
+    update_system_status,
+    update_weather_status
 )
 
 
@@ -268,6 +270,41 @@ DEV_PROPERTIES = {
             "type": "Float",
             "value": "0.0",
             "update": False
+        },
+         {
+            "name": "battery_charging_status",
+            "type": "String",
+            "value": "",
+            "update": True,
+            "update_method": update_battery_charging_status
+        },
+        {
+            "name": "solar_status",
+            "type": "String",
+            "value": "",
+            "update": True,
+            "update_method": update_solar_status
+        },
+        {
+            "name": "load_status",
+            "type": "String",
+            "value": "",
+            "update": True,
+            "update_method": update_load_status
+        },
+        {
+            "name": "system_state",
+            "type": "String",
+            "value": "",
+            "update": True,
+            "update_method": update_system_status
+        },
+        {
+            "name": "weather_status",
+            "type": "JSON",
+            "value": "",
+            "update": True,
+            "update_method": update_weather_status
         }
     ],
     "SOLAR HYBRID INVERTER": [
@@ -432,7 +469,7 @@ DEV_PROPERTIES = {
             "type": "String",
             "value": "",
             "update": True,
-            "update_method": update_battery_charging_status
+            "update_method": update_battery_charging_status_solar_inverter
         },
         {
             "name": "net_meter_status",
