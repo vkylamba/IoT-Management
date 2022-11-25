@@ -9,8 +9,8 @@ https://docs.djangoproject.com/en/4.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
-from pathlib import Path
 import os
+from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,14 +20,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "___CHANGE____ME___")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "___CHANGE____ME___")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = bool(os.getenv("DJANGO_DEBUG", False))
+DEBUG = os.getenv("DJANGO_DEBUG", False) == 'True'
 
-ALLOWED_HOSTS = [
-    "*"
-]
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", '').split(',')
 
 # Application definition
 
@@ -106,10 +104,10 @@ ASGI_APPLICATION = "iot_server.asgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'djongo',
-        'NAME': os.environ.get("MONGODB_NAME"),
+        'NAME': os.getenv("MONGODB_NAME"),
         'ENFORCE_SCHEMA': False,
         'CLIENT': {
-            'host': f'mongodb://{os.environ.get("MONGODB_USERNAME")}:{os.environ.get("MONGODB_PASSWORD")}@{os.environ.get("MONGODB_HOST")}:{os.environ.get("MONGODB_PORT")}'
+            'host': f'mongodb://{os.getenv("MONGODB_USERNAME")}:{os.getenv("MONGODB_PASSWORD")}@{os.getenv("MONGODB_HOST")}:{os.getenv("MONGODB_PORT")}'
         }  
     }
 }
@@ -117,10 +115,10 @@ DATABASES = {
 # django-clickhouse library setup
 CLICKHOUSE_DATABASES = {
     'default': {
-        'db_url': f'http://{os.environ.get("CLICKHOUSE_DATABASE_HOST")}:{os.environ.get("CLICKHOUSE_DATABASE_PORT")}',
-        'db_name': os.environ.get("CLICKHOUSE_DATABASE_NAME"),
-        'username': os.environ.get("CLICKHOUSE_DATABASE_USERNAME"),
-        'password': os.environ.get("CLICKHOUSE_DATABASE_PASSWORD"),
+        'db_url': f'http://{os.getenv("CLICKHOUSE_DATABASE_HOST")}:{os.getenv("CLICKHOUSE_DATABASE_PORT")}',
+        'db_name': os.getenv("CLICKHOUSE_DATABASE_NAME"),
+        'username': os.getenv("CLICKHOUSE_DATABASE_USERNAME"),
+        'password': os.getenv("CLICKHOUSE_DATABASE_PASSWORD"),
         'migrate': True
     }
 }
@@ -172,12 +170,12 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'device.User'
 TIME_FORMAT_STRING = "%Y-%m-%dT%H:%M:%SZ"
-DEVICE_PROPERTY_UPDATE_DELAY_MINUTES = os.environ.get("DEVICE_PROPERTY_UPDATE_DELAY_MINUTES", 10)
-WEATHER_DATA_CACHE_MINUTES = os.environ.get("WEATHER_DATA_CACHE_MINUTES", 30)
-DEFAULT_SYNC_FREQUENCY_MINUTES = os.environ.get("DEFAULT_SYNC_FREQUENCY_MINUTES", 10)
+DEVICE_PROPERTY_UPDATE_DELAY_MINUTES = os.getenv("DEVICE_PROPERTY_UPDATE_DELAY_MINUTES", 10)
+WEATHER_DATA_CACHE_MINUTES = os.getenv("WEATHER_DATA_CACHE_MINUTES", 30)
+DEFAULT_SYNC_FREQUENCY_MINUTES = os.getenv("DEFAULT_SYNC_FREQUENCY_MINUTES", 10)
 
 # API keys
-OPENWEATHERMAP_API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
+OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY")
 
 # Permissions config
 PERMISSIONS_SUPER_USER = "PERMISSIONS_SUPER_USER"
@@ -198,7 +196,7 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-REDIS_HOST = os.environ.get("REDIS_HOST")
+REDIS_HOST = os.getenv("REDIS_HOST")
 
 if REDIS_HOST:
     CHANNEL_LAYERS = {
