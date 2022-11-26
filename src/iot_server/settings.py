@@ -26,6 +26,7 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "___CHANGE____ME___")
 DEBUG = os.getenv("DJANGO_DEBUG", False) == 'True'
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", '').split(',')
+CSRF_TRUSTED_ORIGINS = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", '').split(',')
 
 # Application definition
 
