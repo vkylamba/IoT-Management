@@ -151,6 +151,6 @@ def process_raw_data(device, message_data):
             meters_and_data,
             data_arrival_time
         )
-    update_device_info_on_meter_data_update(device, meters_and_data)
+    update_device_info_on_meter_data_update(device, meters_and_data, data_arrival_time)
 
     return ""
