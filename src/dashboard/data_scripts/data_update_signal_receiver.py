@@ -37,9 +37,10 @@ def update_device_info_on_meter_data_update(device, meters_and_data, data_arriva
         dev_status = DeviceStatus(
             device=device,
             name=DeviceStatus.DAILY_STATUS,
-            status=data,
-            created_at=this_data_time
+            status=data
         )
+        dev_status.save()
+        dev_status.created_at = this_data_time
         dev_status.save()
         device.other_data = other_data
         device.save()
