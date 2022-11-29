@@ -224,3 +224,6 @@ else:
             "BACKEND": "channels.layers.InMemoryChannelLayer"
         }
     }
+
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
