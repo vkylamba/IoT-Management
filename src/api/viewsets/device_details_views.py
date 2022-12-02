@@ -166,7 +166,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         if device.operator:
             operator_data = {
-                '_id': device.operator.id,
+                '_id': str(device.operator.id),
                 'name': device.operator.name,
                 'address': device.operator.address,
                 'pincode': device.operator.pin_code,
@@ -191,8 +191,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device_data['latest_data'] = data_report.get_latest_data()
         device_data['latest_weather_data'] = get_weather_data_cached(device)
         device_data['current_load'] = data_report.get_possible_equipment_list()
-        device_data['tips'] = data_report.get_energy_saving_tips(
-            device_data['current_load'])
+        device_data['tips'] = data_report.get_energy_saving_tips(device_data['current_load'])
 
         device_data['status_data_today'] = data_report.get_current_day_status_data()
         device_data['loads_today'] = data_report.get_appliances_current_day()

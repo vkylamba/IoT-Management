@@ -88,12 +88,12 @@ def process_user_notifications():
     notifications_list = []
     telegram_users = UserChatContext.objects.all().values('user', 'chat_id')
     users_data = {
-        x.get('user'): x.get('chat_id') for x in telegram_users
+        str(x.get('user')): x.get('chat_id') for x in telegram_users
     }
     notifications = Notification.objects.filter(
         method=Notification.TELEGRAM_BOT,
-        sent=False,
-        user__in=users_data.keys()
+        sent__in=[True],
+        user__id__in=users_data.keys()
     )
     updated_notifications = []
     for notification in notifications:
