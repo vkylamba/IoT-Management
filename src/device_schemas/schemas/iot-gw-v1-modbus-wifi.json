@@ -22,7 +22,6 @@
 			"required": [
 				"devType",
 				"devId",
-				"workmode",
 				"mac"
 			],
 			"properties": {
