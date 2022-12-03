@@ -28,7 +28,7 @@ def process_device_message_sync(message):
         device_id = message.replace(f" {message_mac}", "").strip(f"HEARTBEAT []")
         if device_id != '0' and device_id.isdigit():
             device = Device.objects.filter(
-                id=device_id
+                numeric_id=device_id
             ).first()
             if device:
                 other_data = device.other_data
