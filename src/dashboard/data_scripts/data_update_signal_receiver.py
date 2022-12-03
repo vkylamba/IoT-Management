@@ -26,6 +26,7 @@ def update_device_info_on_meter_data_update(device, meters_and_data, data_arriva
         other_data['properties_update_time'] = this_data_time.strftime(settings.TIME_FORMAT_STRING)
         data_updated = True
     else:
+        this_data_time = this_data_time.astimezone(pytz.utc)
         last_update_time = datetime.strptime(last_update_time, settings.TIME_FORMAT_STRING).astimezone(pytz.utc)
         if (this_data_time - last_update_time) > timedelta(minutes=settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES):
             data = update_device_properties(device, meters_and_data)
