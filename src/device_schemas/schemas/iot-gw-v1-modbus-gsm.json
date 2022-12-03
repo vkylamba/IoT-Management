@@ -22,7 +22,6 @@
 			"required": [
 				"devType",
 				"devId",
-				"workmode",
 				"mac"
 			],
 			"properties": {
@@ -45,9 +44,9 @@
 					],
 					"default": 0
 				},
-				"workmode": {
-					"$id": "#root/config/workmode", 
-					"title": "Workmode", 
+				"workMode": {
+					"$id": "#root/config/workMode", 
+					"title": "workMode", 
 					"type": "integer",
 					"examples": [
 						0
