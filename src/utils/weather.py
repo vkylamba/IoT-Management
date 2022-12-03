@@ -35,7 +35,7 @@ def get_weather_data_cached(device, use_cache=True):
     if weather_data is None and device.position is not None:
         logger.info("Weather data not in cache for device {}".format(device.ip_address))
         try:
-            weather_data = get_weather_data(device.position.latitude, device.position.longitude)
+            weather_data = get_weather_data(device.position.get("latitude"), device.position.get("longitude"))
         except Exception as e:
             logger.exception(e)
             weather_data = {}

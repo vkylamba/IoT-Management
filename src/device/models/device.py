@@ -183,7 +183,7 @@ class Device(models.Model):
 
         if self.position:
             try:
-                location = geolocator.reverse("{}, {}".format(self.position.latitude, self.position.longitude))
+                location = geolocator.reverse("{}, {}".format(self.position.get("latitude"), self.position.get("longitude")))
             except Exception as e:
                 logger.warning(e)
             else:
@@ -193,13 +193,13 @@ class Device(models.Model):
 
     def latitude(self):
         if self.position:
-            return self.position.latitude
+            return self.position.get("latitude")
         else:
             return ''
 
     def longitude(self):
         if self.position:
-            return self.position.longitude
+            return self.position.get("longitude")
         else:
             return ''
 
@@ -309,8 +309,8 @@ class Device(models.Model):
             else:
                 tf = TimezoneFinder()
                 timezone_str = tf.timezone_at(
-                    lat=float(self.position.latitude),
-                    lng=float(self.position.longitude)
+                    lat=float(self.position.get("latitude")),
+                    lng=float(self.position.get("longitude"))
                 )
             cache.set("{}_timezone_str".format(self.ip_address), timezone_str, 1 * 60 * 60)
         if timezone_str:

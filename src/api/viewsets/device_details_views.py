@@ -155,8 +155,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'device_contact': device.device_contact_number,
             'avatar': device.avatar.url if device.avatar else None,
             'position': {
-                'latitude': device.position.latitude if device.position else None,
-                'longitude': device.position.longitude if device.position else None
+                'latitude': device.position.get("latitude") if device.position else None,
+                'longitude': device.position.get("longitude") if device.position else None
             },
             'commands': [c.command_name for c in device.commands.all()],
             'properties': latest_status.status if latest_status else None,
@@ -261,8 +261,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'device_contact': device.device_contact_number,
             'avatar': device.avatar.url if device.avatar else None,
             'position': {
-                'latitude': device.position.latitude if device.position else None,
-                'longitude': device.position.longitude if device.position else None
+                'latitude': device.position.get("latitude") if device.position else None,
+                'longitude': device.position.get("longitude") if device.position else None
             },
             'commands': [c.command_name for c in device.commands.all()],
             'properties': latest_status.status if latest_status else None,
@@ -443,8 +443,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'device_contact': device.device_contact_number,
             'avatar': device.avatar.url if device.avatar else None,
             'position': {
-                'latitude': device.position.latitude if device.position else None,
-                'longitude': device.position.longitude if device.position else None
+                'latitude': device.position.get("latitude") if device.position else None,
+                'longitude': device.position.get("longitude") if device.position else None
             },
             'api_key': device.access_token,
         }
@@ -492,8 +492,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'device_contact': device.device_contact_number,
             'avatar': device.avatar.url if device.avatar else None,
             'position': {
-                'latitude': device.position.latitude if device.position else None,
-                'longitude': device.position.longitude if device.position else None
+                'latitude': device.position.get("latitude") if device.position else None,
+                'longitude': device.position.get("longitude") if device.position else None
             },
             'api_key': device.access_token,
         }
