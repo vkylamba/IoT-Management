@@ -21,7 +21,7 @@ from device.clickhouse_models import MeterData
 # geocoders.options.default_ssl_context = ctx
 # geolocator = geocoders.Nominatim(user_agent="iot_server")
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 
 def get_image_path(instance, filename):

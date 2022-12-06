@@ -11,7 +11,7 @@ from django.conf import settings
 from api.utils import process_raw_data
 
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 # @database_sync_to_async
 def process_device_message_sync(message):
