@@ -1,6 +1,6 @@
 import logging
 
-from celery.decorators import task
+# from celery.decorators import task
 from device.models import DeviceStatus, User
 from django.db.models import Q
 from notification.models import Notification
@@ -12,7 +12,7 @@ from event.models import Action, EventHistory
 logger = logging.getLogger('django')
 
 
-@task
+# @task
 def no_data_check(action_id):
     action = Action.objects.get(id=action_id)
     device_event = action.device_event
@@ -39,7 +39,7 @@ def no_data_check(action_id):
         )
 
 
-@task
+# @task
 def periodic_system_check(action_id):
     action = Action.objects.get(id=action_id)
     device_event = action.device_event
@@ -60,7 +60,7 @@ def periodic_system_check(action_id):
                     )
 
 
-@task
+# @task
 def monthly_energy_report(action_id):
     action = Action.objects.get(id=action_id)
     device_event = action.device_event
@@ -80,7 +80,7 @@ def monthly_energy_report(action_id):
             device_event.device, DeviceStatus.LAST_MONTH_REPORT, report_data
         )
 
-@task
+# @task
 def weekly_energy_report(action_id):
     action = Action.objects.get(id=action_id)
     device_event = action.device_event
@@ -100,7 +100,7 @@ def weekly_energy_report(action_id):
             device_event.device, DeviceStatus.LAST_WEEK_REPORT, report_data
         )
 
-@task
+# @task
 def daily_energy_report(action_id):
     action = Action.objects.get(id=action_id)
     device_event = action.device_event

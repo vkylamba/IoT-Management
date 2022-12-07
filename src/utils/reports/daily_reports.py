@@ -1,7 +1,7 @@
 import datetime
 
 import pytz
-from device.clickhouse_models import Meter
+from device.models import Meter
 from device.models import DeviceProperty, DeviceStatus, DeviceType
 from django.conf import settings
 from django.utils import timezone

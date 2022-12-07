@@ -27,11 +27,7 @@ class Command(BaseCommand):
         )
         for action in actions:
             last_trigger_time = action.device_event.last_trigger_time
-            if last_trigger_time is None:
-                last_trigger_time = time_now
-            if action.device_event.schedule is not None and action.device_event.schedule.schedule.is_due(last_trigger_time).is_due:
-                action.device_event.last_trigger_time = time_now
-                action.device_event.save()
+            if last_trigger_time is None or (action.device_event.schedule is not None and action.device_event.schedule.schedule.is_due(last_trigger_time).is_due):
                 if action.task:
                     temp_list = action.task.split('.')
                     import_module = '.'.join(temp_list[:-1])
@@ -48,3 +44,6 @@ class Command(BaseCommand):
                             task(action.id, **action.kwargs)
                         else:
                             task(action.id)
+
+                action.device_event.last_trigger_time = time_now
+                action.device_event.save()
