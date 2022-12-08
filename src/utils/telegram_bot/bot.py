@@ -100,7 +100,7 @@ def process_user_notifications():
         notification_text = parse_notification_html(notification)
         if notification_text:
             notifications_list.append({
-                "chat_id": users_data.get(notification.user.id),
+                "chat_id": users_data.get(str(notification.user.id)),
                 "text": notification_text,
                 "parse_mode": ParseMode.HTML
             })
