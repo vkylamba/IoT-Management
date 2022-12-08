@@ -106,7 +106,9 @@ def process_user_notifications():
             })
             notification.sent = True
             updated_notifications.append(notification)
-    Notification.objects.bulk_update(updated_notifications, ["sent"])
+            notification.save()
+
+    # Notification.objects.bulk_update(updated_notifications, ["sent"])
 
     return notifications_list
 
