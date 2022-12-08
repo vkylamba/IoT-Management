@@ -92,7 +92,7 @@ def process_user_notifications():
     }
     notifications = Notification.objects.filter(
         method=Notification.TELEGRAM_BOT,
-        sent__in=[True],
+        sent__in=[False],
         user__id__in=users_data.keys()
     )
     updated_notifications = []
