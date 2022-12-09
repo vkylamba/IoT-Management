@@ -17,4 +17,4 @@ Your api server should now be running on [localhost:8113](http://localhost:8113/
 
 ## Documentation
 
-Coming Soon
+    https://vkylamba.github.io/docs-iot-management/
