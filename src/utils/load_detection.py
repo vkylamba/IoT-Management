@@ -79,6 +79,9 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
     humidity = weather_data_now.get('main', {}).get('humidity', 0) if weather_data_now is not None else 0
     wind_speed = weather_data_now.get('wind', {}).get('speed', 0) if weather_data_now is not None else 0
 
+    data = {
+        "weather": weather_data_now
+    }
     if weather_data_now is not None and len(weather_data_now.keys()) > 0:
         create_model_instance(
             WeatherData,
@@ -125,3 +128,6 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
             ]
 
             MeterLoad.objects.bulk_create(meter_loads)
+
+            data["loads"] = loads
+    return data

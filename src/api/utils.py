@@ -146,11 +146,13 @@ def process_raw_data(device, message_data):
             logger.exception(e)
 
     if other_data.get("device_load_detection_on", False):
-        detect_and_save_meter_loads(
+        load_data = detect_and_save_meter_loads(
             device,
             meters_and_data,
             data_arrival_time
         )
+        if load_data is not None:
+            meters_and_data.update(load_data)
     update_device_info_on_meter_data_update(device, meters_and_data, data_arrival_time)
 
     return ""

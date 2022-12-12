@@ -98,10 +98,10 @@ urlpatterns = [
     ),
     re_path(r'^events/past/(?P<device_id>[\w.]+)$',
         EventViewSet.as_view({'get': 'get_past_events'})),
-    re_path(r'^events/list$', EventViewSet.as_view({'get': 'get_events'})),
+    re_path(r'^events/list/', EventViewSet.as_view({'get': 'get_events'})),
     re_path(r'^events/list/(?P<device_id>[\w.]+)?$',
         EventViewSet.as_view({'get': 'get_events'})),
-    re_path(r'^events/types(/)?$',
+    re_path(r'^events/types/',
         EventViewSet.as_view({'get': 'get_event_types'})),
     re_path(r'^events/(?P<dev_event_id>[\w.]+)$',
         EventViewSet.as_view({'get': 'get_event'})),
@@ -109,7 +109,6 @@ urlpatterns = [
         EventViewSet.as_view({'post': 'create_event'})),
     re_path(r'^events/delete/(?P<dev_event_id>[\w.]+)$',
         EventViewSet.as_view({'delete': 'delete_event'})),
-    # re_path(r'^api-auth/', include('dj_rest_auth.urls')),
 ]
 
 urlpatterns += router.urls
