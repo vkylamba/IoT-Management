@@ -15,7 +15,7 @@ from .widgets_updater import update_user_widgets
 logger = logging.getLogger("application")
 
 
-def update_device_info_on_meter_data_update(device, meters_and_data, data_arrival_time=None):
+def update_device_info_on_meter_data_update(device, meters_and_data, weather_and_load_data, data_arrival_time=None):
     other_data = device.other_data if device.other_data is not None else {}
     last_update_time = other_data.get('properties_update_time')
     this_data_time = data_arrival_time if data_arrival_time is not None else datetime.utcnow()
@@ -35,6 +35,8 @@ def update_device_info_on_meter_data_update(device, meters_and_data, data_arriva
             data_updated = True
 
     if data_updated:
+        if weather_and_load_data is not None:
+            data.update(weather_and_load_data)
         dev_status = DeviceStatus(
             device=device,
             name=DeviceStatus.DAILY_STATUS,
