@@ -111,18 +111,18 @@ urlpatterns = [
     re_path(r'^events/delete/(?P<dev_event_id>[\w.]+)$',
         EventViewSet.as_view({'delete': 'delete_event'})),
 
-    # OTA update check for device types
-    re_path(r'^ota/device_type/(?P<device_type>[\w.]+)',
-        DeviceOTAViewSet.as_view({'get': 'get_updates_for_device_type'})),
-    # OTA update check for device
-    re_path(r'^ota/device/(?P<device>[\w.]+)',
-        DeviceOTAViewSet.as_view({'get': 'get_updates_for_device'})),
     # OTA update download for device
-    re_path(r'^ota/device/download/(?P<device>[\w.]+)',
+    re_path(r'^ota/device/download/(?P<device>[\w-]+)',
         DeviceOTAViewSet.as_view({'get': 'download_update_for_device'})),
     # OTA update download for device type
-    re_path(r'^ota/device_type/download/(?P<device_type>[\w.]+)',
-        DeviceOTAViewSet.as_view({'get': 'download_update_for_device_type'})),
+    re_path(r'^ota/device_group/download/(?P<device_group>[\w-]+)',
+        DeviceOTAViewSet.as_view({'get': 'download_update_for_device_group'})),
+    # OTA update check for device types
+    re_path(r'^ota/device_group/(?P<device_group>[\w-]+)',
+        DeviceOTAViewSet.as_view({'get': 'get_updates_for_device_group'})),
+    # OTA update check for device
+    re_path(r'^ota/device/(?P<device>[\w-]+)',
+        DeviceOTAViewSet.as_view({'get': 'get_updates_for_device'}))
 ]
 
 urlpatterns += router.urls

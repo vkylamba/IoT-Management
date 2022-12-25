@@ -16,6 +16,8 @@ from .device import (
     get_image_path
 )
 
+from .ota import DeviceFirmware
+
 __all__ = (
     'Operator',
     'DeviceType',
@@ -31,5 +33,6 @@ __all__ = (
     'Document',
     'RawData',
     'Meter',
+    'DeviceFirmware',
     'get_image_path'
 )

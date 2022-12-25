@@ -3,7 +3,8 @@ from django.contrib.auth.models import Permission
 from django.contrib.auth import get_user_model
 
 from device.models.device import *
-from device.models import RawData, Meter
+from device.models import RawData, Meter, DeviceFirmware
+
 
 User = get_user_model()
 
@@ -49,3 +50,4 @@ admin.site.register(Meter)
 admin.site.register(Command, CommandAdmin)
 admin.site.register(DevCommand)
 admin.site.register(Permission)
+admin.site.register(DeviceFirmware)
