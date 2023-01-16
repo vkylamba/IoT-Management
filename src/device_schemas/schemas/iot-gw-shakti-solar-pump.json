@@ -6,7 +6,7 @@
 		"type": "string"
 	  },
 	  "Register": {
-		"type": "string"
+		"type": "integer"
 	  },
 	  "Value": {
 		"type": "integer"
