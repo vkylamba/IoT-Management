@@ -5,22 +5,25 @@
         "type": "DC_METER",
         "fields": [
             {
-                "sourceMatchKey": "key",
-                "sourceMatchKeyValue": "total_energy_kwh",
-                "source": "Value",
+                "target": "state",
+                "type": "raw",
+                "source": "vfd_master_switch_state",
                 "multiplier": 1,
-                "offset": 0,
-                "target": "energy",
-                "type": "raw"
+                "offset": 0
             },
             {
-                "sourceMatchKey": "key",
-                "sourceMatchKeyValue": "vfd_master_switch_state",
-                "source": "Value",
+                "target": "energy",
+                "type": "raw",
+                "source": "total_energy_kwh",
                 "multiplier": 1,
-                "offset": 0,
-                "target": "state",
-                "type": "raw"
+                "offset": 0
+            },
+            {
+                "target": "runtime",
+                "type": "raw",
+                "source": "total_time",
+                "multiplier": 1,
+                "offset": 0
             }
         ]
     }
