@@ -12,5 +12,9 @@
 		"type": "integer"
 	  }
 	},
-	"required": []
+	"required": [
+		"state",
+		"energy",
+		"runtime"
+	]
 }
