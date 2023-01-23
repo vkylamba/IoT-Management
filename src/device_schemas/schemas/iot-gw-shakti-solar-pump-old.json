@@ -2,15 +2,19 @@
 	"$schema": "http://json-schema.org/draft-04/schema#",
 	"type": "object",
 	"properties": {
-	  "state": {
+	  "key": {
+		"type": "string"
+	  },
+	  "Register": {
 		"type": "integer"
 	  },
-	  "energy": {
-		"type": "integer"
-	  },
-	  "runtime": {
+	  "Value": {
 		"type": "integer"
 	  }
 	},
-	"required": []
+	"required": [
+	  "key",
+	  "Register",
+	  "Value"
+	]
 }
