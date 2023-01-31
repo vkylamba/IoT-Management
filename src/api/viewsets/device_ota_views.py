@@ -44,7 +44,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         """
         logger.debug(f"OTA check call request device {device}")
         firmware = DeviceFirmware.objects.filter(
-            device_type__iexact=device
+            device_type__name__iexact=device
         ).order_by('-created_at').first()
 
         if firmware:
@@ -63,7 +63,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         logger.debug(f"Download firmware device type {device}")
         device_token = request.query_params.get('token')
         firmware = DeviceFirmware.objects.filter(
-            device_type__iexact=device
+            device_type__name__iexact=device
         ).order_by('-created_at').first()
 
         if not firmware:
