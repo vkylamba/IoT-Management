@@ -91,7 +91,7 @@ def process_device_message_sync(message):
             process_raw_data(device, message_data)
             resp = "OK"
 
-            if device is not None and device.id != config_data.get('devId'):
+            if device is not None and device.numeric_id != config_data.get('devId'):
                 resp = f"CONFIG[2] {device.numeric_id}"
 
     if device is not None:
