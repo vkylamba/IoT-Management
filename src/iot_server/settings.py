@@ -250,3 +250,14 @@ sentry_sdk.init(
     # something more human-readable.
     # release="myapp@1.0.0",
 )
+
+
+# MQTT Settings
+MQTT_BROKER = os.getenv("MQTT_BROKER")
+MQTT_PORT = os.getenv("MQTT_PORT")
+MQTT_USER = os.getenv("MQTT_USER")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+MQTT_KEEPALIVE = os.getenv("MQTT_KEEPALIVE", 60)
+
+# ROOT CA
+ROOT_CA = os.getenv("ROOT_CA")
