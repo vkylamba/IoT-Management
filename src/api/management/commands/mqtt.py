@@ -61,7 +61,7 @@ class Command(BaseCommand):
         if rc == 0:
             logger.info('MQTT connected successful')
             self.subscribe_all_topics(mqtt_client)
-            self.subscribe_active_clients_topic(mqtt_client)
+            # self.subscribe_active_clients_topic(mqtt_client)
         else:
             logger.info('MQTT, Bad connection. Code:', rc)
 
