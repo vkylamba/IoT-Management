@@ -1,4 +1,4 @@
-echo -e $ROOT_CA_CERT > .cert/root_ca.crt
+echo -e $ROOT_CA_CERT > root_ca.crt
 python manage.py migrate
 python manage.py createsuperuser --email=${DJANGO_SUPERUSER_EMAIL} --noinput
 python manage.py collectstatic --no-input
