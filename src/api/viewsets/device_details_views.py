@@ -131,7 +131,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
 
-        if isinstance(device, list):
+        if isinstance(device, list) or device is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         cached_data = None # cache.get("device_static_data_{}".format(device_id))
