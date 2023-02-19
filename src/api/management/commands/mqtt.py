@@ -113,8 +113,8 @@ class Command(BaseCommand):
         device = None
         if device_id is None:
             device = Device.objects.filter(
-                alias__iexact=device_name,
-                types__name__in=group_name
+                alias=device_name,
+                # types__name__in=group_name
             ).first()
             if device is None:
                 dev_type, created = DeviceType.objects.get_or_create(
@@ -127,7 +127,6 @@ class Command(BaseCommand):
                 )
                 device.save()
                 device.types.add(dev_type)
-
         else:
             device = Device.objects.filter(
                 id=device_id
