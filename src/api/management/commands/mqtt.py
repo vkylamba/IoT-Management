@@ -13,7 +13,7 @@ from django.core.management.base import BaseCommand
 logger = logging.getLogger('application')
 
 
-ROOT_CA_FILE_PATH = ".cert/root_ca.crt"
+ROOT_CA_FILE_PATH = "root_ca.crt"
 
 CLIENT_SYSTEM_STATUS_TOPIC_TYPE = "status"
 CLIENT_METERS_DATA_TOPIC_TYPE = "meters-data"
@@ -30,7 +30,7 @@ CLIENT_COUNT_TOPIC = "$SYS/broker/clients/connected"
 class Command(BaseCommand):
 
     """
-        Command to start telegram bot.
+        Command to start mqtt service.
     """
 
     help = 'Starts the mqtt service.'
