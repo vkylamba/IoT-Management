@@ -340,44 +340,28 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         return Response(data)
 
     def send_command(self, request, device_id):
-        error = ''
-        if not request.user.is_authenticated():
-            error = "Not logged in"
-        else:
-            dev_user = request.user
-            device = dev_user.device_list(
-                return_objects=True, device_id=device_id)
-            data = request.data
-            command = data.get('command', '').strip()
-            command_param = data.get("command_param")
-            if command_param and isinstance(command_param, str):
-                command_param = command_param.strip()
-            method = str(data.get("method")).strip()
+        dev_user = request.user
+        device = dev_user.device_list(
+            return_objects=True, device_id=device_id)
+        data = request.data
+        command = data.get('command', '').strip()
+        command_param = data.get("command_param")
+        if command_param and isinstance(command_param, str):
+            command_param = command_param.strip()
 
-            # dev_contact = device.device_contact_number
-            if command != "" and command_param != "":
-                # Save the command into command model
-                dev_command = device.commands.get(command_name=command)
-                cmd = Command(
-                    device=device,
-                    status='P',
-                    command_in_time=timezone.now(),
-                    command=dev_command.command_code,
-                    param=command_param
-                )
-                if method == '1':
-                    cmd.save()
-                    error = "success"
-                else:
-                    cmd.status = 'E'
-                    status = cmd.send()
-                    cmd.save()
-                    if status:
-                        error = "success"
-                    else:
-                        error = "Error sending sms"
-        data = {"error": error}
-        return Response(data)
+        if command != "" and command_param != "":
+            # Save the command into command model
+            dev_command = device.commands.get(command_name=command)
+            cmd = Command(
+                device=device,
+                status='P',
+                command_in_time=timezone.now(),
+                command=dev_command.command_code,
+                param=command_param
+            )
+            cmd.save()
+            cmd.send()
+        return Response(status=status.HTTP_201_CREATED)
 
     def get_report(self, request, device_id, report_type):
         """
