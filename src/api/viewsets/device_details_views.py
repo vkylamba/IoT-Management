@@ -1,4 +1,3 @@
-
 import logging
 from datetime import datetime
 
@@ -6,10 +5,11 @@ import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.utils import process_raw_data
 from device.clickhouse_models import DerivedData
-from device.models import (Command, Device, DeviceStatus, DeviceType, Meter)
+from device.models import Command, Device, DeviceStatus, DeviceType, Meter
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -131,8 +131,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
 
-        if isinstance(device, list) or device is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
 
         cached_data = None # cache.get("device_static_data_{}".format(device_id))
 
@@ -215,8 +219,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
 
-        if device is None or isinstance(device, list):
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not dev_user.is_superuser:
             return Response(status=status.HTTP_403_FORBIDDEN)
@@ -284,6 +292,13 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
 
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
         try:
             start_time = request.GET["start_time"].strip()
             start_time = timezone.datetime.strptime(
@@ -343,6 +358,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_user = request.user
         device = dev_user.device_list(
             return_objects=True, device_id=device_id)
+
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
         data = request.data
         command = data.get('command', '').strip()
         command_param = data.get("command_param")
@@ -351,7 +374,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         if command != "" and command_param != "":
             # Save the command into command model
-            dev_command = device.commands.get(command_name=command)
+            dev_command = get_object_or_404(device.commands, command_name=command)
             cmd = Command(
                 device=device,
                 status='P',
@@ -373,6 +396,13 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # Findout the user
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
+
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
 
         report_data = None
         report_name = None
@@ -407,6 +437,13 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
 
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
         dev_types = []
         for dev_type in DeviceType.objects.all():
             dev_types.append({'value': dev_type.name, 'label': dev_type.name})
@@ -433,6 +470,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
+
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
         data = request.data
         device.alias = data.get('alias', device.alias)
         device.device_contact_number = data.get('device_contact')
