@@ -10,7 +10,7 @@ from device.models.device import *
 User = get_user_model()
 
 class OperatorAdmin(admin.ModelAdmin):
-
+    ordering = ('name',)
     list_display = ('name', 'contact_number', 'avatar')
 
 
@@ -36,7 +36,7 @@ def delete_devices(modeladmin, request, queryset):
     return deleted
 
 class DeviceAdmin(admin.ModelAdmin):
-
+    ordering = ('ip_address',)
     list_display = ('id', 'ip_address', 'mac', 'Type', 'operator')
     actions = [delete_devices]
 
@@ -45,11 +45,11 @@ class DeviceAdmin(admin.ModelAdmin):
         return ", ".join(tpe.name for tpe in obj.types.all())
 
 class RawDataAdmin(admin.ModelAdmin):
-
-    list_display = ('id', 'device', 'data_arrival_time')
+    ordering = ('-data_arrival_time',)
+    list_display = ('id', 'device', 'channel', 'data_type', 'data_arrival_time')
 
 class CommandAdmin(admin.ModelAdmin):
-
+    ordering = ('-command_in_time',)
     list_display = ('Device', 'status', 'command_in_time',
                     'command_read_time', 'command', 'param')
 
