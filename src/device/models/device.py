@@ -720,6 +720,8 @@ class RawData(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     device = models.ForeignKey('Device', on_delete=models.DO_NOTHING)
+    channel = models.CharField(max_length=255, null=True, blank=True)
+    data_type = models.CharField(max_length=255, null=True, blank=True)
     data_arrival_time = models.DateTimeField()
     data = models.JSONField()
 

@@ -88,7 +88,7 @@ def process_device_message_sync(message):
 
             logger.info(f"Device mac: {device_mac}")
 
-            process_raw_data(device, message_data)
+            process_raw_data(device, message_data, channel='socket', data_type='data')
             resp = "OK"
 
             if device is not None and device.numeric_id != config_data.get('devId'):

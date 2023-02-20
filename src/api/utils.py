@@ -67,7 +67,7 @@ def filter_meter_data(data, meter, data_arrival_time):
     return meter_data
 
 
-def process_raw_data(device, message_data):
+def process_raw_data(device, message_data, channel='unknown', data_type='unknown'):
     config_data = message_data.get("config", {})
     dev_type = config_data.get("devType")
 
@@ -89,6 +89,8 @@ def process_raw_data(device, message_data):
 
     raw_data = RawData(
         device=device,
+        channel=channel,
+        data_type=data_type,
         data_arrival_time=data_arrival_time,
         data=message_data
     )

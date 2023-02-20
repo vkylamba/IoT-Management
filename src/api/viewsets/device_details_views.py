@@ -105,7 +105,7 @@ class DataViewSet(viewsets.ViewSet):
         device = request.device
         data = request.data
 
-        error = process_raw_data(device, data)
+        error = process_raw_data(device, data, channel='api', data_type='data')
         if error != "":
             return Response(status=status.HTTP_400_BAD_REQUEST, data={
                 "error": error
