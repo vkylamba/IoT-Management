@@ -226,9 +226,9 @@ class DataReports(object):
             device=self.device
         )
         if meter_type is not None:
-            meter_ids = [meter.id for meter in meters if meter.meter_type in meter_type]
+            meter_ids = [str(meter.id) for meter in meters if meter.meter_type in meter_type]
         else:
-            meter_ids = [meter.id for meter in meters]
+            meter_ids = [str(meter.id) for meter in meters]
 
         if meter_ids:
             data = MeterData.objects.filter(meter__in=meter_ids)

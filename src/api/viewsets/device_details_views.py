@@ -312,6 +312,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 Meter.HOUSEHOLD_AC_METER, Meter.LOAD_AC_METER
             ]
         )
+
         # if end_time - start_time > timezone.timedelta(days=1) and aggregate_data == 'yes':
         #     data = data_report.get_all_data_aggregated(start_time, end_time)
         # else:
@@ -331,16 +332,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         for param in params_list:
             data_list = []
             for each_data in data:
-                detum = data_report.get_data_dict(each_data)
                 if(param == "time"):
-                    if 'time' in detum:
-                        logger.debug(
-                            "The data dictionary keys are: {}".format(detum.keys()))
-                        data_list.append(detum['time'])
-                    else:
-                        data_list.append(detum['data_arrival_time'])
-                else:
-                    data_list.append(detum[param])
+                    param = "data_arrival_time"
+                data_list.append(getattr(each_data, param, None))
             dynamic_data[param] = data_list
         data = {"error": "success", "dynamic_data": dynamic_data}
         return Response(data)
