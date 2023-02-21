@@ -12,6 +12,7 @@ User = get_user_model()
 class OperatorAdmin(admin.ModelAdmin):
     ordering = ('name',)
     list_display = ('name', 'contact_number', 'avatar')
+    list_filter = ('name',)
 
 
 def delete_devices(modeladmin, request, queryset):
@@ -38,6 +39,7 @@ def delete_devices(modeladmin, request, queryset):
 class DeviceAdmin(admin.ModelAdmin):
     ordering = ('ip_address',)
     list_display = ('id', 'ip_address', 'mac', 'Type', 'operator')
+    list_filter = ('ip_address', 'alias', 'id', 'mac')
     actions = [delete_devices]
 
     def Type(self, obj):
@@ -47,11 +49,13 @@ class DeviceAdmin(admin.ModelAdmin):
 class RawDataAdmin(admin.ModelAdmin):
     ordering = ('-data_arrival_time',)
     list_display = ('id', 'device', 'channel', 'data_type', 'data_arrival_time')
+    list_filter = ('device__ip_address', 'device__alias', 'data_type', 'channel')
 
 class CommandAdmin(admin.ModelAdmin):
     ordering = ('-command_in_time',)
     list_display = ('Device', 'status', 'command_in_time',
                     'command_read_time', 'command', 'param')
+    list_filter = ('device__ip_address', 'device__alias', 'command', 'param')
 
     def Device(self, obj):
 
