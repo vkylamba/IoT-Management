@@ -66,6 +66,9 @@ def get_daily_report(device):
 
     last_month_data = [meter_data for meter_data in get_statistics_yesterday(dr, from_time, to_time)]
     
+    if len(last_month_data) == 0:
+        return None
+    
     energy_export_data = list(last_month_data | where(lambda x: x['meter_name'] == 'export_energy_meter'))[0]
     
     data_points = float(energy_export_data.get('data_points'))
