@@ -3,12 +3,14 @@ import logging
 import time
 
 import paho.mqtt.client as mqtt
-from api.utils import process_raw_data
-from device.models import Device, DeviceType
-from device_schemas.device_types import IOT_GW_DEVICES
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
+
+from api.utils import process_raw_data
+from device.models import Command as CommandsModal
+from device.models import Device, DeviceType
+from device_schemas.device_types import IOT_GW_DEVICES
 
 logger = logging.getLogger('application')
 
@@ -25,6 +27,14 @@ CLIENT_COMMAND_RESP_TOPIC_TYPE = "command"
 MEROSS_DEVICE_DATA_TOPIC_TYPE = "publish"
 
 CLIENT_COUNT_TOPIC = "$SYS/broker/clients/connected"
+
+
+MQTT_ENABLED_DEVICE_TYPES = {
+    'devices': {
+        'topic_prefix': 'Devtest',
+        'command_topic': 'command'
+    }
+}
 
 
 class Command(BaseCommand):
@@ -52,7 +62,11 @@ class Command(BaseCommand):
                     keepalive=settings.MQTT_KEEPALIVE
                 )
 
-                client.loop_forever()
+                client.loop_start()
+                
+                self.check_and_send_commands(client)
+
+                # client.loop_forever()
             except Exception as ex:
                 logger.exception(ex)
             time.sleep(10)
@@ -137,3 +151,40 @@ class Command(BaseCommand):
             cache.set(dev_identifier, device_id, settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES)
 
         return device
+
+    def check_and_send_commands(self, client):
+        """_summary_
+
+        Args:
+            client (_type_): _description_
+        """
+        # Get unsent commands
+        last_cmd_id = None
+        while True:
+            try:
+                commands = CommandsModal.objects.filter(
+                    status='P'
+                ).prefetch_related('device__types')
+
+                if last_cmd_id is not None:
+                    commands = commands.filter(
+                        pk__gt=last_cmd_id
+                    ).orderby('-command_in_time')
+
+                for command in commands:
+                    last_cmd_id = command.pk
+                    device = command.device
+                    device_types = [x.name for x in device.types]
+                    for device_type_name in device_types:
+                        cmd_cfg = MQTT_ENABLED_DEVICE_TYPES.get(device_type_name)
+                        if cmd_cfg is not None:
+                            topic_prefix = cmd_cfg.get('topic_prefix')
+                            command_topic = cmd_cfg.get('command_topic')
+                            topic = f"/{topic_prefix}/{device_type_name}/{device.alias}/{command_topic}"
+                            client.publish(cmd_cfg.get('command_topic'), command.param)
+                    command.status = 'E'
+                    command.save()
+
+            except Exception as ex:
+                logger.exception(ex)
+            time.sleep(60)
