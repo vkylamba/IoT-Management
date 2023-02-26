@@ -169,12 +169,12 @@ class Command(BaseCommand):
                 if last_cmd_id is not None:
                     commands = commands.filter(
                         pk__gt=last_cmd_id
-                    ).orderby('-command_in_time')
+                    ).order_by('-command_in_time')
 
                 for command in commands:
                     last_cmd_id = command.pk
                     device = command.device
-                    device_types = [x.name for x in device.types]
+                    device_types = [x.name for x in device.types.all()]
                     for device_type_name in device_types:
                         cmd_cfg = MQTT_ENABLED_DEVICE_TYPES.get(device_type_name)
                         if cmd_cfg is not None:
