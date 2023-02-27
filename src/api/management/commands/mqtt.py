@@ -101,7 +101,7 @@ class Command(BaseCommand):
         if topic_data_length >= 4:
             topic_type = topic_data_list[topic_data_length-1]
             device_name = topic_data_list[topic_data_length-2]
-            group_name = topic_data_list[topic_data_length-3]
+            group_name = topic_data_list[topic_data_length-4]
 
             if topic_type in [
                 CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
