@@ -1,0 +1,134 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#", 
+	"$id": "https://example.com/object1653392316.json", 
+	"title": "Root", 
+	"type": "object",
+	"required": [
+	],
+    "optional": [
+        "adc",
+	    "dht"
+    ],
+	"properties": {
+		"adc": {
+			"$id": "#root/adc", 
+			"title": "Adc", 
+			"type": "object",
+			"required": [
+				"1",
+				"2",
+				"3",
+				"4",
+				"5",
+				"6"
+			],
+			"properties": {
+				"1": {
+					"$id": "#root/adc/1", 
+					"title": "1", 
+					"type": "integer",
+					"examples": [
+						253
+					],
+					"default": 0
+				},
+				"2": {
+					"$id": "#root/adc/2", 
+					"title": "2", 
+					"type": "integer",
+					"examples": [
+						1957
+					],
+					"default": 0
+				},
+				"3": {
+					"$id": "#root/adc/3", 
+					"title": "3", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				},
+				"4": {
+					"$id": "#root/adc/4", 
+					"title": "4", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				},
+				"5": {
+					"$id": "#root/adc/5", 
+					"title": "5", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				},
+				"6": {
+					"$id": "#root/adc/6", 
+					"title": "6", 
+					"type": "integer",
+					"examples": [
+						2037
+					],
+					"default": 0
+				}
+			}
+		},
+		"dht": {
+			"$id": "#root/dht", 
+			"title": "Dht", 
+			"type": "object",
+			"required": [
+				"state",
+				"temperature",
+				"humidity",
+				"hic"
+			],
+			"properties": {
+				"state": {
+					"$id": "#root/dht/state", 
+					"title": "State", 
+					"type": "integer",
+					"examples": [
+						2
+					],
+					"default": 0
+				},
+				"temperature": {
+					"$id": "#root/dht/temperature", 
+					"title": "Temperature", 
+					"type": "number",
+					"examples": [
+						200
+					],
+					"default": 0
+				},
+				"humidity": {
+					"$id": "#root/dht/humidity", 
+					"title": "Humidity", 
+					"type": "number",
+					"examples": [
+						200
+					],
+					"default": 0
+				},
+				"hic": {
+					"$id": "#root/dht/hic", 
+					"title": "Hic", 
+					"type": "number",
+					"examples": [
+						11553.46
+					],
+					"default": 0.0
+				}
+			}
+		}
+
+	}
+}

@@ -1,0 +1,30 @@
+[
+    {
+        "target": "meter",
+        "name": "weather_meter",
+        "type": "WEATHER_METER",
+        "fields": [
+            {
+                "target": "temperature",
+                "type": "raw",
+                "source": "dht.temperature",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "humidity",
+                "type": "raw",
+                "source": "dht.humidity",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "state",
+                "type": "raw",
+                "source": "dht.state",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
+    }
+]
