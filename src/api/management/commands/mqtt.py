@@ -1,18 +1,18 @@
+from django.utils import timezone
 import json
 import logging
 import time
 
 import paho.mqtt.client as mqtt
-from django.conf import settings
-from django.core.cache import cache
-from django.core.management.base import BaseCommand
-
 from api.utils import process_raw_data
 from device.models import Command as CommandsModal
 from device.models import Device, DeviceType
 from device_schemas.device_types import IOT_GW_DEVICES
+from django.conf import settings
+from django.core.cache import cache
+from django.core.management.base import BaseCommand
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 
 ROOT_CA_FILE_PATH = "root_ca.crt"
@@ -21,6 +21,7 @@ CLIENT_SYSTEM_STATUS_TOPIC_TYPE = "status"
 CLIENT_METERS_DATA_TOPIC_TYPE = "meters-data"
 CLIENT_MODBUS_DATA_TOPIC_TYPE = "modbus-data"
 CLIENT_UPDATE_RESP_TOPIC_TYPE = "update-response"
+CLIENT_LOGS_DATA_TOPIC_TYPE = "logs-resp"
 CLIENT_HEARTBEAT_RESP_TOPIC_TYPE = "heartbeat"
 CLIENT_COMMAND_RESP_TOPIC_TYPE = "command"
 
@@ -29,11 +30,9 @@ MEROSS_DEVICE_DATA_TOPIC_TYPE = "publish"
 CLIENT_COUNT_TOPIC = "$SYS/broker/clients/connected"
 
 
-MQTT_ENABLED_DEVICE_TYPES = {
-    'devices': {
-        'topic_prefix': 'Devtest',
-        'command_topic': 'command'
-    }
+MQTT_ENABLED_DEVICE_COMMANDS = {
+    'logs-req': "/{dev_mqtt_user}/devices/{device_alias}/logs-req",
+    'update-trigger': "/{dev_mqtt_user}/devices/{device_alias}/update-trigger",
 }
 
 
@@ -73,7 +72,7 @@ class Command(BaseCommand):
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
-            logger.info('MQTT connected successful')
+            # logger.info('MQTT connected successful')
             self.subscribe_all_topics(mqtt_client)
             # self.subscribe_active_clients_topic(mqtt_client)
         else:
@@ -102,12 +101,13 @@ class Command(BaseCommand):
         if topic_data_length >= 4:
             topic_type = topic_data_list[topic_data_length-1]
             device_name = topic_data_list[topic_data_length-2]
-            group_name = topic_data_list[topic_data_length-3]
+            group_name = topic_data_list[topic_data_length-4]
 
             if topic_type in [
                 CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
                 CLIENT_METERS_DATA_TOPIC_TYPE,
                 CLIENT_MODBUS_DATA_TOPIC_TYPE,
+                CLIENT_LOGS_DATA_TOPIC_TYPE,
                 CLIENT_UPDATE_RESP_TOPIC_TYPE,
                 MEROSS_DEVICE_DATA_TOPIC_TYPE
             ]:
@@ -162,9 +162,7 @@ class Command(BaseCommand):
         last_cmd_id = None
         while True:
             try:
-                commands = CommandsModal.objects.filter(
-                    status='P'
-                ).prefetch_related('device__types')
+                commands = CommandsModal.objects.filter(status__iexact='P').prefetch_related('device__types').order_by('-command_in_time')
 
                 if last_cmd_id is not None:
                     commands = commands.filter(
@@ -176,13 +174,17 @@ class Command(BaseCommand):
                     device = command.device
                     device_types = [x.name for x in device.types.all()]
                     for device_type_name in device_types:
-                        cmd_cfg = MQTT_ENABLED_DEVICE_TYPES.get(device_type_name)
-                        if cmd_cfg is not None:
-                            topic_prefix = cmd_cfg.get('topic_prefix')
-                            command_topic = cmd_cfg.get('command_topic')
-                            topic = f"/{topic_prefix}/{device_type_name}/{device.alias}/{command_topic}"
-                            client.publish(cmd_cfg.get('command_topic'), command.param)
+                        command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command)
+                        if command_topic is not None:
+                            command_topic = command_topic.format(
+                                dev_mqtt_user='Devtest',
+                                device_alias=device.alias,
+                                device_type_name=device_type_name
+                            )
+                            logger.info("Publishing MQTT %s: %s", command_topic, command.param)
+                            client.publish(command_topic, command.param)
                     command.status = 'E'
+                    command.command_read_time = timezone.datetime.utcnow()
                     command.save()
 
             except Exception as ex:
