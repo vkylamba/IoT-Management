@@ -19,7 +19,7 @@ from utils.weather import get_weather_data_cached
 
 PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 class HeartbeatViewSet(viewsets.ViewSet):
     """

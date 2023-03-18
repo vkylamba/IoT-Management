@@ -3,7 +3,7 @@ import logging
 from django.core.management.base import BaseCommand
 from utils.telegram_bot.bot import start_bot, stop_bot
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 class Command(BaseCommand):
 
     """

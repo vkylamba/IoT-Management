@@ -7,7 +7,7 @@ from django.core.cache import cache
 
 from .supersetapiclient.client import SupersetClient
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 DATA_CACHE_TIMEOUT = 5 * 60
 

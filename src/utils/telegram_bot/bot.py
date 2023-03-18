@@ -20,7 +20,7 @@ from utils.ip_address import is_valid_ip_address
 
 from .renderers import parse_notification_html, render_status_to_html
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 BOT_TOKEN = settings.TELEGRAM_BOT_TOKEN
 

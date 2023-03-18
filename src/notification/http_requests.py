@@ -1,6 +1,6 @@
 import requests
 import logging
-logger = logging.getLogger('async_tasks')
+logger = logging.getLogger('django')
 
 
 def send_get_requests(urls, path, message):

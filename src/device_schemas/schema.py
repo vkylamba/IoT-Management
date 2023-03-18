@@ -5,7 +5,7 @@ from typing import Dict
 
 import jsonschema
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 DEVICE_SCHEMAS = {}
 

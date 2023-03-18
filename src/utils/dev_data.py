@@ -16,7 +16,7 @@ from django_clickhouse.database import connections
 
 from .weather import get_weather_data_cached
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 LIGHT_EQUIPMENTS = ['CFL', 'Tubelight', 'Bulb']
 SUMMER_EQUIPMENTS = ['Fan', 'Cooler', 'AC']
 OTHER_EQUIPMENTS = ['TV', 'Water Pump']

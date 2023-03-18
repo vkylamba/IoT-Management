@@ -13,7 +13,7 @@ from django.conf import settings
 
 from utils import detect_and_save_meter_loads
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 AVAILABLE_METER_DATA_FIELDS = {
         "voltage": float,

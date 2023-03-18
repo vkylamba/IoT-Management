@@ -13,7 +13,7 @@ from utils import DataReports
 
 from notification.http_requests import send_get_requests, send_post_requests
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 # Create your models here.
 

@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from .weather import get_weather_data_cached
 
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 load_model = Train()
 
 

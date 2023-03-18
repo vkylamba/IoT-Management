@@ -10,7 +10,7 @@ from django_celery_beat.models import CrontabSchedule
 from utils.time_and_space import is_number
 
 User = get_user_model()
-logger = logging.getLogger('application')
+logger = logging.getLogger('django')
 
 # Create your models here.
 
