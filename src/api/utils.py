@@ -111,9 +111,10 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         last_raw_data = get_latest_raw_data(device)
         validated_data = validate_data_schema(configured_schema_type, message_data, last_raw_data)
         if validated_data is None:
+            logger.error(f"Invalid data! for schema {dev_type}. Data: {message_data}")
             return "Invalid data! Data doesn't match the schema configured for the device."
 
-        logger.info(f"Validated data is: {validated_data}")
+        logger.info(f"Validated data for schema {dev_type} is: {validated_data}")
         message_data = validated_data
 
     meters_and_data = []
