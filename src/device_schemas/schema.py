@@ -38,6 +38,7 @@ def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> D
     schema = DEVICE_SCHEMAS.get(device_type)
     translated_data = None
     if schema is not None:
+        logger.debug(f"Schema for device {device_type} is {schema}")
         try:
             jsonschema.validate(data, schema)
         except jsonschema.ValidationError as ex:
@@ -59,6 +60,7 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
     translator = DATA_TRANSLATORS.get(device_type)
     translated_data = {}
     if isinstance(translator, list):
+        logger.debug(f"Translation schema for device {device_type} is {translator}")
         for translator_config in translator:
             target = translator_config.get("target")
             target_name = translator_config.get("name")
