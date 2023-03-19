@@ -149,3 +149,41 @@ def extract_calculated_data(field_name: str, data: Dict, last_raw_data: Dict):
     except Exception as ex:
         logger.error(f"Error evaluating equation {equation} for field {field_name}. Exception: {ex}")
     return value
+
+
+if __name__ == "__main__":
+    print("hello")
+    schemas = ', '.join(DEVICE_SCHEMAS.keys())
+    print(f"Available Schemas: {schemas}")
+
+    target_schema = 'IOT-GW-SHAKTI-SOLAR-PUMP'
+    test_data = json.loads("""
+        {
+            "total_time": 1418,
+            "total_energy_kwh": 8342,
+            "max_power": 9600,
+            "vfd_master_switch_state": 1,
+            "total_flow": 1252
+        }
+    """)
+    validated_data = validate_data_schema(target_schema, test_data, None)
+    print(f"{target_schema}: {validated_data}")
+    validated_data = validate_data_schema(target_schema, test_data, test_data)
+    print(f"{target_schema}: {validated_data}")
+
+    target_schema = 'IOT-GW-V2-MODBUS-WIFI'
+    test_data = json.loads("""
+        {
+            "adc": { "1": 1782, "2": 1668, "3": 2037, "4": 2037, "5": 2037, "6": 2037 },
+            "dht": {
+                "state": 3,
+                "humidity": 66.0,
+                "temperature": 22.700001,
+                "hic": 22.748661
+            }
+        }
+    """)
+    validated_data = validate_data_schema(target_schema, test_data, None)
+    print(f"{target_schema}: {validated_data}")
+    validated_data = validate_data_schema(target_schema, test_data, test_data)
+    print(f"{target_schema}: {validated_data}")
