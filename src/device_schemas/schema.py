@@ -49,6 +49,8 @@ def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> D
         except Exception as ex:
             logger.error(f"Error translating data for device type {device_type}, data: {data}", ex)
             return None
+    else:
+        logger.error(f"No schema file found for schema {device_type}")
 
     return translated_data
 
@@ -70,6 +72,8 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
                         data_fields[target_field_name] = translate_field_value(target_field, data, last_raw_data)
 
             translated_data[target_name] = data_fields
+    else:
+        logger.error(f"No translation schema file found for schema {device_type}")
     
     return translated_data
 
