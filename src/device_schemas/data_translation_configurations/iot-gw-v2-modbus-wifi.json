@@ -26,5 +26,19 @@
                 "offset": 0
             }
         ]
+    },
+    {
+        "target": "meter",
+        "name": "battery_meter",
+        "type": "DC_METER",
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "battery",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
     }
 ]
