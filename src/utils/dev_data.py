@@ -50,7 +50,7 @@ class DataReports(object):
             aggregation_period=datetime.timedelta(days=30)
         )
 
-    def get_statistics_current_day(self, params='all'):
+    def get_statistics_current_day(self, params='all', cached=True):
         """
             Get device statistics grouped by meter name. 
             Device's timezone is used in querying the data.
@@ -65,10 +65,26 @@ class DataReports(object):
         date_today = time_now_zero_hour.astimezone(pytz.utc)
         date_tomorrow = date_today + timezone.timedelta(days=1)
 
-        return self.get_statistics_by_time(
-            params=params, from_time=date_today, to_time=date_tomorrow,
-            aggregation_period=datetime.timedelta(days=1)
-        )
+
+        found_in_cache = False
+        results = []
+        if cached:
+            device_ip_address = self.device.ip_address
+            from_time_string = date_today.strftime("%Y-%m-%d")
+            to_time_string = date_tomorrow.strftime("%Y-%m-%d")
+            cache_name = f"day-stats-{params}-{device_ip_address}-{from_time_string}-{to_time_string}"
+
+            results = cache.get(cache_name)
+            found_in_cache = results is not None
+
+        if not found_in_cache:
+            results = self.get_statistics_by_time(
+                params=params, from_time=date_today, to_time=date_tomorrow,
+                aggregation_period=datetime.timedelta(days=1)
+            )
+            results = [x for x in results]
+            cache.set(cache_name, results, settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES)
+        return results
 
     def get_statistics_by_time(self, params='all', from_time=None, to_time=None, aggregation_period=None):
 
