@@ -118,26 +118,31 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         message_data = validated_data
 
     meters_and_data = []
+    dev_meters_list = Meter.objects.filter(
+        name=meter_name,
+        device=device
+    )
+    dev_meters = {}
+    for dev_meter in dev_meters_list:
+        dev_meters[dev_meter.name] = dev_meter
+
     for meter_name in message_data:
         if 'meter' not in meter_name:
             continue
         if all(value == None for value in message_data.get(meter_name, {}).values()):
             continue
-        meters = Meter.objects.filter(
-            name=meter_name,
-            device=device
-        )
-        if meters.count() == 0:
+        
+        if dev_meters.get(meter_name) is None:
             meter = Meter(
                 name=meter_name,
                 device=device
             )
             meter.save()
         else:
-            meter = meters[0]
+            meter = dev_meters[meter_name]
         try:
             meter_data = filter_meter_data(message_data, meter, data_arrival_time)
-            data_obj = create_model_instance(
+            create_model_instance(
                 MeterData,
                 meter_data
             )
