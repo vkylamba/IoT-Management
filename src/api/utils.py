@@ -119,7 +119,6 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
 
     meters_and_data = []
     dev_meters_list = Meter.objects.filter(
-        name=meter_name,
         device=device
     )
     dev_meters = {}
