@@ -313,5 +313,6 @@ def update_device_properties(device, meters_and_data):
             )
 
         data[dev_prop['name']] = dev_prop['value']
-
+    else:
+        logger.info(f"Device: {device.ip_address}, Updated properties: {', '.join(dev_props.keys())}")
     return data
