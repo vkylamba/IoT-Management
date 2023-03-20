@@ -12,7 +12,7 @@
 		"type": "integer"
 	  }
 	},
-	"required": [
+	"optional": [
 		"vfd_master_switch_state",
 		"total_energy_kwh",
 		"total_time"
