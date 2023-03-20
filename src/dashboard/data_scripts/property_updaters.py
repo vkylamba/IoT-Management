@@ -7,6 +7,9 @@ from utils.solar.utilization_matrix import get_solar_system_state
 logger = logging.getLogger("django")
 
 
+def get_temperature_data_current_day(dr):
+    pass
+
 def get_energy_data_current_day(dr):
     stats = dr.get_statistics_current_day()
     
@@ -295,7 +298,7 @@ def update_device_properties(device, meters_and_data):
 
     energy_this_month = get_energy_data_current_month(dr)
     energy_this_day = get_energy_data_current_day(dr)
-    # temperature_data_this_day = get_temperature_data_current_day(dr)
+    temperature_data_this_day = get_temperature_data_current_day(dr)
     device_localtime = dr.get_device_local_time()
     device_weather_data = dr.get_local_weather_data()
 
@@ -314,5 +317,6 @@ def update_device_properties(device, meters_and_data):
 
         data[dev_prop['name']] = dev_prop['value']
     else:
-        logger.info(f"Device: {device.ip_address}, Updated properties: {', '.join(dev_props.keys())}")
+        prop_names = ', '.join([x["name"] for x in dev_props])
+        logger.info(f"Device: {device.ip_address}, Updated properties: {prop_names}")
     return data
