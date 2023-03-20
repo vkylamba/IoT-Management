@@ -12,7 +12,7 @@ from device.models import DeviceStatus
 from .property_updaters import update_device_properties
 from .widgets_updater import update_user_widgets
 
-logger = logging.getLogger("application")
+logger = logging.getLogger("django")
 
 
 def update_device_info_on_meter_data_update(device, meters_and_data, weather_and_load_data, data_arrival_time=None):
@@ -37,14 +37,15 @@ def update_device_info_on_meter_data_update(device, meters_and_data, weather_and
     if data_updated:
         if weather_and_load_data is not None:
             data.update(weather_and_load_data)
-        dev_status = DeviceStatus(
-            device=device,
-            name=DeviceStatus.DAILY_STATUS,
-            status=data
-        )
-        dev_status.save()
-        dev_status.created_at = this_data_time
-        dev_status.save()
+        if data is not None:
+            dev_status = DeviceStatus(
+                device=device,
+                name=DeviceStatus.DAILY_STATUS,
+                status=data
+            )
+            dev_status.save()
+            dev_status.created_at = this_data_time
+            dev_status.save()
         device.other_data = other_data
         device.save()
 

@@ -4,7 +4,7 @@ from device.models import DeviceProperty, Meter
 from utils.dev_data import DataReports
 from utils.solar.utilization_matrix import get_solar_system_state
 
-logger = logging.getLogger("application")
+logger = logging.getLogger("django")
 
 
 def get_energy_data_current_day(dr):
@@ -295,6 +295,7 @@ def update_device_properties(device, meters_and_data):
 
     energy_this_month = get_energy_data_current_month(dr)
     energy_this_day = get_energy_data_current_day(dr)
+    # temperature_data_this_day = get_temperature_data_current_day(dr)
     device_localtime = dr.get_device_local_time()
     device_weather_data = dr.get_local_weather_data()
 

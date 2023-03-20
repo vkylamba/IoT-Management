@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 
-logger = logging.getLogger("application")
+logger = logging.getLogger("django")
 openwathermap_api_key = settings.OPENWEATHERMAP_API_KEY
 
 url = "http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&APPID={apikey}"
