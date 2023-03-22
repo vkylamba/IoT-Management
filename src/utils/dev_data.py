@@ -31,6 +31,9 @@ class DataReports(object):
         self.device = device
         self.device_types = [x.name for x in self.device.types.all()]
         self.rate = DeviceProperty.objects.filter(device=self.device, name='pay_per_unit').first()
+        self.meters = Meter.objects.filter(
+            device=self.device
+        )
 
     def get_statistics_current_month(self, params='all'):
         """
@@ -121,12 +124,8 @@ class DataReports(object):
         from_time_string = from_time.strftime("%Y-%m-%dT%H:%M:%S")
         to_time_string = to_time.strftime("%Y-%m-%dT%H:%M:%S")
 
-        meters = Meter.objects.filter(
-            device=self.device
-        )
-
         meter_names = {}
-        for meter in meters:
+        for meter in self.meters:
             meter_names[str(meter.id)] = meter.name
         meter_ids = list(meter_names.keys())
 
@@ -259,12 +258,9 @@ class DataReports(object):
         return []
 
     def get_power_and_energy_data(self, start_time, end_time, meter_type=None):
-        meters = Meter.objects.filter(
-            device=self.device
-        )
 
         meter_names = {}
-        for meter in meters:
+        for meter in self.meters:
             if meter_type is not None and meter.meter_type in meter_type:
                 meter_names[str(meter.id)] = meter.name
             elif meter_type is None:
