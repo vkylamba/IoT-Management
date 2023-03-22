@@ -61,6 +61,11 @@ class CommandAdmin(admin.ModelAdmin):
 
         return obj.device
 
+class DeviceStatusAdmin(admin.ModelAdmin):
+    ordering = ('-created_at',)
+    list_display = ('id', 'name', 'device', 'created_at')
+    list_filter = ('device__ip_address', 'name')
+
 
 admin.site.register(DeviceType)
 admin.site.register(Operator, OperatorAdmin)
@@ -70,7 +75,7 @@ admin.site.register(Equipment)
 admin.site.register(DeviceEquipment)
 admin.site.register(DeviceProperty)
 admin.site.register(User)
-admin.site.register(DeviceStatus)
+admin.site.register(DeviceStatus, DeviceStatusAdmin)
 admin.site.register(Document)
 admin.site.register(Meter)
 admin.site.register(Command, CommandAdmin)
