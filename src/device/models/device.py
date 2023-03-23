@@ -180,15 +180,14 @@ class Device(models.Model):
         if not self.access_token:
             self.access_token = self.generate_key()
 
-        if self.position:
-            try:
-                location = geolocator.reverse("{}, {}".format(self.position.get("latitude"), self.position.get("longitude")))
-            except Exception as e:
-                logger.warning(e)
-            else:
-                self.address = location.address
+        # if self.position:
+        #     try:
+        #         location = geolocator.reverse("{}, {}".format(self.position.get("latitude"), self.position.get("longitude")))
+        #     except Exception as e:
+        #         logger.warning(e)
+        #     else:
+        #         self.address = location.address
         super(self.__class__, self).save(*args, **kwargs)
-
 
     def latitude(self):
         if self.position:
