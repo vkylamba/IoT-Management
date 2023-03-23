@@ -1,8 +1,8 @@
 import datetime
 
 import pytz
-from device.models import Meter
-from device.models import DeviceProperty, DeviceStatus, DeviceType
+from device.models import (Device, DeviceProperty, DeviceStatus, DeviceType,
+                           Meter)
 from django.conf import settings
 from django.utils import timezone
 from pipe import select, where

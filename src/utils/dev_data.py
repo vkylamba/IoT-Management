@@ -607,6 +607,15 @@ class DataReports(object):
                         min_imported = float(data_point["min_energy"])
                     max_imported = float(data_point["max_energy"])
 
+        max_exported = 0 if max_exported is None else max_exported
+        min_exported = 0 if min_exported is None else min_exported
+        max_imported = 0 if max_imported is None else max_imported
+        min_imported = 0 if min_imported is None else min_imported
+        min_consumed = 0 if min_consumed is None else min_consumed
+        max_consumed = 0 if max_consumed is None else max_consumed
+        min_generated = 0 if min_generated is None else min_generated
+        max_generated = 0 if max_generated is None else max_generated
+
         data = {
             "summary": {
                 "exported": max_exported - min_exported,
