@@ -32,7 +32,29 @@ def delete_devices(modeladmin, request, queryset):
         db_table_name = queryset.model._meta.db_table
         db_table = db[db_table_name]
         for obj in queryset:
-            result = db_table.delete_many({'alias': obj.alias})
+            result = db_table.delete_many({'id': obj.id})
+            deleted += result.deleted_count
+    return deleted
+
+
+def delete_device_types(modeladmin, request, queryset):
+
+    db_config = settings.DATABASES['default']
+    
+    if db_config.get('ENGINE') != 'djongo':
+        raise Exception('Not mongodb!')
+    
+    db_name = db_config.get('NAME')
+    db_host = db_config.get('CLIENT', {}).get('host')
+
+    deleted = 0
+    if db_name and db_host:
+        client = MongoClient(db_host)
+        db = client[db_name]
+        db_table_name = queryset.model._meta.db_table
+        db_table = db[db_table_name]
+        for obj in queryset:
+            result = db_table.delete_many({'id': obj.id})
             deleted += result.deleted_count
     return deleted
 
@@ -45,6 +67,13 @@ class DeviceAdmin(admin.ModelAdmin):
     def Type(self, obj):
 
         return ", ".join(tpe.name for tpe in obj.types.all())
+
+class DeviceTypeAdmin(admin.ModelAdmin):
+    ordering = ('name',)
+    list_display = ('id', 'name')
+    list_filter = ('name', )
+    actions = [delete_device_types]
+
 
 class RawDataAdmin(admin.ModelAdmin):
     ordering = ('-data_arrival_time',)
@@ -67,7 +96,7 @@ class DeviceStatusAdmin(admin.ModelAdmin):
     list_filter = ('device__ip_address', 'name')
 
 
-admin.site.register(DeviceType)
+admin.site.register(DeviceType, DeviceTypeAdmin)
 admin.site.register(Operator, OperatorAdmin)
 admin.site.register(Device, DeviceAdmin)
 admin.site.register(RawData, RawDataAdmin)
