@@ -116,7 +116,10 @@ def get_daily_report(device):
     energy_generated = float(energy_generation_data.get('max_energy', 0)) - float(energy_generation_data.get('min_energy', 0))
     energy_consumed = float(energy_consumption_data.get('max_energy', 0)) - float(energy_consumption_data.get('min_energy', 0))
 
-    consumption_rate = dr.rate.get_value()
+    if dr.rate is not None:
+        consumption_rate = dr.rate.get_value()
+    else:
+        consumption_rate = 10
     consumption_bill = energy_consumed * consumption_rate
 
     net_bill = (energy_imported - energy_exported) * consumption_rate
