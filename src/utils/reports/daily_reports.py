@@ -101,7 +101,7 @@ def get_daily_report(device):
         any_meter_data = any_meter_data[0]
     else:
         any_meter_data = {}
-    data_points = float(any_meter_data.get('data_points'))
+    data_points = float(any_meter_data.get('data_points', 0))
 
     data_frequency_minutes = DeviceProperty.objects.filter(device=device, name='data_frequency_minutes').first()
     if data_frequency_minutes:
