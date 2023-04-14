@@ -64,7 +64,6 @@ SYSTEM_STATES = {
 
 def get_solar_system_state(grid_status, solar_status, day_status, load_status, weather_status):
 
-    # import ipdb; ipdb.set_trace()
     key = (day_status, grid_status, weather_status, solar_status, load_status)
     
     state = SYSTEM_STATES.get(key)
