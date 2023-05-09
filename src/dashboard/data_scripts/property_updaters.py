@@ -8,7 +8,18 @@ logger = logging.getLogger("django")
 
 
 def get_temperature_data_current_day(dr):
-    pass
+    stats = dr.get_statistics_current_day()
+    
+    temperature_data = {}
+    for meter_stats in stats:
+        meter_name = meter_stats['meter_name']
+        avg_temperature = float(meter_stats.get('avg_temperature', 0))
+        # max_temperature = float(meter_stats.get('max_temperature', 0))
+        # min_temperature = float(meter_stats.get('min_temperature', 0))
+
+        temperature_data[meter_name] = avg_temperature
+
+    return temperature_data
 
 def get_energy_data_current_day(dr):
     stats = dr.get_statistics_current_day()

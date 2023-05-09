@@ -21,7 +21,8 @@ CLIENT_SYSTEM_STATUS_TOPIC_TYPE = "status"
 CLIENT_METERS_DATA_TOPIC_TYPE = "meters-data"
 CLIENT_MODBUS_DATA_TOPIC_TYPE = "modbus-data"
 CLIENT_UPDATE_RESP_TOPIC_TYPE = "update-response"
-CLIENT_LOGS_DATA_TOPIC_TYPE = "logs-resp"
+CLIENT_CMD_RESP_TOPIC_TYPE = "cmd-resp"
+CLIENT_CMD_REQ_TOPIC_TYPE = "cmd-resp"
 CLIENT_HEARTBEAT_RESP_TOPIC_TYPE = "heartbeat"
 CLIENT_COMMAND_RESP_TOPIC_TYPE = "command"
 
@@ -107,14 +108,19 @@ class Command(BaseCommand):
                 CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
                 CLIENT_METERS_DATA_TOPIC_TYPE,
                 CLIENT_MODBUS_DATA_TOPIC_TYPE,
-                CLIENT_LOGS_DATA_TOPIC_TYPE,
+                CLIENT_CMD_REQ_TOPIC_TYPE,
+                CLIENT_CMD_RESP_TOPIC_TYPE,
                 CLIENT_UPDATE_RESP_TOPIC_TYPE,
                 MEROSS_DEVICE_DATA_TOPIC_TYPE
             ]:
                 logger.debug("MQTT data, group: %s, device: %s, topic: %s", group_name, device_name, topic_type)
                 device = self.find_device(group_name, device_name, topic_type)
-                message_data = json.loads(message_payload)
-                process_raw_data(device, message_data, channel='mqtt', data_type=topic_type)
+                try:
+                    message_data = json.loads(message_payload)
+                except Exception:
+                    logger.error(f"Invalid json data: {message_payload}")
+                else:
+                    process_raw_data(device, message_data, channel='mqtt', data_type=topic_type)
             elif topic_type not in [CLIENT_HEARTBEAT_RESP_TOPIC_TYPE, CLIENT_COMMAND_RESP_TOPIC_TYPE]:
                 logger.error("MQTT unknown topic: %s", topic_type)
         else:
