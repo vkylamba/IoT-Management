@@ -66,14 +66,20 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
             target_name = translator_config.get("name")
             target_type = translator_config.get("type")
             target_fields = translator_config.get("fields", [])
+            required_fields = translator_config.get("required_fields", [])
             data_fields = {}
+            data_valid = True
             if target == "meter":
                 if isinstance(target_fields, list):
                     for target_field in target_fields:
                         target_field_name = target_field.get("target")
                         data_fields[target_field_name] = translate_field_value(target_field, data, last_raw_data)
-
-            translated_data[target_name] = data_fields
+                if isinstance(required_fields, list):
+                    for required_field in required_fields:
+                        if data_fields.get(required_field) is None:
+                            data_valid = False
+            if data_valid:
+                translated_data[target_name] = data_fields
     else:
         logger.error(f"No translation schema file found for schema {device_type}")
     
