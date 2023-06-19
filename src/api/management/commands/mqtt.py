@@ -23,6 +23,7 @@ CLIENT_MODBUS_DATA_TOPIC_TYPE = "modbus-data"
 CLIENT_UPDATE_RESP_TOPIC_TYPE = "update-response"
 CLIENT_CMD_RESP_TOPIC_TYPE = "cmd-resp"
 CLIENT_CMD_REQ_TOPIC_TYPE = "cmd-resp"
+CLIENT_CMD_REQ_TOPIC_TYPE = "cmd-req"
 CLIENT_HEARTBEAT_RESP_TOPIC_TYPE = "heartbeat"
 CLIENT_COMMAND_RESP_TOPIC_TYPE = "command"
 
@@ -32,7 +33,7 @@ CLIENT_COUNT_TOPIC = "$SYS/broker/clients/connected"
 
 
 MQTT_ENABLED_DEVICE_COMMANDS = {
-    'logs-req': "/{dev_mqtt_user}/devices/{device_alias}/logs-req",
+    'cmd-req': "/{dev_mqtt_user}/devices/{device_alias}/cmd-req",
     'update-trigger': "/{dev_mqtt_user}/devices/{device_alias}/update-trigger",
 }
 

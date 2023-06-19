@@ -29,14 +29,84 @@
     },
     {
         "target": "meter",
-        "name": "battery_meter",
+        "name": "grid_meter",
+        "type": "AC_METER",
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "",
+                "multiplier": 0,
+                "offset": 233.0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "val.4",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "calculated",
+                "source": "val.4",
+                "multiplier": 233.0,
+                "offset": 0
+            }
+        ]
+    },
+    {
+        "target": "meter",
+        "name": "load_meter",
+        "type": "LOAD_AC_METER",
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "",
+                "multiplier": 0,
+                "offset": 233.0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "val.5",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "calculated",
+                "source": "val.5",
+                "multiplier": 233.0,
+                "offset": 0
+            }
+        ]
+    },
+    {
+        "target": "meter",
+        "name": "solar_meter",
         "type": "DC_METER",
         "fields": [
             {
                 "target": "voltage",
                 "type": "raw",
-                "source": "battery",
+                "source": "",
+                "multiplier": 0,
+                "offset": 105.0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "val.6",
                 "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "calculated",
+                "source": "val.6",
+                "multiplier": 105.0,
                 "offset": 0
             }
         ]

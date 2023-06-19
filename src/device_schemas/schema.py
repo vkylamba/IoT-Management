@@ -115,6 +115,8 @@ def translate_field_value(field_config: Dict, data: Dict, last_raw_data: Dict):
 
 def extract_data(field_name: str, data: Dict):
     fields_list = field_name.split('.')
+    if field_name == "":
+        return 0
     current_dict = data
     for this_field_name in fields_list:
         if isinstance(current_dict, dict):
