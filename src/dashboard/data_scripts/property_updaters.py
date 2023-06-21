@@ -170,10 +170,13 @@ def update_battery_charging_status_solar_inverter_mona_v1(dev_prop, device, **kw
     if solar_power > (grid_power + load_power) and grid_power > 0:
         status = "Charging"
         battery_power = solar_power - (grid_power + load_power)
+    elif solar_power <= 0 and grid_power > load_power:
+        status = "Charging"
+        battery_power = grid_power - load_power
     else:
         status = "Discharging"
         battery_power = load_power - (solar_power + grid_power)
-    
+
     dev_prop['value'] = f"{status} {round(battery_power, 2)} W"
 
 
