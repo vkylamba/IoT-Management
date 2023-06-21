@@ -22,6 +22,11 @@ def update_device_info_on_meter_data_update(device, meters_and_data, weather_and
     this_data_time = data_arrival_time if data_arrival_time is not None else datetime.utcnow()
     data_updated = False
 
+    meters_data = [x for x in meters_and_data if x.get("meter") is not None and x.get("data") is not None]
+    if len(meters_data) == 0:
+        logger.warning("Skipping properties update as there is no meter data.")
+        return
+
     if last_update_time is None:
         data = update_device_properties(device, meters_and_data)
         other_data['properties_update_time'] = this_data_time.strftime(settings.TIME_FORMAT_STRING)
