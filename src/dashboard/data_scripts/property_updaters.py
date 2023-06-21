@@ -167,7 +167,7 @@ def update_battery_charging_status_solar_inverter_mona_v1(dev_prop, device, **kw
         if meter.name == "load_meter":
             load_power = data_point.get("power", 0)
 
-    if solar_power > (grid_power + load_power):
+    if solar_power > (grid_power + load_power) and grid_power > 0:
         status = "Charging"
         battery_power = solar_power - (grid_power + load_power)
     else:
@@ -250,8 +250,7 @@ def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
         status = "Exporting"
     elif grid_power > 0:
         status = "Importing"
-    
-    grid_power =  -1 * grid_power if grid_power < 0 else grid_power
+
     dev_prop['value'] = f"{status} {round(grid_power, 2)} W"
 
 
