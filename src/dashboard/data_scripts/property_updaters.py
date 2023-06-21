@@ -160,7 +160,7 @@ def update_battery_charging_status_solar_inverter_mona_v1(dev_prop, device, **kw
     for meter_and_data in meters_and_data:
         meter = meter_and_data["meter"]
         data_point = meter_and_data["data"]
-        if meter.name == "load_meter":
+        if meter.name == "solar_meter":
             solar_power = data_point.get("power", 0)
         if meter.name == "grid_meter":
             grid_power = data_point.get("power", 0)
@@ -239,7 +239,7 @@ def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
     for meter_and_data in meters_and_data:
         meter = meter_and_data["meter"]
         data_point = meter_and_data["data"]
-        if meter.name == "load_meter":
+        if meter.name == "solar_meter":
             solar_power = data_point.get("power", 0)
         if meter.name == "grid_meter":
             grid_current = data_point.get("current", 0)
