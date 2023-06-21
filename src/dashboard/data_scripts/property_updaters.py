@@ -150,6 +150,33 @@ def update_battery_charging_status_solar_inverter(dev_prop, device, **kwargs):
     dev_prop['value'] = f"{status} {round(battery_power, 2)} W"
 
 
+def update_battery_charging_status_solar_inverter_mona_v1(dev_prop, device, **kwargs):
+    meters_and_data = kwargs.get("meters_and_data")
+    solar_power = 0
+    grid_power = 0
+    load_power = 0
+    status = ""
+
+    for meter_and_data in meters_and_data:
+        meter = meter_and_data["meter"]
+        data_point = meter_and_data["data"]
+        if meter.name == "load_meter":
+            solar_power = data_point.get("power", 0)
+        if meter.name == "grid_meter":
+            grid_power = data_point.get("power", 0)
+        if meter.name == "load_meter":
+            load_power = data_point.get("power", 0)
+
+    if solar_power > (grid_power + load_power):
+        status = "Charging"
+        battery_power = solar_power - (grid_power + load_power)
+    else:
+        status = "Discharging"
+        battery_power = load_power - (solar_power + grid_power)
+    
+    dev_prop['value'] = f"{status} {round(battery_power, 2)} W"
+
+
 def update_battery_charging_status(dev_prop, device, **kwargs):
     meters_and_data = kwargs.get("meters_and_data")
     battery_power = 0
@@ -196,6 +223,38 @@ def update_net_meter_status(dev_prop, device, **kwargs):
     dev_prop['value'] = f"{status} {round(grid_power, 2)} W"
 
 
+def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
+    # The assumption here is that the inverter charges the batteries on Solar
+    # So if the solar power is more than the load and grid power combined then it is exporting
+    meters_and_data = kwargs.get("meters_and_data")
+    solar_power = 0
+    grid_current = 0
+    grid_power = 0
+    load_power = 0
+    status = ""
+
+    for meter_and_data in meters_and_data:
+        meter = meter_and_data["meter"]
+        data_point = meter_and_data["data"]
+        if meter.name == "load_meter":
+            solar_power = data_point.get("power", 0)
+        if meter.name == "grid_meter":
+            grid_current = data_point.get("current", 0)
+            grid_power = data_point.get("power", 0)
+        if meter.name == "load_meter":
+            load_power = data_point.get("power", 0)
+
+    if grid_current == 0:
+        status = "Grid Absent"
+    elif solar_power > (grid_power + load_power) and grid_power > 0:
+        status = "Exporting"
+    elif grid_power > 0:
+        status = "Importing"
+    
+    grid_power =  -1 * grid_power if grid_power < 0 else grid_power
+    dev_prop['value'] = f"{status} {round(grid_power, 2)} W"
+
+
 def update_solar_status(dev_prop, device, **kwargs):
 
     meters_and_data = kwargs.get("meters_and_data")
@@ -225,6 +284,22 @@ def update_load_status(dev_prop, device, **kwargs):
 
 def update_weather_status(dev_prop, device, **kwargs):
     dev_prop['value'] = kwargs.get("device_weather_data")
+
+
+def update_system_temperature_status(dev_prop, device, **kwargs):
+
+    meters_and_data = kwargs.get("meters_and_data")
+    system_temperature = 0.0
+    system_humidity = 0.0
+
+    for meter_and_data in meters_and_data:
+        meter = meter_and_data["meter"]
+        data_point = meter_and_data["data"]
+        if meter.name == "weather_meter":
+            system_temperature += data_point.get("temperature", 0)
+            system_humidity += data_point.get("humidity", 0)
+
+    dev_prop['value'] = f"{round(system_temperature, 2)} C, {round(system_humidity, 2)} H"
 
 
 def update_system_status(dev_prop, device, **kwargs):
@@ -298,6 +373,87 @@ def update_system_status(dev_prop, device, **kwargs):
             weather_status = "SUNNY"
 
     dev_prop['value'] = get_solar_system_state(grid_status, solar_status, day_status, load_status, weather_status)
+
+
+def update_system_status_mona_v1(dev_prop, device, **kwargs):
+
+    meters_and_data = kwargs.get("meters_and_data")
+    device_localtime = kwargs.get("device_localtime")
+    device_weather_data = kwargs.get("device_weather_data")
+
+    grid_current = 0
+    grid_power = 0
+    load_power = 0
+    solar_power = 0
+
+    grid_status = ""
+    solar_status = ""
+    day_status = ""
+    load_status = ""
+    weather_status = ""
+
+    system_temperature = 0.0
+    system_humidity = 0.0
+
+    for meter_and_data in meters_and_data:
+        meter = meter_and_data["meter"]
+        data_point = meter_and_data["data"]
+        if meter.name == "grid_meter":
+            grid_current = data_point.get("current", 0)
+            grid_power += data_point.get("power", 0)
+        elif meter.meter_type == Meter.LOAD_AC_METER:
+            load_power += data_point.get("power", 0)
+        elif meter.name == "solar_meter":
+            solar_power += data_point.get("power", 0)
+        elif meter.name == "weather_meter":
+            system_temperature += data_point.get("temperature", 0)
+            system_humidity += data_point.get("humidity", 0)
+
+    if grid_current == 0:
+        grid_status = "ABSENT"
+    if solar_power > (grid_power + load_power) and grid_power > 0:
+        grid_status = "EXPORTING"
+    elif grid_power > 0:
+        grid_status = "IMPORTING"
+    else:
+        grid_status = "PRESENT"
+
+    if solar_power > 1000:
+        solar_status = "HIGH"
+    elif solar_power < 500:
+        solar_status = "LOW"
+    else:
+        solar_status = "MEDIUM"
+
+    if device_localtime.hour < 6 and device_localtime.hour > 18:
+        day_status = "NIGHT"
+    elif device_localtime.hour >= 6 and device_localtime.hour < 11:
+        day_status = "MORNING"
+    elif device_localtime.hour >= 11 and device_localtime.hour <= 16:
+        day_status = "NOON"
+    else:
+        day_status = "EVENING"
+
+    if load_power > 1000:
+        load_status = "HIGH"
+    elif load_power < 500:
+        load_status = "LOW"
+    else:
+        load_status = "MEDIUM"
+
+    if device_weather_data is not None:
+        device_weather_data = device_weather_data.get("weather", [{}])[0]
+        device_weather_data = device_weather_data.get("description", "").lower()
+        if "cloud" in device_weather_data:
+            weather_status = "CLOUDY"
+        elif "rain" in device_weather_data:
+            weather_status = "RAINY"
+        else:
+            weather_status = "SUNNY"
+
+
+    dev_prop['value'] = get_solar_system_state(grid_status, solar_status, day_status, load_status, weather_status)
+
 
 
 def update_device_properties(device, meters_and_data):
