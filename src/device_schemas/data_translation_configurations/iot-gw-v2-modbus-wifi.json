@@ -95,9 +95,9 @@
             {
                 "target": "voltage",
                 "type": "raw",
-                "source": "",
-                "multiplier": 0,
-                "offset": 105.0
+                "source": "val.3",
+                "multiplier": 1,
+                "offset": 0.0
             },
             {
                 "target": "current",
@@ -109,8 +109,8 @@
             {
                 "target": "power",
                 "type": "raw",
-                "source": "val.6",
-                "multiplier": 105.0,
+                "source": "val.3 * val.6",
+                "multiplier": 1,
                 "offset": 0
             }
         ]
