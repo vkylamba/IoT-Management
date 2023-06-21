@@ -97,7 +97,7 @@
                 "type": "raw",
                 "source": "val.3",
                 "multiplier": 1,
-                "offset": 0.0
+                "offset": 0
             },
             {
                 "target": "current",
