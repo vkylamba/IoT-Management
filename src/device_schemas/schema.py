@@ -77,6 +77,7 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
                 if isinstance(required_fields, list):
                     for required_field in required_fields:
                         if data_fields.get(required_field) is None:
+                            logger.warning("Required data field {required_field} missing in the data.")
                             data_valid = False
             if data_valid:
                 translated_data[target_name] = data_fields
@@ -106,7 +107,7 @@ def translate_field_value(field_config: Dict, data: Dict, last_raw_data: Dict):
         should_pick = source_match_key_current_value == source_match_key_value
 
     if should_pick:
-        logger.info(f"Extracting value for source: {source} {type} {multiplier} {offset}")
+        logger.info(f"Extracting value for source. source: {source} type: {type} multiplier: {multiplier} offset: {offset}")
         if type == "raw":
             raw_val = extract_data(source, data)
             if raw_val is not None:
@@ -115,6 +116,7 @@ def translate_field_value(field_config: Dict, data: Dict, last_raw_data: Dict):
             raw_val = extract_calculated_data(source, data, last_raw_data)
             if raw_val is not None:
                 value = float(raw_val) * multiplier + offset
+        logger.info(f"Extracted value for source {source} is: {value}")
 
     return value
 

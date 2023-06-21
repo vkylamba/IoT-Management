@@ -108,7 +108,7 @@
             },
             {
                 "target": "power",
-                "type": "raw",
+                "type": "calculated",
                 "source": "val.3 * val.6",
                 "multiplier": 1,
                 "offset": 0
