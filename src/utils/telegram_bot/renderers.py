@@ -14,6 +14,10 @@ def parse_notification_html(notification: Notification) -> str:
         html = parse_last_month_report(notification)
     elif notification.title == "SYSTEM_STATUS":
         html = parse_system_notification(notification)
+    elif notification.title == "NO_DATA_FROM_DEVICE":
+        html = parse_no_data_notification(notification)
+    else:
+        html = notification.title
 
     return html
 
@@ -110,5 +114,13 @@ def parse_system_notification(notification: Notification) -> str:
         Solar status: {notification_data.get("solar_status", "")}
         Battery status: {notification_data.get("battery_charging_status", "")}
         Load status: {notification_data.get("load_status", "")}
+    """
+    return html.replace('\t', '')
+
+
+def parse_no_data_notification(notification: Notification) -> str:
+    notification_data = notification.data
+    device = notification_data.get("ip_address", "")
+    html = f"""No data from device {device}
     """
     return html.replace('\t', '')

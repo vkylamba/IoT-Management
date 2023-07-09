@@ -4,7 +4,12 @@ from django.contrib import admin
 from notification.models import (Notification, SentNotification,
                                  TemplateContext, UserChatContext)
 
-admin.site.register(Notification)
+
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('name', 'sent', 'title', 'user')
+    list_filter = ('name', 'sent', 'title', 'user')
+
+admin.site.register(Notification, NotificationAdmin)
 admin.site.register(SentNotification)
 admin.site.register(UserChatContext)
 
