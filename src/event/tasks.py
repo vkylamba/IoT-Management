@@ -125,7 +125,7 @@ def create_user_notifications_for_reports(device, report_type, report_data):
     users = User.objects.filter(
         ~Q(subnet_mask='')
     )
-    notifications = []
+    # notifications = []
     for user in users:
         devices = user.device_list()
         if device.ip_address in devices:
@@ -136,5 +136,6 @@ def create_user_notifications_for_reports(device, report_type, report_data):
                 title=report_type,
                 data=report_data
             )
-            notifications.append(notification)
-    Notification.objects.bulk_create(notifications)
+            notification.save()
+            # notifications.append(notification)
+    # Notification.objects.bulk_create(notifications)
