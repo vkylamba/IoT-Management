@@ -34,7 +34,7 @@ def no_data_check(action_id):
             {
                 "device": str(device_event.device),
                 "ip_address": device_event.device.ip_address,
-                "last_data_point": data
+                # "last_data_point": data
             }
         )
 
@@ -125,7 +125,7 @@ def create_user_notifications_for_reports(device, report_type, report_data):
     users = User.objects.filter(
         ~Q(subnet_mask='')
     )
-    # notifications = []
+    notifications = []
     for user in users:
         devices = user.device_list()
         if device.ip_address in devices:
@@ -136,6 +136,5 @@ def create_user_notifications_for_reports(device, report_type, report_data):
                 title=report_type,
                 data=report_data
             )
-            notification.save()
-            # notifications.append(notification)
-    # Notification.objects.bulk_create(notifications)
+            notifications.append(notification)
+    Notification.objects.bulk_create(notifications)
