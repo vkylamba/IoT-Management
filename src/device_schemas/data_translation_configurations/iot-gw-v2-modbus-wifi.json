@@ -44,14 +44,14 @@
             {
                 "target": "current",
                 "type": "raw",
-                "source": "val.4",
+                "source": "meter_3.val",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "power",
                 "type": "raw",
-                "source": "val.4",
+                "source": "meter_3.val",
                 "multiplier": 233.0,
                 "offset": 0
             }
@@ -73,14 +73,14 @@
             {
                 "target": "current",
                 "type": "raw",
-                "source": "val.5",
+                "source": "meter_4.val",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "power",
                 "type": "raw",
-                "source": "val.5",
+                "source": "meter_4.val",
                 "multiplier": 233.0,
                 "offset": 0
             }
@@ -95,21 +95,21 @@
             {
                 "target": "voltage",
                 "type": "raw",
-                "source": "val.3",
+                "source": "meter_2.val",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "current",
                 "type": "raw",
-                "source": "val.6",
+                "source": "meter_5.val",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "power",
                 "type": "calculated",
-                "source": "val.3 * val.6",
+                "source": "meter_2.val * meter_5.val",
                 "multiplier": 1,
                 "offset": 0
             }
