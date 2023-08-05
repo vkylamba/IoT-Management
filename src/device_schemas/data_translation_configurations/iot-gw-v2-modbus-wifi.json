@@ -37,22 +37,43 @@
             {
                 "target": "voltage",
                 "type": "raw",
-                "source": "",
-                "multiplier": 0,
-                "offset": 233.0
+                "source": "meter_0.voltage",
+                "multiplier": 1,
+                "offset": 0
             },
             {
                 "target": "current",
                 "type": "raw",
-                "source": "meter_3.val",
+                "source": "meter_0.current",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "power",
                 "type": "raw",
-                "source": "meter_3.val",
-                "multiplier": 233.0,
+                "source": "meter_0.power",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "energy",
+                "type": "raw",
+                "source": "meter_0.energy",
+                "multiplier": 0.000000278,
+                "offset": 0
+            },
+            {
+                "target": "frequency",
+                "type": "raw",
+                "source": "meter_0.frequency",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "powerFactor",
+                "type": "raw",
+                "source": "meter_0.powerFactor",
+                "multiplier": 1,
                 "offset": 0
             }
         ]
@@ -66,22 +87,43 @@
             {
                 "target": "voltage",
                 "type": "raw",
-                "source": "",
-                "multiplier": 0,
-                "offset": 233.0
+                "source": "meter_1.voltage",
+                "multiplier": 1,
+                "offset": 0
             },
             {
                 "target": "current",
                 "type": "raw",
-                "source": "meter_4.val",
+                "source": "meter_1.current",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "power",
                 "type": "raw",
-                "source": "meter_4.val",
-                "multiplier": 233.0,
+                "source": "meter_1.power",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "energy",
+                "type": "raw",
+                "source": "meter_1.energy",
+                "multiplier": 0.000000278,
+                "offset": 0
+            },
+            {
+                "target": "frequency",
+                "type": "raw",
+                "source": "meter_1.frequency",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "powerFactor",
+                "type": "raw",
+                "source": "meter_1.powerFactor",
+                "multiplier": 1,
                 "offset": 0
             }
         ]
@@ -95,22 +137,29 @@
             {
                 "target": "voltage",
                 "type": "raw",
-                "source": "meter_2.val",
+                "source": "meter_2.voltage",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "current",
                 "type": "raw",
-                "source": "meter_5.val",
+                "source": "meter_2.current",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "power",
-                "type": "calculated",
-                "source": "meter_2.val * meter_5.val",
+                "type": "raw",
+                "source": "meter_2.power",
                 "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "energy",
+                "type": "raw",
+                "source": "meter_2.energy",
+                "multiplier": 0.000000278,
                 "offset": 0
             }
         ]
