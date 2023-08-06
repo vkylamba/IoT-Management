@@ -25,13 +25,6 @@
                 "source": "dht.state",
                 "multiplier": 1,
                 "offset": 0
-            },
-            {
-                "target": "runtime",
-                "type": "raw",
-                "source": "uptime",
-                "multiplier": 1,
-                "offset": 0
             }
         ]
     },
