@@ -54,7 +54,7 @@ def filter_meter_data(data, meter, data_arrival_time):
             if key in AVAILABLE_METER_DATA_FIELDS.keys(): # and isinstance(val, AVAILABLE_METER_DATA_FIELDS[key]):
                 meter_data[key] = val
             else:
-                extra_data["key"] = val
+                extra_data[key] = val
 
     if data_arrival_time is None:
         data_arrival_time = datetime.utcnow()
@@ -78,10 +78,17 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
 
     # Save the raw data
     data_arrival_time = message_data.get("last_update_time")
+    time_utc = message_data.get("timeUTC")
     if data_arrival_time is not None:
         data_arrival_time = datetime.strptime(
             data_arrival_time,
             "%Y-%m-%dT%H:%M:%S%z"
+        )
+        data_arrival_time = data_arrival_time.astimezone(pytz.utc)
+    elif time_utc is not None:
+        data_arrival_time = datetime.strptime(
+            time_utc,
+            "%Y-%m-%d %H:%M:%S"
         )
         data_arrival_time = data_arrival_time.astimezone(pytz.utc)
     else:
