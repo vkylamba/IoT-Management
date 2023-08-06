@@ -77,7 +77,7 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
                 if isinstance(required_fields, list):
                     for required_field in required_fields:
                         if data_fields.get(required_field) is None:
-                            logger.warning("Required data field {required_field} missing in the data.")
+                            logger.warning(f"Required data field {required_field} missing in the data.")
                             data_valid = False
             if data_valid:
                 translated_data[target_name] = data_fields
