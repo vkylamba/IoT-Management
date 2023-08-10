@@ -132,9 +132,13 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     for dev_meter in dev_meters_list:
         dev_meters[dev_meter.name] = dev_meter
 
+    meters_names_found = []
     for meter_name in message_data:
         if 'meter' not in meter_name:
             continue
+
+        meters_names_found.append(meter_name)
+
         if all(value == None for value in message_data.get(meter_name, {}).values()):
             continue
         
@@ -158,6 +162,10 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
             })
         except TypeError as e:
             logger.exception(e)
+
+    # Skip if only status meter data is there
+    if len(meters_names_found) == 1 and meters_names_found[0] == "status_meter":
+        return ""
 
     load_data = None
     if other_data.get("device_load_detection_on", False):
