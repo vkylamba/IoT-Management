@@ -61,16 +61,16 @@ class DeviceEvent(models.Model):
         if equation == "":
             return True
         data_members = [attr for attr in dir(data) if not callable(attr) and not attr.startswith("__")]
-        logger.critical("Equation is {}".format(equation))
+        logger.info("Equation is {}".format(equation))
         time_now = timezone.now()
         for data_member in data_members:
             if data_member in equation:
                 data_member_val = eval('data.{attr}'.format(attr=data_member))
                 equation = equation.replace("{}_val".format(data_member), str(data_member_val))
 
-        logger.critical("Transformed Equation is {}".format(equation))
+        logger.info("Transformed Equation is {}".format(equation))
         result = eval(equation)
-        logger.critical("Result of the equation is {}".format(result))
+        logger.info("Result of the equation is {}".format(result))
 
         result_is_number, result = is_number(result)
         threshold_is_number, threshold = is_number(self.equation_threshold)

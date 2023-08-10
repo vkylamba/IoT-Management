@@ -163,5 +163,27 @@
                 "offset": 0
             }
         ]
+    },
+    {
+        "target": "meter",
+        "name": "status_meter",
+        "type": "STATUS_METER",
+        "required_fields": ["uptime", "battery"],
+        "fields": [
+            {
+                "target": "runtime",
+                "type": "raw",
+                "source": "uptime",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "state",
+                "type": "raw",
+                "source": "battery",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
     }
 ]
