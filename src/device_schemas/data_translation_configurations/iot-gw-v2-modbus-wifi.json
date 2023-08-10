@@ -168,7 +168,7 @@
         "target": "meter",
         "name": "status_meter",
         "type": "STATUS_METER",
-        "required_fields": ["uptime", "battery"],
+        "required_fields": ["runtime", "state"],
         "fields": [
             {
                 "target": "runtime",
