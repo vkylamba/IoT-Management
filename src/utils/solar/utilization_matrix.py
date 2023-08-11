@@ -63,21 +63,23 @@ def get_solar_system_state(grid_status, solar_status, day_status, load_status, w
 
     overall_state = ""
     for state in SYSTEM_STATES:
-        state_condition_day = SYSTEM_STATES[state][0]
-        state_condition_grid = SYSTEM_STATES[state][1]
-        state_condition_weather = SYSTEM_STATES[state][2]
-        state_condition_generation = SYSTEM_STATES[state][3]
-        state_condition_load = SYSTEM_STATES[state][4]
+        state_conditions = SYSTEM_STATES[state]
+        for state_condition  in state_conditions:
+            state_condition_day = state_condition[0]
+            state_condition_grid = state_condition[1]
+            state_condition_weather = state_condition[2]
+            state_condition_generation = state_condition[3]
+            state_condition_load = state_condition[4]
 
-        match = True
-        match = match and (state_condition_day == "*" or state_condition_day == day_status)
-        match = match and (state_condition_grid == "*" or state_condition_grid == grid_status)
-        match = match and (state_condition_weather == "*" or state_condition_weather == weather_status)
-        match = match and (state_condition_generation == "*" or state_condition_generation == solar_status)
-        match = match and (state_condition_load == "*" or state_condition_load == load_status)
+            match = True
+            match = match and (state_condition_day == "*" or state_condition_day == day_status)
+            match = match and (state_condition_grid == "*" or state_condition_grid == grid_status)
+            match = match and (state_condition_weather == "*" or state_condition_weather == weather_status)
+            match = match and (state_condition_generation == "*" or state_condition_generation == solar_status)
+            match = match and (state_condition_load == "*" or state_condition_load == load_status)
 
-        if match:
-            overall_state = f"{overall_state}, {state}"
+            if match and state not in overall_state:
+                overall_state = f"{overall_state}, {state}"
 
     return overall_state
 
