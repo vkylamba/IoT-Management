@@ -42,52 +42,44 @@ DAYTIME = [
 ]
 
 SYSTEM_STATES = {
-    # (DAYTIME, GRID_STATE, WEATHER_STATE, GENERATION_STATE, LOAD_STATE)
-    ("NIGHT", "ABSENT"): "NA",
-    ("NIGHT", "PRESENT"): "NA",
-    ("MORNING", "ABSENT"): "NA",
-    ("MORNING", "PRESENT"): "NA",
-    ("NOON", "ABSENT", "RAINY"): "NA",
-    ("NOON", "ABSENT", "CLOUDY"): "NA",
-    ("NOON", "ABSENT", "SUNNY", "HIGH"): "NA",
-    ("NOON", "ABSENT", "SUNNY", "MEDIUM"): "SOLAR_UNDER_UTILIZED",
-    ("NOON", "ABSENT", "SUNNY", "LOW"): "SOLAR_UNDER_UTILIZED",
-    ("NOON", "ABSENT", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "PRESENT", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "IMPORTING", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "EXPORTING", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "ABSENT", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "PRESENT", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "IMPORTING", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "EXPORTING", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "ABSENT", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "PRESENT", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "IMPORTING", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "EXPORTING", "SUNNY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "ABSENT", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "PRESENT", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "IMPORTING", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("MORNING", "EXPORTING", "CLOUDY", "ZERO"): "SOLAR_DISCONNECTED",
-    ("NOON", "PRESENT", "RAINY"): "NA",
-    ("NOON", "PRESENT", "CLOUDY"): "NA",
-    ("NOON", "IMPORTING", "SUNNY", "HIGH", "HIGH"): "NA",
-    ("NOON", "IMPORTING", "SUNNY", "HIGH", "MEDIUM"): "SYSTEM_POWER_LEAKAGE",
-    ("NOON", "IMPORTING", "SUNNY", "HIGH", "LOW"): "SYSTEM_POWER_LEAKAGE",
-    ("NOON", "EXPORTING", "SUNNY"): "NA"
+    "SOLAR_UNDER_UTILIZED": [
+        # (DAYTIME, GRID_STATE, WEATHER_STATE, GENERATION_STATE, LOAD_STATE)
+        ("NOON", "ABSENT", "SUNNY", "MEDIUM", "MEDIUM"),
+        ("NOON", "ABSENT", "SUNNY", "LOW", "LOW")
+    ],
+    "SOLAR_DISCONNECTED": [
+        ("MORNING", "*", "*", "ZERO", "*"),
+        ("NOON", "*", "*", "ZERO", "*"),
+        ("EVENING", "*", "*", "ZERO",  "*"),
+    ],
+    "SYSTEM_POWER_LEAKAGE": [
+        ("NOON", "IMPORTING", "SUNNY", "HIGH", "MEDIUM"),
+        ("NOON", "IMPORTING", "SUNNY", "HIGH", "LOW")
+    ]
 }
 
 
 def get_solar_system_state(grid_status, solar_status, day_status, load_status, weather_status):
 
-    key = (day_status, grid_status, weather_status, solar_status, load_status)
-    
-    state = SYSTEM_STATES.get(key)
-    while state is None and len(key) > 0:
-        key = key[:-1]
-        state = SYSTEM_STATES.get(key)
+    overall_state = ""
+    for state in SYSTEM_STATES:
+        state_condition_day = SYSTEM_STATES[state][0]
+        state_condition_grid = SYSTEM_STATES[state][1]
+        state_condition_weather = SYSTEM_STATES[state][2]
+        state_condition_generation = SYSTEM_STATES[state][3]
+        state_condition_load = SYSTEM_STATES[state][4]
 
-    return state
+        match = True
+        match = match and (state_condition_day == "*" or state_condition_day == day_status)
+        match = match and (state_condition_grid == "*" or state_condition_grid == grid_status)
+        match = match and (state_condition_weather == "*" or state_condition_weather == weather_status)
+        match = match and (state_condition_generation == "*" or state_condition_generation == solar_status)
+        match = match and (state_condition_load == "*" or state_condition_load == load_status)
 
+        if match:
+            overall_state = f"{overall_state}, {state}"
+
+    return overall_state
 
 def generate_matrix():
     pass

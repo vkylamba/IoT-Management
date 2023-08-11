@@ -420,21 +420,23 @@ def update_system_status_mona_v1(dev_prop, device, **kwargs):
     else:
         grid_status = "PRESENT"
 
-    if solar_power > 1000:
+    if solar_power == 0:
+        solar_status = "ZERO"
+    elif solar_power > 1000:
         solar_status = "HIGH"
     elif solar_power < 500:
         solar_status = "LOW"
     else:
         solar_status = "MEDIUM"
 
-    if device_localtime.hour < 6 and device_localtime.hour > 18:
-        day_status = "NIGHT"
-    elif device_localtime.hour >= 6 and device_localtime.hour < 11:
+    if device_localtime.hour >= 6 and device_localtime.hour < 11:
         day_status = "MORNING"
     elif device_localtime.hour >= 11 and device_localtime.hour <= 16:
         day_status = "NOON"
-    else:
+    elif device_localtime.hour >= 16 and device_localtime.hour <= 19:
         day_status = "EVENING"
+    else:
+        day_status = "NIGHT"
 
     if load_power > 1000:
         load_status = "HIGH"
@@ -443,6 +445,7 @@ def update_system_status_mona_v1(dev_prop, device, **kwargs):
     else:
         load_status = "MEDIUM"
 
+    weather_status = "SUNNY"
     if device_weather_data is not None:
         device_weather_data = device_weather_data.get("weather", [{}])[0]
         device_weather_data = device_weather_data.get("description", "").lower()
@@ -467,7 +470,7 @@ def update_device_properties(device, meters_and_data):
 
     energy_this_month = get_energy_data_current_month(dr)
     energy_this_day = get_energy_data_current_day(dr)
-    temperature_data_this_day = get_temperature_data_current_day(dr)
+    # temperature_data_this_day = get_temperature_data_current_day(dr)
     device_localtime = dr.get_device_local_time()
     device_weather_data = dr.get_local_weather_data()
 
