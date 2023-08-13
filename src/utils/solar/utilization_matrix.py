@@ -79,7 +79,13 @@ def get_solar_system_state(grid_status, solar_status, day_status, load_status, w
             match = match and (state_condition_load == "*" or state_condition_load == load_status)
 
             if match and state not in overall_state:
-                overall_state = f"{overall_state}, {state}"
+                if overall_state == "":
+                    overall_state = f"{state}"
+                else:
+                    overall_state = f"{overall_state}, {state}"
+
+    if overall_state == "":
+        return "NA"
 
     return overall_state
 
