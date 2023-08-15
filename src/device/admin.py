@@ -108,7 +108,7 @@ class MeterAdmin(admin.ModelAdmin):
 class DevicePropertyAdmin(admin.ModelAdmin):
     ordering = ('device__ip_address',)
     list_display = ('id', 'name', 'value', 'Device')
-    list_filter = ('device__ip_address', 'name', 'value_type')
+    list_filter = ('device__ip_address', 'name')
 
     def Device(self, obj):
         return obj.device
