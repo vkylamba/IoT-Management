@@ -437,6 +437,8 @@ class DataReports(object):
         return data_weather
 
     def get_appliances_current_day(self):
+        # Todo: Fix it
+        return {}
         time_now = self.get_device_local_time()
         time_now_zero_hour = datetime.datetime(
             year=time_now.year,
