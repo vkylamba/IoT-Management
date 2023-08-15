@@ -107,7 +107,7 @@ class MeterAdmin(admin.ModelAdmin):
 
 class DevicePropertyAdmin(admin.ModelAdmin):
     ordering = ('device__ip_address',)
-    list_display = ('id', 'name', 'value', 'value_type', 'Device')
+    list_display = ('id', 'name', 'value', 'Device')
     list_filter = ('device__ip_address', 'name', 'value_type')
 
     def Device(self, obj):
@@ -116,11 +116,14 @@ class DevicePropertyAdmin(admin.ModelAdmin):
 
 class DeviceEquipmentAdmin(admin.ModelAdmin):
     ordering = ('device__ip_address',)
-    list_display = ('id', 'Device', 'meter_id', 'equipment__name')
+    list_display = ('id', 'Device', 'meter_id', 'Equipment')
     list_filter = ('device__ip_address', 'equipment__name')
 
     def Device(self, obj):
         return obj.device
+
+    def Equipment(self, obj):
+        return obj.equipment
 
 
 admin.site.register(DeviceType, DeviceTypeAdmin)
