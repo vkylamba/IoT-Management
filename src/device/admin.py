@@ -96,6 +96,12 @@ class DeviceStatusAdmin(admin.ModelAdmin):
     list_filter = ('device__ip_address', 'name')
 
 
+class MeterAdmin(admin.ModelAdmin):
+    ordering = ('-device__ip_address',)
+    list_display = ('id', 'name', 'meter_type', 'device__ip_address')
+    list_filter = ('device__ip_address', 'name', 'meter_type')
+
+
 admin.site.register(DeviceType, DeviceTypeAdmin)
 admin.site.register(Operator, OperatorAdmin)
 admin.site.register(Device, DeviceAdmin)
@@ -106,7 +112,7 @@ admin.site.register(DeviceProperty)
 admin.site.register(User)
 admin.site.register(DeviceStatus, DeviceStatusAdmin)
 admin.site.register(Document)
-admin.site.register(Meter)
+admin.site.register(Meter, MeterAdmin)
 admin.site.register(Command, CommandAdmin)
 admin.site.register(DevCommand)
 admin.site.register(Permission)
