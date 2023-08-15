@@ -97,9 +97,30 @@ class DeviceStatusAdmin(admin.ModelAdmin):
 
 
 class MeterAdmin(admin.ModelAdmin):
-    ordering = ('-device__ip_address',)
-    list_display = ('id', 'name', 'meter_type', 'device__ip_address')
+    ordering = ('device__ip_address',)
+    list_display = ('id', 'name', 'meter_type', 'Device')
     list_filter = ('device__ip_address', 'name', 'meter_type')
+
+    def Device(self, obj):
+        return obj.device
+
+
+class DevicePropertyAdmin(admin.ModelAdmin):
+    ordering = ('device__ip_address',)
+    list_display = ('id', 'name', 'value', 'value_type', 'Device')
+    list_filter = ('device__ip_address', 'name', 'value_type')
+
+    def Device(self, obj):
+        return obj.device
+
+
+class DeviceEquipmentAdmin(admin.ModelAdmin):
+    ordering = ('device__ip_address',)
+    list_display = ('id', 'Device', 'meter_id', 'equipment__name')
+    list_filter = ('device__ip_address', 'equipment__name')
+
+    def Device(self, obj):
+        return obj.device
 
 
 admin.site.register(DeviceType, DeviceTypeAdmin)
@@ -107,8 +128,8 @@ admin.site.register(Operator, OperatorAdmin)
 admin.site.register(Device, DeviceAdmin)
 admin.site.register(RawData, RawDataAdmin)
 admin.site.register(Equipment)
-admin.site.register(DeviceEquipment)
-admin.site.register(DeviceProperty)
+admin.site.register(DeviceEquipment, DeviceEquipmentAdmin)
+admin.site.register(DeviceProperty, DevicePropertyAdmin)
 admin.site.register(User)
 admin.site.register(DeviceStatus, DeviceStatusAdmin)
 admin.site.register(Document)
