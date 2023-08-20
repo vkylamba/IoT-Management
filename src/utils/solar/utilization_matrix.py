@@ -50,7 +50,6 @@ SYSTEM_STATES = {
     "SOLAR_DISCONNECTED": [
         ("MORNING", "*", "*", "ZERO", "*"),
         ("NOON", "*", "*", "ZERO", "*"),
-        ("EVENING", "*", "*", "ZERO",  "*"),
     ],
     "SYSTEM_POWER_LEAKAGE": [
         ("NOON", "IMPORTING", "SUNNY", "HIGH", "MEDIUM"),
