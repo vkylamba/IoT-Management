@@ -13,6 +13,7 @@ from .device import (
     DeviceStatus,
     Meter,
     RawData,
+    Subnet,
     get_image_path
 )
 
@@ -34,5 +35,6 @@ __all__ = (
     'RawData',
     'Meter',
     'DeviceFirmware',
+    'Subnet',
     'get_image_path'
 )

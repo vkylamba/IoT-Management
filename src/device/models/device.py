@@ -28,6 +28,63 @@ def get_image_path(instance, filename):
     return os.path.join('photos', str(instance.pk), filename)
 
 
+class Subnet(models.Model):
+    """
+    Model to store information about subnets.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    subnet_a = models.IntegerField(help_text='subnet_a')
+    subnet_b = models.IntegerField(help_text='subnet_b')
+    subnet_c = models.IntegerField(help_text='subnet_c')
+    subnet_d = models.IntegerField(help_text='subnet_d')
+
+    class Meta:
+        app_label = "device"
+        verbose_name = "Subnet"
+        verbose_name_plural = "Subnets"
+    
+    @classmethod
+    def get_next(cls):
+        last_subnet = cls.objects.all().order_by('-created_at').first()
+        if last_subnet is None:
+            last_subnet = cls(
+               subnet_a=192, 
+               subnet_b=168, 
+               subnet_c=1,
+               subnet_d=0
+            )
+        else:
+            if (last_subnet.subnet_c <= 254):
+                last_subnet = cls(
+                    subnet_a=last_subnet.subnet_a, 
+                    subnet_b=last_subnet.subnet_b, 
+                    subnet_c=last_subnet.subnet_c+1,
+                    subnet_d=0
+                )
+            elif (last_subnet.subnet_c <= 254):
+                last_subnet = cls(
+                    subnet_a=last_subnet.subnet_a, 
+                    subnet_b=last_subnet.subnet_b+1, 
+                    subnet_c=0,
+                    subnet_d=0
+                )
+            else:
+                last_subnet = cls(
+                    subnet_a=last_subnet.subnet_a + 1, 
+                    subnet_b=0,
+                    subnet_c=0,
+                    subnet_d=0
+                )
+
+        last_subnet.save()
+        default_len = 15
+        return f"{last_subnet.subnet_a}.{last_subnet.subnet_b}.{last_subnet.subnet_c}.{last_subnet.subnet_d}/{default_len}"
+
+    def __str__(self):
+        return f"{self.subnet_a}.{self.subnet_b}.{self.subnet_c}.{self.subnet_d}"
+
+
 class Operator(models.Model):
     """
     Model to store static information of the operator.
@@ -555,28 +612,6 @@ class User(AbstractUser):
                     max_address + 1) if max_address + 1 < subnet_end else None
             )
         return device_list
-
-    @staticmethod
-    def get_next_subnet_mask():
-        max_val = None
-        for dev_user in User.objects.all():
-            if dev_user.has_permission('Admin'):
-                continue
-            subnet = dev_user.subnet_mask
-            subnet = subnet.split('/')
-            if len(subnet) > 2:
-                subnet_start = User.address_string_to_numeric(
-                    subnet[0].strip())
-                subnet_end = subnet_start + int(subnet[1].strip())
-            else:
-                subnet_end = 0
-            if max_val is None or max_val < subnet_end:
-                max_val = subnet_end
-
-        if max_val is None:
-            max_val = 0
-        the_subnet = User.address_numeric_to_string(max_val + 1)
-        return the_subnet + '/15'
 
     def has_permission(self, permission):
         if isinstance(permission, Permission):

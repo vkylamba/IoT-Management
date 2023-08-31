@@ -6,7 +6,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework import status
 
-from device.models import Permission
+from device.models import Permission, Subnet
 
 from django.conf import settings
 import logging
@@ -22,7 +22,7 @@ def get_user_data(response):
     if response.status_code in [200, 201]:
         token = response.data.get('key')
         token_user = Token.objects.get(key=token)
-        next_subnet_mask = User.get_next_subnet_mask()
+        next_subnet_mask = Subnet.get_next()
         if not hasattr(token_user.user, 'dev_user'):
             dev_user = User(
                 user=token_user.user,

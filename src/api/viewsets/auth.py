@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from api.permissions import IsDeviceUser
 
 from django.contrib.auth import get_user_model
-from device.models import Permission
+from device.models import Permission, Subnet
 from django.conf import settings
 
 User = get_user_model()
@@ -81,7 +81,7 @@ class AuthViewSet(viewsets.ViewSet):
             resp_status = status.HTTP_422_UNPROCESSABLE_ENTITY
 
         if error is None:
-            next_subnet_mask = User.get_next_subnet_mask()
+            next_subnet_mask = Subnet.get_next()
             dev_user = User(
                 username=username,
                 email=email,
