@@ -12,7 +12,7 @@
 
 # RUN chown -R 1001:0 $APP_HOME
 
-FROM vkylamba/django-iot-management
+FROM vkylamba/django-iot-management:latest
 
 WORKDIR $APP_HOME
 COPY ./src/requirements.txt $APP_HOME/requirements.txt
