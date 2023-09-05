@@ -167,7 +167,7 @@ class Device(models.Model):
         Stores static information about the device.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    numeric_id = models.IntegerField(unique=True)
+    numeric_id = models.BigIntegerField(unique=True)
     ip_address = models.CharField(
         max_length=20,
         help_text='IP address of the device'

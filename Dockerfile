@@ -1,11 +1,6 @@
 FROM python:3.11
 ENV PYTHONUNBUFFERED 1
 
-# Add your custom Seccomp profile
-COPY docker-security-profile.json /etc/seccomp/seccomp-profile.json
-# Set the Seccomp profile as an environment variable
-ENV SECCOMP_PROFILE=/etc/seccomp/seccomp-profile.json
-
 # create directory for the application user
 ENV APP_HOME=/home/application/
 RUN mkdir -p $APP_HOME
