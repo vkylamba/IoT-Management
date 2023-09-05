@@ -74,16 +74,25 @@ class DeviceViewSet(viewsets.ViewSet):
         data = request.data
 
         device_type = data.get('device_type')
+        device_name = data.get('device_name')
+
+        if any([device_name is None, device_type is None]):
+            resp_status = status.HTTP_400_BAD_REQUEST
+            error = "Device name and device type are required"
+            data = {
+                'success': False,
+                'error': error
+            }
+            return Response(status=resp_status, data=data)
+
         dev_type, created = DeviceType.objects.get_or_create(
             name=device_type
         )
         if created:
             dev_type.save()
 
-        name = data.get('name')
-
         device = Device.objects.filter(
-            alias=name
+            alias=device_name
         ).first()
         if device:
             return Response(
@@ -106,14 +115,14 @@ class DeviceViewSet(viewsets.ViewSet):
         error = None
         resp_status = status.HTTP_500_INTERNAL_SERVER_ERROR
         dev_user = request.user
-        devices_list, next_ip_address = dev_user.device_list(
+        _, next_ip_address = dev_user.device_list(
             return_next_address=True
         )
         if next_ip_address is not None and not Device.objects.filter(
             ip_address=next_ip_address
         ).exists():
             device = Device(
-                alias=name,
+                alias=device_name,
                 ip_address=next_ip_address,
                 installation_date=timezone.now(),
                 device_contact_number=device_contact_number,

@@ -37,11 +37,7 @@ urlpatterns = [
     ),
     re_path(
         r'^devices/$',
-        DeviceViewSet.as_view({'get': 'get_devices'})
-    ),
-    re_path(
-        r'^devices/$',
-        DeviceViewSet.as_view({'post': 'create_device'})
+        DeviceViewSet.as_view({'get': 'get_devices', 'post': 'create_device'})
     ),
     re_path(
         r'^devices/markfavorite/(?P<device_id>[\w.]+)$',
