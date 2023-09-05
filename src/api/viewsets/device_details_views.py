@@ -165,7 +165,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'commands': [c.command_name for c in device.commands.all()],
             'properties': latest_status.status if latest_status else None,
             'address': device.address,
-            'other_data': device.other_data
+            'other_data': device.other_data,
+            'token': device.access_token
         }
 
         if device.operator:
