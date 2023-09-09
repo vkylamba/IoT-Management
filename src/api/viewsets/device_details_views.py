@@ -163,6 +163,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         available_device_types = UserDeviceType.objects.filter(
             user=dev_user
         ).all()
+        dev_types = []
+        for dev_type in available_device_types:
+            dev_types.append({'value': dev_type.code, 'text': dev_type.name})
 
         if device.device_type is not None:
             available_status_types = StatusType.objects.filter(
@@ -183,7 +186,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'alias': device.alias,
             'type': device.device_type.name if device.device_type is not None else None,
             'status_types': status_types,
-            'available_device_types': [x.name for x in available_device_types if x.active],
+            'available_device_types': dev_types,
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
             'operator': {},
             'device_contact': device.device_contact_number,
