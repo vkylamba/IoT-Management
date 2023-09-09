@@ -3,12 +3,15 @@ from datetime import datetime
 
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
-from api.utils import process_raw_data, get_or_create_user_device
+from api.serializers import StatusTypeSerializer
+from api.utils import get_or_create_user_device, process_raw_data
 from device.clickhouse_models import DerivedData
-from device.models import Command, Device, DeviceStatus, Meter, UserDeviceType
+from device.models import (Command, Device, DeviceStatus, Meter, StatusType,
+                           UserDeviceType)
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -160,10 +163,26 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         available_device_types = UserDeviceType.objects.filter(
             user=dev_user
         ).all()
+
+        if device.device_type is not None:
+            available_status_types = StatusType.objects.filter(
+                Q(device=device) | Q(device_type=device.device_type)
+            ).all()
+        else:
+             available_status_types = StatusType.objects.filter(
+                Q(device=device)
+            ).all()
+
+        status_types = []
+        for status_type in available_status_types:
+            if not status_type.active: continue
+            status_types.append(StatusTypeSerializer(status_type).data)
+
         device_data = {
             'ip_address': device.ip_address,
             'alias': device.alias,
             'type': device.device_type.name if device.device_type is not None else None,
+            'status_types': status_types,
             'available_device_types': [x.name for x in available_device_types if x.active],
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
             'operator': {},
