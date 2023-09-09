@@ -181,6 +181,7 @@ class Device(models.Model):
         help_text='Name of the device'
     )
     types = models.ManyToManyField(DeviceType)
+    device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
     installation_date = models.DateField(
         blank=True,
         null=True,
@@ -236,7 +237,9 @@ class Device(models.Model):
     def save(self, *args, **kwargs):
         if not self.access_token:
             self.access_token = self.generate_key()
-
+        # if not self.numeric_id:
+        #     if self.ip_address:
+        #         self.numeric_id = User.address_string_to_numeric(self.ip_address)
         # if self.position:
         #     try:
         #         location = geolocator.reverse("{}, {}".format(self.position.get("latitude"), self.position.get("longitude")))
@@ -533,12 +536,21 @@ class User(AbstractUser):
         null=True,
         help_text='Avatar of the device'
     )
+    device_data_token = models.CharField(max_length=40, blank=True, null=True)
     permissions = models.ManyToManyField('Permission')
     
     class Meta:
         app_label = "device"
         verbose_name = "User"
         verbose_name_plural = "Users"
+
+    def generate_key(self):
+        return binascii.hexlify(os.urandom(20)).decode()
+
+    def save(self, *args, **kwargs):
+        if not self.device_data_token:
+            self.device_data_token = self.generate_key()
+        super(self.__class__, self).save(*args, **kwargs)
 
     def __str__(self):
         return str(self.username) + " --> [" + self.subnet_mask + "]"

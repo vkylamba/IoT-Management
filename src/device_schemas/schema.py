@@ -39,9 +39,7 @@ def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> D
     translated_data = None
     if schema is not None:
         logger.debug(f"Schema for device {device_type} is {schema}")
-        try:
-            jsonschema.validate(data, schema)
-        except jsonschema.ValidationError as ex:
+        if not validate_schema(schema, data):
             logger.error(f"Error validating schema for device type {device_type}, data: {data}", ex)
             return None
 
@@ -54,6 +52,15 @@ def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> D
         logger.error(f"No schema file found for schema {device_type}")
 
     return translated_data
+
+
+def validate_schema(schema: Dict, data: Dict):
+    try:
+        jsonschema.validate(data, schema)
+    except jsonschema.ValidationError as ex:
+        return False
+
+    return True
 
 
 def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:

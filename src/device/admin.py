@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from pymongo import MongoClient
 
-from device.models import DeviceFirmware, Meter, RawData
+from device.models import DeviceFirmware, Meter, RawData, UserDeviceType, StatusType
 from device.models.device import *
 
 User = get_user_model()
@@ -142,3 +142,7 @@ admin.site.register(DevCommand)
 admin.site.register(Permission)
 admin.site.register(DeviceFirmware)
 admin.site.register(Subnet)
+
+
+admin.site.register(UserDeviceType)
+admin.site.register(StatusType)

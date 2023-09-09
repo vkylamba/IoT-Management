@@ -19,6 +19,11 @@ from .device import (
 
 from .ota import DeviceFirmware
 
+from .status import (
+    UserDeviceType,
+    StatusType
+)
+
 __all__ = (
     'Operator',
     'DeviceType',
@@ -36,5 +41,7 @@ __all__ = (
     'Meter',
     'DeviceFirmware',
     'Subnet',
+    'UserDeviceType',
+    'StatusType',
     'get_image_path'
 )

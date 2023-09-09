@@ -3,9 +3,9 @@ from datetime import datetime
 
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
-from api.utils import process_raw_data
+from api.utils import process_raw_data, get_or_create_user_device
 from device.clickhouse_models import DerivedData
-from device.models import Command, Device, DeviceStatus, DeviceType, Meter
+from device.models import Command, Device, DeviceStatus, Meter, UserDeviceType
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
@@ -102,8 +102,16 @@ class DataViewSet(viewsets.ViewSet):
         """
             Method to accept data via post request.
         """
-        device = request.device
+        device = getattr(request, 'device', None)
+        user = getattr(request, 'user', None)
         data = request.data
+
+        # if device is None, then check if it is a user
+        if device is None and user is not None:
+            device = get_or_create_user_device(user, data)
+        
+        if device is None:
+            return Response(status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         error = process_raw_data(device, data, channel='api', data_type='data')
         if error != "":
@@ -149,11 +157,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         ).order_by('-created_at').first()
         
         data_report = DataReports(device)
-
+        available_device_types = UserDeviceType.objects.filter(
+            user=dev_user
+        ).all()
         device_data = {
             'ip_address': device.ip_address,
             'alias': device.alias,
-            'type': data_report.device_types,
+            'type': device.device_type.name if device.device_type is not None else None,
+            'available_device_types': [x.name for x in available_device_types if x.active],
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
             'operator': {},
             'device_contact': device.device_contact_number,
@@ -446,8 +457,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 return Response(status=status.HTTP_404_NOT_FOUND)
 
         dev_types = []
-        for dev_type in DeviceType.objects.all():
-            dev_types.append({'value': dev_type.name, 'label': dev_type.name})
+        available_device_types = UserDeviceType.objects.filter(
+            user=dev_user,
+            active=True
+        )
+        for dev_type in available_device_types:
+            dev_types.append({'value': dev_type.code, 'label': dev_type.name})
 
         device_data = {
             'ip_address': device.ip_address,

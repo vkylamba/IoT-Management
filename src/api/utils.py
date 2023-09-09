@@ -6,9 +6,9 @@ import simplejson as json
 from dashboard.data_scripts.data_update_signal_receiver import \
     update_device_info_on_meter_data_update
 from device.clickhouse_models import MeterData, create_model_instance
-from device.models import Meter, RawData
+from device.models import Device, Meter, RawData, User, UserDeviceType, StatusType
 from device_schemas.device_types import IOT_GW_DEVICES
-from device_schemas.schema import validate_data_schema
+from device_schemas.schema import validate_schema, validate_data_schema, extract_data
 from django.conf import settings
 
 from utils import detect_and_save_meter_loads
@@ -32,6 +32,37 @@ AVAILABLE_METER_DATA_FIELDS = {
 
 EXTRA_METER_DATA_FIELD = "more_data"
 
+
+def get_or_create_user_device(user: User, data: json) -> Device:
+    user_dev_types = UserDeviceType.objects.filter(
+        user=user
+    )
+    device = None
+    user_devices, next_address = user.device_list(return_objects=True, return_next_address=True)
+
+    for user_dev_type in user_dev_types:
+        dev_identifier_field = user_dev_type.identifier_field
+        if user_dev_type.data_schema is not None:
+            schema_valid = validate_schema(user_dev_type.data_schema, data)
+            if schema_valid:
+                dev_id = extract_data(dev_identifier_field, data)
+                if dev_id:
+                    dev_id_str = str(dev_id)
+                    dev = [d for d in user_devices if str(d.numeric_id) == dev_id_str or d.ip_address == dev_id_str]
+                    if len(dev) == 0:
+                        device = Device(
+                            alias=user_dev_type.name,
+                            device_type=user_dev_type,
+                            ip_address=next_address
+                        )
+                        if isinstance(dev_id, int):
+                            device.numeric_id = dev_id
+                        device.save()
+                        break
+                    else:
+                        device = dev[0]
+                        break
+    return device
 
 def get_latest_raw_data(device):
     try:
@@ -69,12 +100,17 @@ def filter_meter_data(data, meter, data_arrival_time):
 
 def process_raw_data(device, message_data, channel='unknown', data_type='unknown'):
     config_data = message_data.get("config", {})
-    dev_type = config_data.get("devType")
+    dev_type_name = config_data.get("devType")
+
+    dev_type = None
+    if dev_type_name is None:
+        dev_type = device.device_type
+        dev_type_name = device.device_type.code if device.device_type is not None else None
 
     if dev_type is None:
         dev_types = [x.name for x in device.types.all()]
-        dev_type = dev_types[-1] if len(dev_types) > 0 else None
-    logger.info(f"Data from {dev_type} device: {message_data}")
+        dev_type_name = dev_types[-1] if len(dev_types) > 0 else None
+    logger.info(f"Data from {dev_type_name} device: {message_data}")
 
     # Save the raw data
     data_arrival_time = message_data.get("last_update_time")
@@ -111,17 +147,18 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     device.other_data = other_data
     device.save()
 
-    if dev_type in IOT_GW_DEVICES:
+    ## ToDo: Cleanup once all the devices have moved to new schema system
+    if dev_type_name in IOT_GW_DEVICES:
         configured_schema_type = other_data.get("data_schema_type")
         if configured_schema_type is None:
-            configured_schema_type = dev_type
+            configured_schema_type = dev_type_name
         last_raw_data = get_latest_raw_data(device)
         validated_data = validate_data_schema(configured_schema_type, message_data, last_raw_data)
         if validated_data is None:
-            logger.error(f"Invalid data! for schema {dev_type}. Data: {message_data}")
+            logger.error(f"Invalid data! for schema {dev_type_name}. Data: {message_data}")
             return "Invalid data! Data doesn't match the schema configured for the device."
 
-        logger.info(f"Validated data for schema {dev_type} is: {validated_data}")
+        logger.info(f"Validated data for schema {dev_type_name} is: {validated_data}")
         message_data = validated_data
 
     meters_and_data = []

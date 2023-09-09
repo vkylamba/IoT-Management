@@ -1,9 +1,8 @@
 from rest_framework import permissions
-from device.models import Device
+from device.models import Device, User
 
 """
     API permissions module.
-    PERMISSIONS_ADMIN
 """
 
 
@@ -36,7 +35,7 @@ class IsDevice(permissions.BasePermission):
         token = request.META.get("HTTP_DEVICE")
         mac_address = ""
         if not token:
-            token = request.data.get("apikey")
+            token = request.data.get("apiKey")
 
         if not token:
             mac_address = request.data.get("config", {}).get("mac", "")
@@ -44,16 +43,21 @@ class IsDevice(permissions.BasePermission):
         if not token and len(mac_address) < 10:
             return False
 
-        try:
-            if token is not None:
-                device = Device.objects.get(access_token=token)
-            if mac_address != "":
-                device = Device.objects.get(
+        device = False
+        if token is not None:
+            device = Device.objects.filter(access_token=token).first()
+            if not device and mac_address != "":
+                device = Device.objects.filter(
                     mac=mac_address
-                )
-        except Device.DoesNotExist:
-            return False
-
+                ).first()
+        
+        if not device:
+            # check if it is a user data token
+            user = User.objects.filter(device_data_token=token).first()
+            if not user:
+                return False
+            request.user = user
+            return True
         else:
             request.device = device
             return True
