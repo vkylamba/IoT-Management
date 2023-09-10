@@ -299,10 +299,34 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         device.save()
 
+        available_device_types = UserDeviceType.objects.filter(
+            user=dev_user
+        ).all()
+        dev_types = []
+        for dev_type in available_device_types:
+            dev_types.append({'value': dev_type.code, 'text': dev_type.name})
+
+        if device.device_type is not None:
+            available_status_types = StatusType.objects.filter(
+                Q(device=device) | Q(device_type=device.device_type)
+            ).all()
+        else:
+             available_status_types = StatusType.objects.filter(
+                Q(device=device)
+            ).all()
+
+        status_types = []
+        for status_type in available_status_types:
+            if not status_type.active: continue
+            status_types.append(StatusTypeSerializer(status_type).data)
+
+
         device_data = {
             'ip_address': device.ip_address,
             'alias': device.alias,
-            'type': [x.name for x in device.types.all()],
+            'type': device.device_type.name if device.device_type is not None else None,
+            'status_types': status_types,
+            'available_device_types': dev_types,
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
             'device_contact': device.device_contact_number,
             'avatar': device.avatar.url if device.avatar else None,
