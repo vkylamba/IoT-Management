@@ -248,7 +248,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         return Response(device_data)
 
     def update_static_data(self, request, device_id):
-
         data = request.data
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)
@@ -260,7 +259,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             if len(device) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if not dev_user.is_superuser:
+        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         for key in data:
@@ -269,7 +268,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 setattr(device, key, val)
 
         if 'type' in data:
-            pass
+            dev_type = UserDeviceType.objects.filter(user=dev_user, code__iexact=data['type']).first()
+            if dev_type:
+                device.device_type = dev_type
+        
+        device.alias = data.get('alias', device.alias)
+        device.device_contact_number = data.get('device_contact', device.device_contact_number)
 
         device_meters = device.get_meters()
 
