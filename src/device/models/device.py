@@ -235,7 +235,13 @@ class Device(models.Model):
 
 
     def __str__(self):
-        return self.ip_address if self.ip_address != None else self.mac
+        if self.ip_address:
+            return self.ip_address 
+        if self.mac is not None:
+            return self.mac
+        if self.alias is not None:
+            return self.alias
+        return str(self.id)
 
     def generate_key(self):
         return binascii.hexlify(os.urandom(20)).decode()
