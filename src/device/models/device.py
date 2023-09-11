@@ -618,6 +618,8 @@ class User(AbstractUser):
             max_address = subnet_start
             for device in Device.objects.all().select_related('operator'):
                 dev_address = device.ip_address
+                if dev_address is None:
+                    continue
                 dev_address = User.address_string_to_numeric(dev_address)
                 if subnet_start <= dev_address and dev_address < subnet_end:
                     # The device belongs to this user
