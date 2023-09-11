@@ -167,20 +167,27 @@ class Device(models.Model):
         Stores static information about the device.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    numeric_id = models.BigIntegerField(unique=True)
+    numeric_id = models.BigIntegerField(blank=True, null=True)
     ip_address = models.CharField(
+        unique=True,
         max_length=20,
-        help_text='IP address of the device'
+        help_text='IP address of the device',
+        blank=True,
+        null=True
     )
     mac = models.CharField(
         max_length=255,
-        help_text='Device MAC'
+        help_text='Device MAC',
+        blank=True,
+        null=True
     )
     alias = models.CharField(
         max_length=255,
-        help_text='Name of the device'
+        help_text='Name of the device',
+        blank=True,
+        null=True
     )
-    types = models.ManyToManyField(DeviceType)
+    types = models.ManyToManyField(DeviceType, blank=True, null=True)
     device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
     installation_date = models.DateField(
         blank=True,
@@ -213,7 +220,7 @@ class Device(models.Model):
     address = models.TextField(
         blank=True, null=True
     )
-    commands = models.ManyToManyField('DevCommand')
+    commands = models.ManyToManyField('DevCommand', blank=True, null=True)
 
     # Access token for the device to push data
     access_token = models.CharField(max_length=40, blank=True, null=True)
