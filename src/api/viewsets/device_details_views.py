@@ -116,7 +116,7 @@ class DataViewSet(viewsets.ViewSet):
         if device is None:
             return Response(status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        error = process_raw_data(device, data, channel='api', data_type='data')
+        error = process_raw_data(device, data, channel='api', data_type='data', user=user)
         if error != "":
             return Response(status=status.HTTP_400_BAD_REQUEST, data={
                 "error": error

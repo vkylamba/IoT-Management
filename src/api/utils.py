@@ -6,10 +6,13 @@ import simplejson as json
 from dashboard.data_scripts.data_update_signal_receiver import \
     update_device_info_on_meter_data_update
 from device.clickhouse_models import MeterData, create_model_instance
-from device.models import Device, Meter, RawData, User, UserDeviceType, StatusType
+from device.models import (Device, Meter, RawData, DeviceStatus, StatusType, User,
+                           UserDeviceType)
 from device_schemas.device_types import IOT_GW_DEVICES
-from device_schemas.schema import validate_schema, validate_data_schema, extract_data
+from device_schemas.schema import (extract_data, validate_data_schema,
+                                   validate_schema, translate_data_from_schema)
 from django.conf import settings
+from django.db.models import Q
 
 from utils import detect_and_save_meter_loads
 
@@ -53,7 +56,7 @@ def get_or_create_user_device(user: User, data: json) -> Device:
                         device = Device(
                             alias=user_dev_type.name,
                             device_type=user_dev_type,
-                            ip_address=next_address
+                            ip_address=next_address,
                         )
                         if isinstance(dev_id, int):
                             device.numeric_id = dev_id
@@ -61,6 +64,8 @@ def get_or_create_user_device(user: User, data: json) -> Device:
                         break
                     else:
                         device = dev[0]
+                        device.device_type = user_dev_type
+                        device.save()
                         break
     return device
 
@@ -98,14 +103,17 @@ def filter_meter_data(data, meter, data_arrival_time):
     return meter_data
 
 
-def process_raw_data(device, message_data, channel='unknown', data_type='unknown'):
+def process_raw_data(device, message_data, channel='unknown', data_type='unknown', user=None):
     config_data = message_data.get("config", {})
     dev_type_name = config_data.get("devType")
 
     dev_type = None
     if dev_type_name is None:
-        dev_type = device.device_type
-        dev_type_name = device.device_type.code if device.device_type is not None else None
+        try:
+            dev_type = device.device_type
+            dev_type_name = device.device_type.code if device.device_type is not None else None
+        except Exception as ex:
+            logger.exception(ex)
 
     if dev_type is None:
         dev_types = [x.name for x in device.types.all()]
@@ -147,12 +155,13 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     device.other_data = other_data
     device.save()
 
+    last_raw_data = get_latest_raw_data(device)
     ## ToDo: Cleanup once all the devices have moved to new schema system
     if dev_type_name in IOT_GW_DEVICES:
         configured_schema_type = other_data.get("data_schema_type")
         if configured_schema_type is None:
             configured_schema_type = dev_type_name
-        last_raw_data = get_latest_raw_data(device)
+
         validated_data = validate_data_schema(configured_schema_type, message_data, last_raw_data)
         if validated_data is None:
             logger.error(f"Invalid data! for schema {dev_type_name}. Data: {message_data}")
@@ -213,4 +222,84 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         )
     update_device_info_on_meter_data_update(device, meters_and_data, load_data, data_arrival_time)
 
+    # update the user/device statuses
+    # update_user_and_device_statuses(user, device, raw_data, last_raw_data)
+    try:
+        update_user_and_device_statuses(user, device, raw_data, last_raw_data)
+    except Exception as ex:
+        logger.exception(ex)
+
     return ""
+
+
+def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
+
+    # get status types, which should be updated
+    status_types = None
+    if user is not None and user.is_authenticated:
+        status_types = StatusType.objects.filter(
+            Q(user=user) | Q(device_type=device.device_type)
+        )
+    elif device.device_type is not None:
+        status_types = StatusType.objects.filter(
+            Q(device_type=device.device_type)
+        )
+    if status_types is None:
+        logger.info("No status linked to device. f{device}")
+        return None
+    status_types = status_types.filter(update_trigger__in=['data', 'data/schedule'])
+    for status_type in status_types:
+        if user is not None and user.is_authenticated:
+            last_status = DeviceStatus.objects.filter(
+                Q(user=user) | Q(device=device)
+            )
+        else:
+            last_status = DeviceStatus.objects.filter(
+                device=device
+            )
+        last_status = last_status.filter(
+            name__iexact=status_type.target_type
+        ).order_by('-created_at').first()
+        if isinstance(raw_data, RawData):
+            raw_data = raw_data.data
+        if isinstance(last_status, DeviceStatus):
+            last_status = last_status.status
+
+        schema = status_type.translation_schema
+        if schema is not None:
+            if isinstance(schema, list):
+                for x in schema:
+                    x["target"] = status_type.target_type
+                    x["name"] = status_type.target_type
+                    x["type"] = status_type.target_type
+
+            validated_data = translate_data_from_schema(schema, raw_data, last_status)
+            if validated_data is None:
+                logger.error(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
+                return "Invalid data! Data doesn't match the schema configured for the device/user."
+
+            logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
+            status = DeviceStatus(
+                name=status_type.target_type,
+                device=device,
+                user=user,
+                status=validated_data
+            )
+            status.save()
+
+            if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
+                other_data = device.other_data
+                if other_data is None:
+                    other_data = validated_data.get(status_type.target_type)
+                else:
+                    other_data.update(validated_data.get(status_type.target_type))
+                device.save()
+            
+            if status_type.target_type == StatusType.STATUS_TARGET_USER:
+                if user is not None and user.is_authenticated:
+                    other_data = user.other_data
+                    if other_data is None:
+                        other_data = validated_data.get(status_type.target_type)
+                    else:
+                        other_data.update(validated_data.get(status_type.target_type))
+                    user.save()
