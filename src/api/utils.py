@@ -260,9 +260,9 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
         last_status = last_status.filter(
             name__iexact=status_type.target_type
         ).order_by('-created_at').first()
-        if raw_data is not None:
+        if isinstance(raw_data, RawData):
             raw_data = raw_data.data
-        if last_status is not None:
+        if isinstance(last_status, DeviceStatus):
             last_status = last_status.status
 
         schema = status_type.translation_schema
