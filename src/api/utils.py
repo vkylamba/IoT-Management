@@ -286,3 +286,20 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 status=validated_data
             )
             status.save()
+
+            if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
+                other_data = device.other_data
+                if other_data is None:
+                    other_data = validated_data.get(status_type.target_type)
+                else:
+                    other_data.update(validated_data.get(status_type.target_type))
+                device.save()
+            
+            if status_type.target_type == StatusType.STATUS_TARGET_USER:
+                if user is not None and user.is_authenticated:
+                    other_data = user.other_data
+                    if other_data is None:
+                        other_data = validated_data.get(status_type.target_type)
+                    else:
+                        other_data.update(validated_data.get(status_type.target_type))
+                    user.save()

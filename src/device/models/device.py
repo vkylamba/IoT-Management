@@ -551,6 +551,7 @@ class User(AbstractUser):
     )
     device_data_token = models.CharField(max_length=40, blank=True, null=True)
     permissions = models.ManyToManyField('Permission')
+    other_data = models.JSONField(blank=True, null=True)
     
     class Meta:
         app_label = "device"

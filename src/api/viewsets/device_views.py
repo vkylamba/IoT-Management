@@ -44,17 +44,22 @@ class DeviceViewSet(viewsets.ViewSet):
             except Exception as Ex:
                 device_type = None
 
+            other_data = device.other_data
+            if other_data is None:
+                other_data = {}
+
             devices_list += [
                 {
                     "id": device.id,
                     "alias": device.alias,
                     "ip_address": str(device.ip_address),
-                    "lat": device.latitude(),
-                    "long": device.longitude(),
+                    "lat":  other_data.get("latitude", device.latitude()),
+                    "long": other_data.get("longitude", device.longitude()),
                     "type": device_type.name if device_type is not None else None,
                     "last_data_time": last_sync_time,
                     "face": device.avatar.url if device.avatar else None,
                     "address": device.address,
+                    "other_data": other_data
                 }
             ]
 
