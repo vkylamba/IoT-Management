@@ -69,7 +69,8 @@ class UserViewSet(viewsets.ModelViewSet):
                     device_type.details = available_device_type.get("details", device_type.details)
                     device_type.identifier_field = available_device_type.get("identifier_field", device_type.identifier_field)
                     device_type.data_schema = available_device_type.get("data_schema", device_type.data_schema)
-                    device_type.user = request.user
+                    if device_type.user is None:
+                        device_type.user = request.user
                     device_type.save()
                 devices_ids_to_keep.append(device_type.id)
             
@@ -93,7 +94,8 @@ class UserViewSet(viewsets.ModelViewSet):
                     status_type.name = available_status_type.get("name", status_type.name)
                     status_type.target_type = available_status_type.get("target_type", status_type.target_type)
                     status_type.update_trigger = available_status_type.get("update_trigger", status_type.update_trigger)
-                    status_type.user = request.user
+                    if status_type.user is None:
+                        status_type.user = request.user
                     status_type.translation_schema = available_status_type.get("translation_schema", status_type.translation_schema)
                     status_type.save()
                 
