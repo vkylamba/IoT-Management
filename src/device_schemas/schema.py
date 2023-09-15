@@ -68,29 +68,36 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
     translated_data = {}
     if isinstance(translator, list):
         logger.debug(f"Translation schema for device {device_type} is {translator}")
-        for translator_config in translator:
-            target = translator_config.get("target")
-            target_name = translator_config.get("name")
-            target_type = translator_config.get("type")
-            target_fields = translator_config.get("fields", [])
-            required_fields = translator_config.get("required_fields", [])
-            data_fields = {}
-            data_valid = True
-            if target == "meter":
-                if isinstance(target_fields, list):
-                    for target_field in target_fields:
-                        target_field_name = target_field.get("target")
-                        data_fields[target_field_name] = translate_field_value(target_field, data, last_raw_data)
-                if isinstance(required_fields, list):
-                    for required_field in required_fields:
-                        if data_fields.get(required_field) is None:
-                            logger.warning(f"Required data field {required_field} missing in the data.")
-                            data_valid = False
-            if data_valid:
-                translated_data[target_name] = data_fields
+        translated_data = translate_data_from_schema(translator, data, last_raw_data)
     else:
         logger.error(f"No translation schema file found for schema {device_type}")
     
+    return translated_data
+
+
+def translate_data_from_schema(translator: any, data: Dict, last_status_data: Dict):
+    translated_data = {}
+    for translator_config in translator:
+        target = translator_config.get("target")
+        target_name = translator_config.get("name")
+        target_type = translator_config.get("type")
+        target_fields = translator_config.get("fields", [])
+        required_fields = translator_config.get("required_fields", [])
+        data_fields = {}
+        data_valid = True
+        if isinstance(last_status_data, Dict) and target in last_status_data:
+            last_status_data = last_status_data.get(target)
+        if isinstance(target_fields, list):
+            for target_field in target_fields:
+                target_field_name = target_field.get("target")
+                data_fields[target_field_name] = translate_field_value(target_field, data, last_status_data)
+        if isinstance(required_fields, list):
+            for required_field in required_fields:
+                if data_fields.get(required_field) is None:
+                    logger.warning(f"Required data field {required_field} missing in the data.")
+                    data_valid = False
+        if data_valid:
+            translated_data[target_name] = data_fields
     return translated_data
 
 
@@ -106,7 +113,6 @@ def translate_field_value(field_config: Dict, data: Dict, last_raw_data: Dict):
 
     value = None
     should_pick = False
-
     if source_match_key is None or source_match_key_value is None:
         should_pick = True
     else:
@@ -147,21 +153,24 @@ def extract_calculated_data(field_name: str, data: Dict, last_raw_data: Dict):
     for field_or_operator in fields_and_operators:
         operator = None
         field_name = None
+        value_already_fetched = False
         if field_or_operator.startswith('lastValue__'):
             field_name = field_or_operator.replace('lastValue__', '')
             next_value = extract_data(field_name, last_raw_data)
+            value_already_fetched = True
             if next_value is None:
                 next_value = 0
         elif '.' in field_or_operator:
             field_name = field_or_operator
         else:
             operator = field_or_operator
-        
-        if field_name is not None:
-            next_value = extract_data(field_name, data)
 
-            if next_value is not None:
-                equation += f"{next_value}"
+        if field_name is not None and not value_already_fetched:
+            next_value = extract_data(field_name, data)
+            value_already_fetched = True
+
+        if value_already_fetched and next_value is not None:
+            equation += f"{next_value}"
 
         elif operator is not None:
             equation += ' ' + operator + ' '

@@ -5,16 +5,20 @@ from posixpath import split
 
 import pytz
 from api.serializers import MeterDataSerializer, meter_data
-from device.clickhouse_models import DerivedData, MeterData, MeterLoad, WeatherData
-from device.models import DeviceProperty, DeviceType, DeviceEquipment, device, DeviceStatus, Meter, RawData
+from device.clickhouse_models import (DerivedData, MeterData, MeterLoad,
+                                      WeatherData)
+from device.models import (DeviceEquipment, DeviceProperty, DeviceStatus,
+                           DeviceType, Meter, RawData, StatusType, device)
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 from django_clickhouse.configuration import config
 from django_clickhouse.database import connections
-# from event.models import EventHistory
 
 from .weather import get_weather_data_cached
+
+# from event.models import EventHistory
+
 
 logger = logging.getLogger('django')
 LIGHT_EQUIPMENTS = ['CFL', 'Tubelight', 'Bulb']
@@ -375,7 +379,12 @@ class DataReports(object):
         date_tomorrow = date_today + timezone.timedelta(days=1)
 
         status_types = [
-            DeviceStatus.DAILY_STATUS
+            DeviceStatus.DAILY_STATUS,
+            StatusType.STATUS_TARGET_METER,
+            StatusType.STATUS_TARGET_USER,
+            StatusType.STATUS_TARGET_ALARM,
+            StatusType.STATUS_TARGET_DEVICE,
+            StatusType.STATUS_TARGET_REPORT,
         ]
         
         data_list = DeviceStatus.objects.filter(

@@ -38,11 +38,11 @@ class UserDeviceType(models.Model):
 
 
 STATUS_TARGET_TYPES = (
-    ('STATUS_TARGET_METER', 'meter'),
-    ('STATUS_TARGET_USER', 'user'),
-    ('STATUS_TARGET_ALARM', 'alarm'),
-    ('STATUS_TARGET_DEVICE', 'device'),
-    ('STATUS_TARGET_REPORT', 'report'),
+    ('meter', 'meter'),
+    ('user', 'user'),
+    ('alarm', 'alarm'),
+    ('device', 'device'),
+    ('report', 'report'),
 )
 
 STATUS_UPDATE_TRIGGER = (
