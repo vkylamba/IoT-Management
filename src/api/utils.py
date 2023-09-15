@@ -236,7 +236,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
 
     # get status types, which should be updated
     status_types = None
-    if user is not None:
+    if user is not None and user.is_authenticated:
         status_types = StatusType.objects.filter(
             Q(user=user) | Q(device_type=device.device_type)
         )
@@ -249,7 +249,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
         return None
     status_types = status_types.filter(update_trigger__in=['data', 'data/schedule'])
     for status_type in status_types:
-        if user is not None:
+        if user is not None and user.is_authenticated:
             last_status = DeviceStatus.objects.filter(
                 Q(user=user) | Q(device=device)
             )
