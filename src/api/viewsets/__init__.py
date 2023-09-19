@@ -7,9 +7,10 @@ from .device_ota_views import DeviceOTAViewSet
 # from .social_auth import FacebookLogin, GithubLogin
 
 from .widget_views import WidgetViewSet
+from .views import ViewViewSet
 
 __all__ = [
-    'WidgetViewSet', 'DeviceViewSet',
+    'WidgetViewSet', 'ViewViewSet', 'DeviceViewSet',
     'DeviceDetailsViewSet', 'HeartbeatViewSet', 'DataViewSet', 'EventViewSet',
     'UserViewSet', 'AuthViewSet', 'VerifyAuthViewSet',
     'DeviceOTAViewSet',

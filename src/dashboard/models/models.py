@@ -7,6 +7,7 @@ User = get_user_model()
 
 WIDGET_TYPES = (
     ('Chart', 'Chart'),
+    ('Map', 'Map'),
     ('Table', 'Table'),
     ('Favorite', 'Favorite'),
     ('Other', 'Other'),
@@ -22,6 +23,7 @@ class Widget(models.Model):
         Widget class.
     """
     CHART = "Chart"
+    MAP = "Map"
     TABLE = "Table"
     FAVORITE = "Favorite"
     OTHER = "Other"
@@ -49,7 +51,10 @@ class UserWidget(models.Model):
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     widget = models.ForeignKey('Widget', on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    view = models.ForeignKey('View', blank=True, null=True, on_delete=models.DO_NOTHING)
+    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING)
+    device = models.ForeignKey('Device', blank=True, null=True, on_delete=models.DO_NOTHING)
+    device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
 
     active = models.BooleanField(default=False)
     display_order = models.IntegerField(default=0)
@@ -64,4 +69,43 @@ class UserWidget(models.Model):
         return "{}-{}".format(
             self.user,
             self.widget
+        )
+
+VIEW_TYPES = (
+    ('Dashboard', 'Dashboard'),
+    ('List', 'List'),
+    ('Details', 'Details'),
+    ('Profile', 'Profile'),
+    ('Favorite', 'Favorite'),
+    ('Other', 'Other'),
+)
+
+class View(models.Model):
+    """
+        View class.
+    """
+    DASHBOARD = 'Dashboard'
+    LIST = 'List'
+    DETAILS = 'Details'
+    PROFILE = 'Profile'
+    FAVORITE = 'Favorite'
+    OTHER = 'Other'
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    view_type = models.CharField(max_length=255, choices=VIEW_TYPES)
+    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING)
+    device = models.ForeignKey('Device', blank=True, null=True, on_delete=models.DO_NOTHING)
+    device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
+
+    active = models.BooleanField(default=False)
+    metadata = models.JSONField(blank=True, null=True)
+
+    updated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = 'Views'
+
+    def __str__(self):
+        return "{}-{}".format(
+            self.id,
+            self.view_type
         )

@@ -29,6 +29,7 @@ urlpatterns = [
 
     # Dashboard views
     re_path(r'^dashboard/widgets', WidgetViewSet.as_view({'get': 'get_widgets'})),
+    re_path(r'^dashboard/views', ViewViewSet.as_view({'get': 'get_views'})),
 
     # Device views
     re_path(
