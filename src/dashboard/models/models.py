@@ -2,6 +2,7 @@ import uuid
 
 from django.contrib.auth import get_user_model
 from django.db import models
+from device.models import User, Device, UserDeviceType
 
 User = get_user_model()
 
@@ -50,11 +51,11 @@ class UserWidget(models.Model):
         Widget class.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    widget = models.ForeignKey('Widget', on_delete=models.CASCADE)
+    widget = models.ForeignKey(Widget, on_delete=models.CASCADE)
     view = models.ForeignKey('View', blank=True, null=True, on_delete=models.DO_NOTHING)
-    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING)
-    device = models.ForeignKey('Device', blank=True, null=True, on_delete=models.DO_NOTHING)
-    device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
+    user = models.ForeignKey(User, blank=True, null=True, on_delete=models.DO_NOTHING)
+    device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.DO_NOTHING)
+    device_type = models.ForeignKey(UserDeviceType, blank=True, null=True, on_delete=models.DO_NOTHING)
 
     active = models.BooleanField(default=False)
     display_order = models.IntegerField(default=0)
@@ -92,9 +93,9 @@ class View(models.Model):
     OTHER = 'Other'
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     view_type = models.CharField(max_length=255, choices=VIEW_TYPES)
-    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING)
-    device = models.ForeignKey('Device', blank=True, null=True, on_delete=models.DO_NOTHING)
-    device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
+    user = models.ForeignKey(User, blank=True, null=True, on_delete=models.DO_NOTHING)
+    device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.DO_NOTHING)
+    device_type = models.ForeignKey(UserDeviceType, blank=True, null=True, on_delete=models.DO_NOTHING)
 
     active = models.BooleanField(default=False)
     metadata = models.JSONField(blank=True, null=True)

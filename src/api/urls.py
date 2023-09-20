@@ -4,7 +4,7 @@ from rest_framework import routers
 from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
                           DeviceViewSet, EventViewSet, HeartbeatViewSet,
                           UserViewSet, VerifyAuthViewSet, WidgetViewSet,
-                          DeviceOTAViewSet)
+                          DeviceOTAViewSet, ViewViewSet)
 
 router = routers.DefaultRouter()
 router.register(r'user/details', UserViewSet)

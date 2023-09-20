@@ -15,12 +15,12 @@ class ViewViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated, IsDeviceUser)
 
     def get_views(self, request):
-        view_types = request.params.get("view_types", [])
+        view_types = request.query_params.get("view_types", [])
         
         views = View.objects.filter(
             user=request.user
         )
-        
+        view_types = view_types.split(',') if view_types is not None else []
         if len(view_types) > 0:
             views = views.filter(
                 view_type__in=view_types
