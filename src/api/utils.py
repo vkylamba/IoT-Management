@@ -46,7 +46,9 @@ def generate_device_alias(dev_identifier_field, dev_id):
     alias = ''
     for field_name in dev_identifier_fields:
         if field_name not in names_to_skip:
-            alias = alias + '-' + field_name.upper()
+            if alias != '':
+                alias + '-'
+            alias = alias + field_name.upper()
     return alias + '-' + str(dev_id)
 
 
