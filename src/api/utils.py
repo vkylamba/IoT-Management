@@ -1,4 +1,6 @@
+
 import logging
+import re
 from datetime import datetime
 
 import pytz
@@ -6,11 +8,11 @@ import simplejson as json
 from dashboard.data_scripts.data_update_signal_receiver import \
     update_device_info_on_meter_data_update
 from device.clickhouse_models import MeterData, create_model_instance
-from device.models import (Device, Meter, RawData, DeviceStatus, StatusType, User,
-                           UserDeviceType)
+from device.models import (Device, DeviceStatus, Meter, RawData, StatusType,
+                           User, UserDeviceType)
 from device_schemas.device_types import IOT_GW_DEVICES
-from device_schemas.schema import (extract_data, validate_data_schema,
-                                   validate_schema, translate_data_from_schema)
+from device_schemas.schema import (extract_data, translate_data_from_schema,
+                                   validate_data_schema, validate_schema)
 from django.conf import settings
 from django.db.models import Q
 
@@ -36,6 +38,18 @@ AVAILABLE_METER_DATA_FIELDS = {
 EXTRA_METER_DATA_FIELD = "more_data"
 
 
+def generate_device_alias(dev_identifier_field, dev_id):
+    dev_identifier_fields = re.split(' |,|-|_', dev_identifier_field.lower())
+    names_to_skip = [
+        '#', 'id'
+    ]
+    alias = ''
+    for field_name in dev_identifier_fields:
+        if field_name not in names_to_skip:
+            alias = alias + '-' + field_name.upper()
+    return alias + '-' + str(dev_id)
+
+
 def get_or_create_user_device(user: User, data: json) -> Device:
     user_dev_types = UserDeviceType.objects.filter(
         user=user
@@ -54,7 +68,7 @@ def get_or_create_user_device(user: User, data: json) -> Device:
                     dev = [d for d in user_devices if str(d.numeric_id) == dev_id_str or d.ip_address == dev_id_str]
                     if len(dev) == 0:
                         device = Device(
-                            alias=user_dev_type.name,
+                            alias=generate_device_alias(dev_identifier_field, dev_id),
                             device_type=user_dev_type,
                             ip_address=next_address,
                         )
