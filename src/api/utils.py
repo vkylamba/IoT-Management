@@ -39,6 +39,8 @@ EXTRA_METER_DATA_FIELD = "more_data"
 
 
 def generate_device_alias(dev_identifier_field, dev_id):
+    dev_identifier_fields = dev_identifier_field.split('.')
+    dev_identifier_field = dev_identifier_fields[-1]
     dev_identifier_fields = re.split(' |,|-|_', dev_identifier_field.lower())
     names_to_skip = [
         '#', 'id'
