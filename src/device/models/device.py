@@ -227,6 +227,8 @@ class Device(models.Model):
 
     other_data = models.JSONField(blank=True, null=True)
 
+    active = models.BooleanField(default=True, blank=True, null=True)
+
     class Meta:
         unique_together = ('ip_address', )
         app_label = "device"
@@ -603,7 +605,7 @@ class User(AbstractUser):
             if device_id is not None:
                 device_list = device_list.filter(ip_address=device_id).first()
             if not return_objects:
-                device_list = [dev.ip_address for dev in device_list]
+                device_list = [dev.ip_address for dev in device_list if dev.active is not False]
         else:
             subnet = dev_user.subnet_mask
             subnet = subnet.split('/')
@@ -619,7 +621,7 @@ class User(AbstractUser):
             max_address = subnet_start
             for device in Device.objects.all().select_related('operator'):
                 dev_address = device.ip_address
-                if dev_address is None:
+                if dev_address is None or device.active is False:
                     continue
                 dev_address = User.address_string_to_numeric(dev_address)
                 if subnet_start <= dev_address and dev_address < subnet_end:

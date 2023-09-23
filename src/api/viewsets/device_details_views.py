@@ -588,3 +588,21 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         }
 
         return Response(device_data)
+
+    def remove_device(self, request, device_id):
+        dev_user = request.user
+        dev = get_object_or_404(Device, id=device_id)
+        device = dev_user.device_list(return_objects=True, device_id=dev.ip_address)
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        device.active = False
+        device.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)

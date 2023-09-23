@@ -61,7 +61,15 @@ urlpatterns = [
         r'^device/staticdata/(?P<device_id>[\w.]+)$',
         DeviceDetailsViewSet.as_view({
             'get': 'device_static_data',
-            'post': 'update_static_data'
+            'post': 'update_static_data',
+        })
+    ),
+    re_path(
+        r'^device/staticdata/(?P<device_id>[\w.-]+)$',
+        DeviceDetailsViewSet.as_view({
+            'get': 'device_static_data',
+            'post': 'update_static_data',
+            'delete': 'remove_device',
         })
     ),
     re_path(
