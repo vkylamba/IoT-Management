@@ -1,3 +1,4 @@
+import csv
 import logging
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -109,6 +111,7 @@ class DataViewSet(viewsets.ViewSet):
         user = getattr(request, 'user', None)
         data = request.data
 
+        logger.info(f"Received data {data} from user: {user}, device: {device}")
         # if device is None, then check if it is a user
         if device is None and user is not None:
             device = get_or_create_user_device(user, data)
@@ -361,27 +364,43 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             if len(device) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
 
+        data_type = "raw"
+        export_type = "json"
         try:
-            start_time = request.GET["start_time"].strip()
-            start_time = timezone.datetime.strptime(
-                start_time, settings.TIME_FORMAT_STRING
-            )
-            end_time = request.GET["end_time"].strip()
-            end_time = timezone.datetime.strptime(
-                end_time, settings.TIME_FORMAT_STRING
-            )
+            data_type = request.data.get("dataType")
+            export_type = request.data.get("exportType")
+            start_time = request.data.get("startTime", "").strip()
+            start_date = request.data.get("startDate", "").strip()
+            if start_date:
+                start_time = timezone.datetime.strptime(
+                    start_date, settings.DATE_FORMAT_STRING
+                )
+            else:
+                start_time = timezone.datetime.strptime(
+                    start_time, settings.TIME_FORMAT_STRING
+                )
+            end_time = request.data.get("endTime", "").strip()
+            end_date = request.data.get("endDate", "").strip()
+            if end_date:
+                end_time = timezone.datetime.strptime(
+                    end_date, settings.DATE_FORMAT_STRING
+                )
+            else:
+                end_time = timezone.datetime.strptime(
+                    end_time, settings.TIME_FORMAT_STRING
+                )
         except Exception as e:  # Start time and end time are not provided. So lets send latest data point
             logger.error(e)
             start_time = None
             end_time = None
 
-        selected_x_params = request.GET["x_params"]
-        selected_y_params = request.GET["y_params"]
+        selected_x_params = request.data.get("x_params")
+        selected_y_params = request.data.get("y_params")
         # aggregate_data = request.GET.get('aggregate', 'yes')
 
         data_report = DataReports(device)
-
-        data = data_report.get_all_data(
+        data = data_report.get_device_data(
+            data_type,
             start_time,
             end_time,
             meter_type=[
@@ -389,32 +408,48 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 Meter.HOUSEHOLD_AC_METER, Meter.LOAD_AC_METER
             ]
         )
+        if export_type == "json":
+            x_params = selected_x_params.strip()
+            y_params = selected_y_params.strip().split(',')
 
-        # if end_time - start_time > timezone.timedelta(days=1) and aggregate_data == 'yes':
-        #     data = data_report.get_all_data_aggregated(start_time, end_time)
-        # else:
-        #     data = data_report.get_all_data(start_time, end_time)
-        x_params = selected_x_params.strip()
-        y_params = selected_y_params.strip().split(',')
+            params_list = ["time"]
+            if(x_params != '' and x_params != 'time'):
+                params_list += [x_params]
+            for param in y_params:
+                params_list += [param]
 
-        params_list = ["time"]
-        if(x_params != '' and x_params != 'time'):
-            params_list += [x_params]
-        for param in y_params:
-            params_list += [param]
+            for param in params_list:
+                dynamic_data[param] = []
 
-        for param in params_list:
-            dynamic_data[param] = []
+            for param in params_list:
+                data_list = []
+                for each_data in data:
+                    if(param == "time"):
+                        param = "data_arrival_time"
+                    data_list.append(getattr(each_data, param, None))
+                dynamic_data[param] = data_list
+            data = {"error": "success", "dynamic_data": dynamic_data}
+            return Response(data)
+        else:
+            header = ["data_arrival_time", "data"]
+            csv_data = []
+            for dt in data:
+                rl_data = dt.data
+                csv_data.append([
+                    dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING),
+                    str(rl_data)
+                ])
+            # Create the HttpResponse object with the appropriate CSV header.
+            response = HttpResponse(
+                content_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{device_id}-{data_type}.csv"'},
+            )
 
-        for param in params_list:
-            data_list = []
-            for each_data in data:
-                if(param == "time"):
-                    param = "data_arrival_time"
-                data_list.append(getattr(each_data, param, None))
-            dynamic_data[param] = data_list
-        data = {"error": "success", "dynamic_data": dynamic_data}
-        return Response(data)
+            writer = csv.writer(response)
+            writer.writerow(header)
+            writer.writerows(csv_data)
+
+            return response
 
     def send_command(self, request, device_id):
         dev_user = request.user

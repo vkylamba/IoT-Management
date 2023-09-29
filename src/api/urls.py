@@ -74,7 +74,7 @@ urlpatterns = [
     ),
     re_path(
         r'^device/dynamicdata/(?P<device_id>[\w.]+)$',
-        DeviceDetailsViewSet.as_view({'get': 'get_dynamic_data'})
+        DeviceDetailsViewSet.as_view({'post': 'get_dynamic_data'})
     ),
     re_path(
         r'^device/sendcommand/(?P<device_id>[\w.]+)$',
