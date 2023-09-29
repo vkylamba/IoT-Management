@@ -240,6 +240,25 @@ class DataReports(object):
             "data": json.loads(x.data) if isinstance(x.data, str) else x.data 
         } for x in raw_data]
 
+    def get_device_data(self, data_type, start_time, end_time, meter_type=None):
+        data = None
+        if data_type == "raw_data":
+            data = RawData.objects.filter(
+                device=self.device
+            ).order_by(
+                '-data_arrival_time'
+            )
+        if data is not None:
+            if start_time is not None:
+                data = data.filter(
+                    data_arrival_time__gte=start_time
+                )
+            if end_time is not None:
+                data = data.filter(
+                    data_arrival_time__lt=end_time
+                )
+        return data
+
     def get_all_data(self, start_time, end_time, meter_type=None):
         meters = Meter.objects.filter(
             device=self.device
