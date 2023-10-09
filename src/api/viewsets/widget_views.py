@@ -50,12 +50,23 @@ class WidgetViewSet(viewsets.ViewSet):
         total_energy_exported_this_day = 0
         total_energy_export_limit_this_day = 0
 
-        for device in user.device_list(return_objects=True):
-            latest_data = device.get_latest_data()
-            properties = {
-                p.name: p.value for p in DeviceProperty.objects.filter(device=device)
+        user_devices = user.device_list(return_objects=True)
+        user_device_ids = [
+            str(d.id) for d in user_devices
+        ]
+        all_dev_props = DeviceProperty.objects.filter(device__id__in=user_device_ids)
+        all_dev_prop_values = {}
+        for dev_prop in all_dev_props:
+            this_val = {
+                dev_prop.name: dev_prop.value
             }
+            existing_values = all_dev_prop_values.get(str(dev_prop.device.id), [])
+            existing_values.append(this_val)
+            all_dev_prop_values[str(dev_prop.device.id)] = existing_values
 
+        for device in user_devices:
+            latest_data = device.get_latest_data()
+            properties = all_dev_prop_values[str(device.id)]
             total_devices += 1
             if latest_data is not None and latest_data.data_arrival_time.date() == timezone.now().date():
                 active_devices += 1
