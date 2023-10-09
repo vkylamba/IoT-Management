@@ -57,12 +57,8 @@ class WidgetViewSet(viewsets.ViewSet):
         all_dev_props = DeviceProperty.objects.filter(device__id__in=user_device_ids)
         all_dev_prop_values = {}
         for dev_prop in all_dev_props:
-            this_val = {
-                dev_prop.name: dev_prop.value
-            }
-            existing_values = all_dev_prop_values.get(str(dev_prop.device.id), [])
-            existing_values.append(this_val)
-            all_dev_prop_values[str(dev_prop.device.id)] = existing_values
+            existing_values = all_dev_prop_values.get(str(dev_prop.device.id), {})
+            existing_values[dev_prop.name] = dev_prop.value
 
         for device in user_devices:
             latest_data = device.get_latest_data()
