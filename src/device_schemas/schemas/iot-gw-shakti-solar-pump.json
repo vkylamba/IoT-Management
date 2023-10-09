@@ -6,10 +6,13 @@
 		"type": "integer"
 	  },
 	  "total_energy_kwh": {
-		"type": "integer"
+		"type": "number"
+	  },
+	  "total_flow": {
+		"type": "number"
 	  },
 	  "total_time": {
-		"type": "integer"
+		"type": "number"
 	  }
 	},
 	"required": [
