@@ -64,7 +64,7 @@ class DeviceEvent(models.Model):
         logger.info("Equation is {}".format(equation))
         time_now = timezone.now()
         for data_member in data_members:
-            if data_member in equation:
+            if f"{data_member}_val" in equation:
                 data_member_val = eval('data.{attr}'.format(attr=data_member))
                 equation = equation.replace("{}_val".format(data_member), str(data_member_val))
 

@@ -179,7 +179,7 @@ def extract_calculated_data(field_name: str, data: Dict, last_raw_data: Dict):
     try:
         value = eval(equation)
     except Exception as ex:
-        logger.error(f"Error evaluating equation {equation} for field {field_name}. Exception: {ex}")
+        logger.warning(f"Error evaluating equation {equation} for field {field_name}. Exception: {ex}")
     return value
 
 
