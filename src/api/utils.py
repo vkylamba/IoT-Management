@@ -182,7 +182,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
 
         validated_data = validate_data_schema(configured_schema_type, message_data, last_raw_data)
         if validated_data is None:
-            logger.error(f"Invalid data! for schema {dev_type_name}. Data: {message_data}")
+            logger.warning(f"Invalid data! for schema {dev_type_name}. Data: {message_data}")
             return "Invalid data! Data doesn't match the schema configured for the device."
 
         logger.info(f"Validated data for schema {dev_type_name} is: {validated_data}")
@@ -293,7 +293,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
 
             validated_data = translate_data_from_schema(schema, raw_data, last_status)
             if validated_data is None:
-                logger.error(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
+                logger.warning(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
                 return "Invalid data! Data doesn't match the schema configured for the device/user."
 
             logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")

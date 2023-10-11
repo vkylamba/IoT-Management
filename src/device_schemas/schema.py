@@ -40,16 +40,16 @@ def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> D
     if schema is not None:
         logger.debug(f"Schema for device {device_type} is {schema}")
         if not validate_schema(schema, data):
-            logger.error(f"Error validating schema for device type {device_type}, data: {data}")
+            logger.warning(f"Error validating schema for device type {device_type}, data: {data}")
             return None
 
         try:
             translated_data = translate_data(device_type, data, last_raw_data)
         except Exception as ex:
-            logger.error(f"Error translating data for device type {device_type}, data: {data}", ex)
+            logger.warning(f"Error translating data for device type {device_type}, data: {data}", ex)
             return None
     else:
-        logger.error(f"No schema file found for schema {device_type}")
+        logger.warning(f"No schema file found for schema {device_type}")
 
     return translated_data
 
@@ -70,7 +70,7 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
         logger.debug(f"Translation schema for device {device_type} is {translator}")
         translated_data = translate_data_from_schema(translator, data, last_raw_data)
     else:
-        logger.error(f"No translation schema file found for schema {device_type}")
+        logger.warning(f"No translation schema file found for schema {device_type}")
     
     return translated_data
 
