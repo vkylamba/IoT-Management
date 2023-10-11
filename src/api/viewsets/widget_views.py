@@ -59,10 +59,11 @@ class WidgetViewSet(viewsets.ViewSet):
         for dev_prop in all_dev_props:
             existing_values = all_dev_prop_values.get(str(dev_prop.device.id), {})
             existing_values[dev_prop.name] = dev_prop.value
+            all_dev_prop_values[str(dev_prop.device.id)] = existing_values
 
         for device in user_devices:
             latest_data = device.get_latest_data()
-            properties = all_dev_prop_values[str(device.id)]
+            properties = all_dev_prop_values.get(str(device.id), {})
             total_devices += 1
             if latest_data is not None and latest_data.data_arrival_time.date() == timezone.now().date():
                 active_devices += 1
