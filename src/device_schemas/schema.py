@@ -77,6 +77,8 @@ def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
 
 def translate_data_from_schema(translator: any, data: Dict, last_status_data: Dict):
     translated_data = {}
+    if isinstance(translator, dict):
+        translator = [translator]
     for translator_config in translator:
         target = translator_config.get("target")
         target_name = translator_config.get("name")

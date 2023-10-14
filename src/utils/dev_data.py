@@ -31,13 +31,15 @@ class DataReports(object):
         class to provide methods to access the device data.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, multiple=False):
         self.device = device
-        self.device_types = [x.name for x in self.device.types.all()]
-        self.rate = DeviceProperty.objects.filter(device=self.device, name='pay_per_unit').first()
-        self.meters = Meter.objects.filter(
-            device=self.device
-        )
+        self.multiple = multiple
+        if not multiple:
+            self.device_types = [x.name for x in self.device.types.all()]
+            self.rate = DeviceProperty.objects.filter(device=self.device, name='pay_per_unit').first()
+            self.meters = Meter.objects.filter(
+                device=self.device
+            )
 
     def get_statistics_current_month(self, params='all'):
         """
@@ -243,11 +245,18 @@ class DataReports(object):
     def get_device_data(self, data_type, start_time, end_time, meter_type=None):
         data = None
         if data_type == "raw_data":
-            data = RawData.objects.filter(
-                device=self.device
-            ).order_by(
-                '-data_arrival_time'
-            )
+            if not self.multiple:
+                data = RawData.objects.filter(
+                    device=self.device
+                ).order_by(
+                    '-data_arrival_time'
+                )
+            else:
+                data = RawData.objects.filter(
+                    device__in=self.device
+                ).order_by(
+                    '-data_arrival_time'
+                )
         if data is not None:
             if start_time is not None:
                 data = data.filter(

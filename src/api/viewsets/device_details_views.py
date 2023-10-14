@@ -1,5 +1,6 @@
 import csv
 import logging
+from collections.abc import Iterable
 from datetime import datetime
 
 import simplejson as json
@@ -113,11 +114,13 @@ class DataViewSet(viewsets.ViewSet):
 
         logger.info(f"Received data {data} from user: {user}, device: {device}")
         # if device is None, then check if it is a user
+        errors = []
         if device is None and user is not None:
             device = get_or_create_user_device(user, data)
         
         if device is None:
-            return Response(status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            errors.append("Device not found!")
+            return Response(status=status.HTTP_422_UNPROCESSABLE_ENTITY, data=errors)
 
         error = process_raw_data(device, data, channel='api', data_type='data', user=user)
         if error != "":
@@ -170,9 +173,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         for dev_type in available_device_types:
             dev_types.append({'value': dev_type.code, 'text': dev_type.name})
 
-        if device.device_type is not None:
+        if device.type is not None:
             available_status_types = StatusType.objects.filter(
-                Q(device=device) | Q(device_type=device.device_type)
+                Q(device=device) | Q(device_type=device.type)
             ).all()
         else:
              available_status_types = StatusType.objects.filter(
@@ -187,7 +190,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device_data = {
             'ip_address': device.ip_address,
             'alias': device.alias,
-            'type': device.device_type.name if device.device_type is not None else None,
+            'type': device.type.name if device.type is not None else None,
             'status_types': status_types,
             'available_device_types': dev_types,
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
@@ -355,13 +358,17 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dynamic_data = {}
 
         dev_user = request.user
-        device = dev_user.device_list(return_objects=True, device_id=device_id)
 
-        if isinstance(device, list):
-            device = [
-                x for x in device if x.ip_address == device_id
+        if device_id == "all":
+            devices = dev_user.device_list(return_objects=True)
+        else:
+            devices = dev_user.device_list(return_objects=True, device_id=device_id)
+
+        if isinstance(devices, list) and device_id != "all":
+            devices = [
+                x for x in devices if x.ip_address == device_id
             ]
-            if len(device) == 0:
+            if len(devices) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
 
         data_type = "raw"
@@ -398,7 +405,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         selected_y_params = request.data.get("y_params")
         # aggregate_data = request.GET.get('aggregate', 'yes')
 
-        data_report = DataReports(device)
+        data_report = DataReports(devices, multiple=isinstance(devices, Iterable))
         data = data_report.get_device_data(
             data_type,
             start_time,

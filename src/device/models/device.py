@@ -276,6 +276,13 @@ class Device(models.Model):
         else:
             return ''
 
+    @property
+    def type(self):
+        try:
+            return self.device_type
+        except Exception as ex:
+            return None
+
     def get_command(self):
         commands = Command.objects.filter(
             device=self,
