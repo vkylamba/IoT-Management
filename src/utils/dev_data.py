@@ -243,7 +243,7 @@ class DataReports(object):
         } for x in raw_data]
 
     def get_device_data(self, data_type, start_time, end_time, meter_type=None):
-        data = None
+        data = []
         if data_type == "raw_data":
             if not self.multiple:
                 data = RawData.objects.filter(
