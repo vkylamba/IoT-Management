@@ -440,13 +440,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         else:
             header = ["data_arrival_time", "device", "data"]
             csv_data = []
-            for dt in data:
-                rl_data = dt.data
-                csv_data.append([
-                    dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING),
-                    dt.device.ip_address,
-                    str(rl_data)
-                ])
+            if data is not None:
+                for dt in data:
+                    rl_data = dt.data
+                    csv_data.append([
+                        dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING),
+                        dt.device.ip_address,
+                        str(rl_data)
+                    ])
             # Create the HttpResponse object with the appropriate CSV header.
             response = HttpResponse(
                 content_type="text/csv",
