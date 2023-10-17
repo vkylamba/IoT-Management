@@ -292,12 +292,12 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
             if isinstance(schema, list):
                 for x in schema:
                     x["target"] = status_type.target_type
-                    x["name"] = status_type.target_type
-                    x["type"] = status_type.target_type
+                    x["name"] = status_type.name
+                    # x["type"] = status_type.target_type
             elif isinstance(schema, dict):
                 schema["target"] = status_type.target_type
-                schema["name"] = status_type.target_type
-                schema["type"] = status_type.target_type
+                schema["name"] = status_type.name
+                # schema["type"] = status_type.target_type
 
             validated_data = translate_data_from_schema(schema, raw_data, last_status)
             if validated_data is None:
