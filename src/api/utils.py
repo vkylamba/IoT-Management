@@ -156,6 +156,10 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     else:
         data_arrival_time = datetime.utcnow()
 
+    # Remove apiKey from the raw data if exists
+    if "apiKey" in message_data:
+        message_data.pop("apiKey")
+
     raw_data = RawData(
         device=device,
         channel=channel,
