@@ -267,8 +267,12 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
         status_types = StatusType.objects.filter(
             Q(device_type=device.device_type) | Q(device=device)
         )
+    else:
+        status_types = StatusType.objects.filter(
+            device=device
+        )
     if status_types is None:
-        logger.info("No status linked to device. f{device}")
+        logger.info(f"No status linked to device. {device}")
         return None
     status_types = status_types.filter(update_trigger__in=['data', 'data/schedule'])
     for status_type in status_types:
@@ -324,20 +328,19 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 status=validated_data
             )
             status.save()
-
             if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
                 other_data = device.other_data
                 if other_data is None:
-                    other_data = validated_data.get(status_type.target_type)
+                    other_data = validated_data.get(status_type.name)
                 else:
-                    other_data.update(validated_data.get(status_type.target_type))
+                    other_data.update(validated_data.get(status_type.name))
                 device.save()
             
             if status_type.target_type == StatusType.STATUS_TARGET_USER:
                 if user is not None and user.is_authenticated:
                     other_data = user.other_data
                     if other_data is None:
-                        other_data = validated_data.get(status_type.target_type)
+                        other_data = validated_data.get(status_type.name)
                     else:
-                        other_data.update(validated_data.get(status_type.target_type))
+                        other_data.update(validated_data.get(status_type.name))
                     user.save()
