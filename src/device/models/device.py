@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.cache import cache
 from django.db import models
+from django.utils import timezone
 # from geoposition.fields import GeopositionField
 # from geopy import geocoders
 from timezonefinder import TimezoneFinder
@@ -282,6 +283,17 @@ class Device(models.Model):
             return self.device_type
         except Exception as ex:
             return None
+    
+    def get_local_time(self):
+        """
+            Method to return local time for the device.
+        """
+        device_timezone = self.get_timezone()
+        if device_timezone is None:
+            dt = timezone.now()
+        else:
+            dt = timezone.datetime.now(device_timezone)
+        return dt
 
     def get_command(self):
         commands = Command.objects.filter(

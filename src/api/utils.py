@@ -15,6 +15,7 @@ from device_schemas.schema import (extract_data, translate_data_from_schema,
                                    validate_data_schema, validate_schema)
 from django.conf import settings
 from django.db.models import Q
+from django.utils import timezone
 
 from utils import detect_and_save_meter_loads
 
@@ -279,13 +280,24 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
             last_status = DeviceStatus.objects.filter(
                 device=device
             )
-        last_status = last_status.filter(
-            name__iexact=status_type.target_type
-        ).order_by('-created_at').first()
+        time_now = timezone.now()
+        date_now = time_now.date()
+        statuses_today = last_status.filter(
+            name__iexact=status_type.target_type,
+            created_at__gt=date_now
+        ).order_by('-created_at')
+
+        first_status_today = statuses_today.last()
+        last_status = statuses_today.first()
+
         if isinstance(raw_data, RawData):
             raw_data = raw_data.data
         if isinstance(last_status, DeviceStatus):
-            last_status = last_status.status
+            last_status = last_status.status if last_status.status is not None else {}
+            last_status = last_status.get(status_type.name, {})
+        if isinstance(first_status_today, DeviceStatus):
+            first_status_today = first_status_today.status if first_status_today.status is not None else {}
+            first_status_today = first_status_today.get(status_type.name, {})
 
         schema = status_type.translation_schema
         if schema is not None:
@@ -299,7 +311,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 schema["name"] = status_type.name
                 # schema["type"] = status_type.target_type
 
-            validated_data = translate_data_from_schema(schema, raw_data, last_status)
+            validated_data = translate_data_from_schema(schema, raw_data, last_status, first_status_today)
             if validated_data is None:
                 logger.warning(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
                 return "Invalid data! Data doesn't match the schema configured for the device/user."
@@ -308,7 +320,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
             status = DeviceStatus(
                 name=status_type.target_type,
                 device=device,
-                user=user if user.is_authenticated else None,
+                user=user if user is not None and user.is_authenticated else None,
                 status=validated_data
             )
             status.save()
