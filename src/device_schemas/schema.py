@@ -166,7 +166,7 @@ def extract_calculated_data(target: str, field_name: str, data: Dict, last_statu
         elif field_or_operator.startswith('changeToday__'):
             field_name = field_or_operator.replace('changeToday__', '')
             value_now = extract_data(field_name, data)
-            value_first = extract_data(field_name, first_status_today_data)
+            value_first = extract_data(target, first_status_today_data)
             value_already_fetched = True
             next_value = None
             try:
