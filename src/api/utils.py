@@ -100,6 +100,51 @@ def get_latest_raw_data(device):
         return None
 
 
+def get_existing_status_data_for_today(user, device, last_raw_data):
+
+    if user is not None and user.is_authenticated:
+        last_status = DeviceStatus.objects.filter(
+            Q(user=user) | Q(device=device)
+        )
+    else:
+        last_status = DeviceStatus.objects.filter(
+            device=device
+        )
+    time_now = timezone.now()
+    date_now = time_now.date()
+    statuses_today = last_status.filter(
+        created_at__gt=date_now
+    ).order_by('created_at')
+
+    raw_data_today = RawData.objects.filter(
+        device=device,
+        data_arrival_time__gt=date_now
+    ).order_by(
+        'data_arrival_time'
+    )
+
+    raw_data_first = raw_data_today.first()
+    raw_data_last = last_raw_data
+
+    status_first = {}
+    status_last = {}
+    for st_dt in statuses_today:
+        if st_dt.name not in status_first:
+            status_first[st_dt.name] = st_dt.status
+        status_last[st_dt.name] = st_dt.status
+
+    if raw_data_first:
+        status_first['raw'] = raw_data_first.data
+    if raw_data_last:
+        status_last['raw'] = raw_data_last.data
+    statuses = {
+        'firstToday': status_first,
+        'lastToday': status_last
+    }
+    return statuses
+
+
+
 def filter_meter_data(data, meter, data_arrival_time):
     meter_name = meter.name
     meter_data = {}
@@ -184,8 +229,8 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         configured_schema_type = other_data.get("data_schema_type")
         if configured_schema_type is None:
             configured_schema_type = dev_type_name
-
-        validated_data = validate_data_schema(configured_schema_type, message_data, last_raw_data)
+        existing_statuses = get_existing_status_data_for_today(user, device, last_raw_data)
+        validated_data = validate_data_schema(configured_schema_type, message_data, existing_statuses)
         if validated_data is None:
             logger.warning(f"Invalid data! for schema {dev_type_name}. Data: {message_data}")
             return "Invalid data! Data doesn't match the schema configured for the device."
@@ -275,34 +320,10 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
         logger.info(f"No status linked to device. {device}")
         return None
     status_types = status_types.filter(update_trigger__in=['data', 'data/schedule'])
+    existing_statuses = get_existing_status_data_for_today(user, device, last_raw_data)
+    if isinstance(raw_data, RawData):
+        raw_data = raw_data.data
     for status_type in status_types:
-        if user is not None and user.is_authenticated:
-            last_status = DeviceStatus.objects.filter(
-                Q(user=user) | Q(device=device)
-            )
-        else:
-            last_status = DeviceStatus.objects.filter(
-                device=device
-            )
-        time_now = timezone.now()
-        date_now = time_now.date()
-        statuses_today = last_status.filter(
-            name__iexact=status_type.target_type,
-            created_at__gt=date_now
-        ).order_by('-created_at')
-
-        first_status_today = statuses_today.last()
-        last_status = statuses_today.first()
-
-        if isinstance(raw_data, RawData):
-            raw_data = raw_data.data
-        if isinstance(last_status, DeviceStatus):
-            last_status = last_status.status if last_status.status is not None else {}
-            last_status = last_status.get(status_type.name, {})
-        if isinstance(first_status_today, DeviceStatus):
-            first_status_today = first_status_today.status if first_status_today.status is not None else {}
-            first_status_today = first_status_today.get(status_type.name, {})
-
         schema = status_type.translation_schema
         if schema is not None:
             if isinstance(schema, list):
@@ -315,7 +336,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 schema["name"] = status_type.name
                 # schema["type"] = status_type.target_type
 
-            validated_data = translate_data_from_schema(schema, raw_data, last_status, first_status_today)
+            validated_data = translate_data_from_schema(schema, raw_data, existing_statuses)
             if validated_data is None:
                 logger.warning(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
                 return "Invalid data! Data doesn't match the schema configured for the device/user."

@@ -33,7 +33,7 @@ for translator_file in translator_files:
     file_p.close()
 
 
-def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
+def validate_data_schema(device_type: str, data: Dict, existing_statuses: Dict) -> Dict:
 
     schema = DEVICE_SCHEMAS.get(device_type)
     translated_data = None
@@ -44,7 +44,7 @@ def validate_data_schema(device_type: str, data: Dict, last_raw_data: Dict) -> D
             return None
 
         try:
-            translated_data = translate_data(device_type, data, last_raw_data)
+            translated_data = translate_data(device_type, data, existing_statuses)
         except Exception as ex:
             logger.warning(f"Error translating data for device type {device_type}, data: {data}", ex)
             return None
@@ -63,38 +63,34 @@ def validate_schema(schema: Dict, data: Dict):
     return True
 
 
-def translate_data(device_type: str, data: Dict, last_raw_data: Dict) -> Dict:
+def translate_data(device_type: str, data: Dict, existing_statuses: Dict) -> Dict:
     translator = DATA_TRANSLATORS.get(device_type)
     translated_data = {}
     if isinstance(translator, list):
         logger.debug(f"Translation schema for device {device_type} is {translator}")
-        translated_data = translate_data_from_schema(translator, data, last_raw_data)
+        translated_data = translate_data_from_schema(translator, data, existing_statuses)
     else:
         logger.warning(f"No translation schema file found for schema {device_type}")
     
     return translated_data
 
 
-def translate_data_from_schema(translator: any, data: Dict, last_status_data: Dict, first_status_today_data: Dict = None):
+def translate_data_from_schema(translator: any, data: Dict, existing_statuses: Dict = None):
     translated_data = {}
     if isinstance(translator, dict):
         translator = [translator]
     for translator_config in translator:
-        target = translator_config.get("target")
+        schema_target = translator_config.get("target")
         target_name = translator_config.get("name")
         target_type = translator_config.get("type")
         target_fields = translator_config.get("fields", [])
         required_fields = translator_config.get("required_fields", [])
         data_fields = {}
         data_valid = True
-        if isinstance(last_status_data, Dict) and target in last_status_data:
-            last_status_data = last_status_data.get(target)
-        if isinstance(first_status_today_data, Dict) and target in first_status_today_data:
-            first_status_today_data = first_status_today_data.get(target)
         if isinstance(target_fields, list):
             for target_field in target_fields:
                 target_field_name = target_field.get("target")
-                data_fields[target_field_name] = translate_field_value(target_field, data, last_status_data, first_status_today_data)
+                data_fields[target_field_name] = translate_field_value(schema_target, target_field, data, existing_statuses)
         if isinstance(required_fields, list):
             for required_field in required_fields:
                 if data_fields.get(required_field) is None:
@@ -105,7 +101,7 @@ def translate_data_from_schema(translator: any, data: Dict, last_status_data: Di
     return translated_data
 
 
-def translate_field_value(field_config: Dict, data: Dict, last_status_data: Dict, first_status_today_data: Dict = None):
+def translate_field_value(schema_target: str, field_config: Dict, data: Dict, existing_statuses: Dict = None):
 
     target = field_config.get("target")
     type = field_config.get("type")
@@ -130,7 +126,7 @@ def translate_field_value(field_config: Dict, data: Dict, last_status_data: Dict
             if raw_val is not None:
                 value = raw_val * multiplier + offset
         elif type == "calculated":
-            raw_val = extract_calculated_data(target, source, data, last_status_data, first_status_today_data)
+            raw_val = extract_calculated_data(schema_target, target, source, data, existing_statuses)
             if raw_val is not None:
                 value = float(raw_val) * multiplier + offset
         logger.info(f"Extracted value for source {source} is: {value}")
@@ -149,10 +145,13 @@ def extract_data(field_name: str, data: Dict):
 
     return current_dict
 
-
-def extract_calculated_data(target: str, field_name: str, data: Dict, last_status_data: Dict, first_status_today_data: Dict = None):
+def extract_calculated_data(schema_target: str, target: str, field_name: str, data: Dict, existing_statuses: Dict = None):
     fields_and_operators = field_name.split()
     equation = ''
+    first_today = existing_statuses.get('firstToday', {})
+    last_today = existing_statuses.get('lastToday', {})
+    last_status_data = last_today.get(schema_target, {})
+    first_raw_data = first_today.get("raw", {})
     for field_or_operator in fields_and_operators:
         operator = None
         field_name = None
@@ -166,7 +165,7 @@ def extract_calculated_data(target: str, field_name: str, data: Dict, last_statu
         elif field_or_operator.startswith('changeToday__'):
             field_name = field_or_operator.replace('changeToday__', '')
             value_now = extract_data(field_name, data)
-            value_first = extract_data(target, first_status_today_data)
+            value_first = extract_data(field_name, first_raw_data)
             value_already_fetched = True
             next_value = None
             try:
