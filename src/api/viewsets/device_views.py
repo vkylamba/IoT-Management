@@ -29,15 +29,7 @@ class DeviceViewSet(viewsets.ViewSet):
         error = "success"
 
         for device in user.device_list(return_objects=True):
-            latest_data = device.get_latest_data()
             other_data = device.other_data
-
-            if latest_data is None and other_data is not None:
-                last_sync_time = other_data.get('last_data_sync_time')
-            elif latest_data is not None:
-                last_sync_time = latest_data.data_arrival_time.strftime(settings.TIME_FORMAT_STRING) if latest_data else None
-            else:
-                last_sync_time = None
 
             try:
                 device_type = device.device_type
@@ -56,7 +48,6 @@ class DeviceViewSet(viewsets.ViewSet):
                     "lat":  other_data.get("latitude", device.latitude()),
                     "long": other_data.get("longitude", device.longitude()),
                     "type": device_type.name if device_type is not None else None,
-                    "last_data_time": last_sync_time,
                     "face": device.avatar.url if device.avatar else None,
                     "address": device.address,
                     "other_data": other_data

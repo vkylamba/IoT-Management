@@ -2,11 +2,12 @@ import datetime
 
 import pytz
 from device.models import (Device, DeviceProperty, DeviceStatus, DeviceType,
-                           Meter)
+                           Meter, RawData)
 from django.conf import settings
 from django.utils import timezone
 from pipe import select, where
 from utils.dev_data import DataReports
+from device_schemas.device_types import IOT_GW_SHAKTI_SOLAR_PUMP, IOT_GW_SOLAR_CC
 
 
 def get_statistics_yesterday(dr, from_time, to_time, params='all'):
@@ -65,43 +66,63 @@ def get_daily_report(device):
     to_time = to_time.astimezone(pytz.utc)
     from_time_1 = from_time_1.astimezone(pytz.utc)
 
-    last_day_data = [meter_data for meter_data in get_statistics_yesterday(dr, from_time, to_time)]
+
+    device_type = device.type
+    if device_type is not None:
+        device_type = device_type.code
+
+    if device_type in (IOT_GW_SHAKTI_SOLAR_PUMP, IOT_GW_SOLAR_CC):
+        data_points = RawData.objects.filter(
+            device=device,
+            data_arrival_time__gt=from_time,
+            data_arrival_time__lte=to_time
+        ).count()
+        energy_consumed = device.other_data.get("energy_consumed_this_day", 0)
+        energy_generated = device.other_data.get("energy_generated_this_day", 0)
+    else:
+        last_day_data = [meter_data for meter_data in get_statistics_yesterday(dr, from_time, to_time)]
+        
+        if len(last_day_data) == 0:
+            return None
+
+        meter_names = [meter.name for meter in dr.meters]
     
-    if len(last_day_data) == 0:
-        return None
+        energy_export_data = list(last_day_data | where(lambda x: x['meter_name'] == 'export_energy_meter'))
+        if len(energy_export_data) > 0:
+            energy_export_data = energy_export_data[0]
+        else:
+            energy_export_data = {}
 
-    meter_names = [meter.name for meter in dr.meters]
- 
-    energy_export_data = list(last_day_data | where(lambda x: x['meter_name'] == 'export_energy_meter'))
-    if len(energy_export_data) > 0:
-        energy_export_data = energy_export_data[0]
-    else:
-        energy_export_data = {}
+        energy_import_data = list(last_day_data | where(lambda x: x['meter_name'] == 'import_energy_meter'))
+        if len(energy_import_data) > 0:
+            energy_import_data = energy_import_data[0]
+        else:
+            energy_import_data = {}
 
-    energy_import_data = list(last_day_data | where(lambda x: x['meter_name'] == 'import_energy_meter'))
-    if len(energy_import_data) > 0:
-        energy_import_data = energy_import_data[0]
-    else:
-        energy_import_data = {}
+        energy_generation_data = list(last_day_data | where(lambda x: x['meter_name'] == 'solar_meter'))
+        if len(energy_generation_data) > 0:
+            energy_generation_data = energy_generation_data[0]
+        else:
+            energy_generation_data = {}
 
-    energy_generation_data = list(last_day_data | where(lambda x: x['meter_name'] == 'solar_meter'))
-    if len(energy_generation_data) > 0:
-        energy_generation_data = energy_generation_data[0]
-    else:
-        energy_generation_data = {}
+        energy_consumption_data = list(last_day_data | where(lambda x: x['meter_name'] == 'load_meter'))
+        if len(energy_consumption_data) > 0:
+            energy_consumption_data = energy_consumption_data[0]
+        else:
+            energy_consumption_data = {}
 
-    energy_consumption_data = list(last_day_data | where(lambda x: x['meter_name'] == 'load_meter'))
-    if len(energy_consumption_data) > 0:
-        energy_consumption_data = energy_consumption_data[0]
-    else:
-        energy_consumption_data = {}
+        any_meter_data = list(last_day_data | where(lambda x: x['meter_name'] in meter_names))
+        if len(any_meter_data) > 0:
+            any_meter_data = any_meter_data[0]
+        else:
+            any_meter_data = {}
+        data_points = float(any_meter_data.get('data_points', 0))
 
-    any_meter_data = list(last_day_data | where(lambda x: x['meter_name'] in meter_names))
-    if len(any_meter_data) > 0:
-        any_meter_data = any_meter_data[0]
-    else:
-        any_meter_data = {}
-    data_points = float(any_meter_data.get('data_points', 0))
+        energy_exported = float(energy_export_data.get('max_energy', 0)) - float(energy_export_data.get('min_energy', 0))
+        energy_imported = float(energy_import_data.get('max_energy', 0)) - float(energy_import_data.get('min_energy', 0))
+        energy_generated = float(energy_generation_data.get('max_energy', 0)) - float(energy_generation_data.get('min_energy', 0))
+        energy_consumed = float(energy_consumption_data.get('max_energy', 0)) - float(energy_consumption_data.get('min_energy', 0))
+
 
     data_frequency_minutes = DeviceProperty.objects.filter(device=device, name='data_frequency_minutes').first()
     if data_frequency_minutes:
@@ -110,11 +131,6 @@ def get_daily_report(device):
         data_frequency_minutes = 10
 
     active_data_days = data_points * data_frequency_minutes / 60 / 24
-
-    energy_exported = float(energy_export_data.get('max_energy', 0)) - float(energy_export_data.get('min_energy', 0))
-    energy_imported = float(energy_import_data.get('max_energy', 0)) - float(energy_import_data.get('min_energy', 0))
-    energy_generated = float(energy_generation_data.get('max_energy', 0)) - float(energy_generation_data.get('min_energy', 0))
-    energy_consumed = float(energy_consumption_data.get('max_energy', 0)) - float(energy_consumption_data.get('min_energy', 0))
 
     if dr.rate is not None:
         consumption_rate = dr.rate.get_value()
