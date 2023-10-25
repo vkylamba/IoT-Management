@@ -79,6 +79,8 @@ def get_daily_report(device):
         ).count()
         energy_consumed = device.other_data.get("energy_consumed_this_day", 0)
         energy_generated = device.other_data.get("energy_generated_this_day", 0)
+        energy_imported = device.other_data.get("energy_imported_this_day", 0)
+        energy_exported = device.other_data.get("energy_exported_this_day", 0)
     else:
         last_day_data = [meter_data for meter_data in get_statistics_yesterday(dr, from_time, to_time)]
         
