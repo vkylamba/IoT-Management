@@ -7,6 +7,7 @@ from django.conf import settings
 from django.utils import timezone
 from pipe import select, where
 from utils.dev_data import DataReports
+from api.utils import get_existing_status_data_for_today
 from device_schemas.device_types import IOT_GW_SHAKTI_SOLAR_PUMP, IOT_GW_SOLAR_CC
 
 
@@ -75,12 +76,16 @@ def get_daily_report(device):
         data_points = RawData.objects.filter(
             device=device,
             data_arrival_time__gt=from_time,
-            data_arrival_time__lte=to_time
+            data_arrival_time__lt=to_time
         ).count()
-        energy_consumed = device.other_data.get("energy_consumed_this_day", 0)
-        energy_generated = device.other_data.get("energy_generated_this_day", 0)
-        energy_imported = device.other_data.get("energy_imported_this_day", 0)
-        energy_exported = device.other_data.get("energy_exported_this_day", 0)
+        existing_statuses = get_existing_status_data_for_today(None, device, None)
+        existing_statuses = existing_statuses.get('lastToday', {})
+        last_status_dev = existing_statuses.get('device', {})
+        last_status_dev = last_status_dev.get('daily status', {})
+        energy_consumed = last_status_dev.get("energy_consumed_this_day", 0)
+        energy_generated = last_status_dev.get("energy_generated_this_day", 0)
+        energy_imported = last_status_dev.get("energy_imported_this_day", 0)
+        energy_exported = last_status_dev.get("energy_exported_this_day", 0)
         meter_names = []
     else:
         last_day_data = [meter_data for meter_data in get_statistics_yesterday(dr, from_time, to_time)]
