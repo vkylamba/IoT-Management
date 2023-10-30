@@ -125,6 +125,17 @@ class DeviceEquipmentAdmin(admin.ModelAdmin):
     def Equipment(self, obj):
         return obj.equipment
 
+class StatusTypeAdmin(admin.ModelAdmin):
+    ordering = ('name',)
+    list_display = ('id', 'name', 'target_type', 'user', 'device', 'device_type', 'update_trigger')
+    list_filter = ('name', 'target_type', 'user', 'device', 'device_type', 'update_trigger')
+
+
+class UserDeviceTypeAdmin(admin.ModelAdmin):
+    ordering = ('name',)
+    list_display = ('id', 'name', 'code', 'user', 'identifier_field')
+    list_filter = ('name', 'code', 'user', 'identifier_field')
+
 
 admin.site.register(DeviceType, DeviceTypeAdmin)
 admin.site.register(Operator, OperatorAdmin)
@@ -144,5 +155,5 @@ admin.site.register(DeviceFirmware)
 admin.site.register(Subnet)
 
 
-admin.site.register(UserDeviceType)
-admin.site.register(StatusType)
+admin.site.register(UserDeviceType, UserDeviceTypeAdmin)
+admin.site.register(StatusType, StatusTypeAdmin)
