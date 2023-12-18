@@ -154,6 +154,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             ]
             if len(device) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         cached_data = None # cache.get("device_static_data_{}".format(device_id))
 
