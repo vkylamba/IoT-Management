@@ -5,6 +5,9 @@ ENV PYTHONUNBUFFERED 1
 ENV APP_HOME=/home/application/
 RUN mkdir -p $APP_HOME
 
+RUN apt-get update && apt-get install -y supervisor
+RUN mkdir -p /var/log/supervisor
+
 # create application user/group first, to be consistent throughout docker variants
 RUN set -x \
     && addgroup --system --gid 1001 application \
@@ -20,4 +23,5 @@ EXPOSE 8000
 RUN pip install -r requirements.txt
 COPY ./src $APP_HOME
 
-ENTRYPOINT [ "/bin/bash", "start-services.sh"]
+COPY ./supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+CMD ["/usr/bin/supervisord"]

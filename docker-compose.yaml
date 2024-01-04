@@ -55,6 +55,7 @@ services:
       - ./static:/home/application/static
       - media_volume:/home/application/media
       - python-packages:/usr/local/lib/python3.11/site-packages/
+      - ./supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
     env_file:
       - ./src/iot_server/.env
 
