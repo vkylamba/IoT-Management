@@ -1,3 +1,4 @@
+import time
 import logging
 
 from django.core.management.base import BaseCommand
@@ -18,3 +19,4 @@ class Command(BaseCommand):
         except Exception as ex:
             logger.exception(ex)
             stop_bot()
+            time.sleep(10000)
