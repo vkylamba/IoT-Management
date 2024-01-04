@@ -19,4 +19,4 @@ class Command(BaseCommand):
         except Exception as ex:
             logger.exception(ex)
             stop_bot()
-            time.sleep(10000)
+            time.sleep(15)
