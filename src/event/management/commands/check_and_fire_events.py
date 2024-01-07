@@ -23,9 +23,12 @@ class Command(BaseCommand):
         time_now = timezone.now()
         
         actions = Action.objects.filter(
-            device_event__typ__trigger_type='Time'
+            device_event__typ__trigger_type='Time',
+            active=True
         )
         for action in actions:
+            if not action.device_event.active:
+                continue
             last_trigger_time = action.device_event.last_trigger_time
             if last_trigger_time is None or (action.device_event.schedule is not None and action.device_event.schedule.schedule.is_due(last_trigger_time).is_due):
                 if action.task:

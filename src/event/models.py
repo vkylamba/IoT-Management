@@ -48,6 +48,8 @@ class DeviceEvent(models.Model):
     equation_threshold = models.CharField(max_length=255, help_text='Threshold value for the event equations', null=True, blank=True)
     schedule = models.ForeignKey(CrontabSchedule, null=True, blank=True, on_delete=models.CASCADE)
     last_trigger_time = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    active = models.BooleanField(default=True)
     
     class Meta:
         verbose_name_plural = 'Device events'
@@ -123,6 +125,9 @@ class Action(models.Model):
             'JSON encoded keyword arguments '
             '(Example: {"argument": "value"})'),
     )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    active = models.BooleanField(default=True)
     
     class Meta:
         verbose_name_plural = 'Actions'
