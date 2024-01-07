@@ -62,14 +62,14 @@ def assign_ip_address_to_existing_user_devices(user: User, user_device_type: Use
     subnet = subnet.split('/')
     if len(subnet) > 1:
         subnet_1 = subnet[0].strip()
-        subnet_1 = '.'.join(subnet_1.split('.')[:-2])
+        subnet_1 = '.'.join(subnet_1.split('.')[:-1])
         subnet_start = User.address_string_to_numeric(subnet[0].strip())
         subnet_end = subnet_start + int(subnet[1].strip())
         # Now figure out the devices which belongs to this user
         max_address = subnet_start
         devices_with_ip_address = Device.objects.filter(
             alias__istartswith=dev_identifier,
-            ip_address_istartswith=subnet_1
+            ip_address__istartswith=subnet_1
         )
         for device in devices_with_ip_address:
             dev_address = device.ip_address
@@ -85,7 +85,7 @@ def assign_ip_address_to_existing_user_devices(user: User, user_device_type: Use
         )
         for device in devices_without_ip_address:
             max_address += 1
-            device.ip_address = max_address
+            device.ip_address = User.address_numeric_to_string(max_address)
         
         Device.objects.bulk_update(devices_without_ip_address, ['ip_address'])
 
