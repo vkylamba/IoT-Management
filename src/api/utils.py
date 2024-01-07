@@ -55,6 +55,41 @@ def generate_device_alias(dev_identifier_field, dev_id):
     return alias + '-' + str(dev_id)
 
 
+def assign_ip_address_to_existing_user_devices(user: User, user_device_type: UserDeviceType):
+    subnet = user.subnet_mask
+    dev_identifier = user_device_type.identifier_field
+    dev_identifier = generate_device_alias(dev_identifier, '')
+    subnet = subnet.split('/')
+    if len(subnet) > 1:
+        subnet_1 = subnet[0].strip()
+        subnet_1 = '.'.join(subnet_1.split('.')[:-2])
+        subnet_start = User.address_string_to_numeric(subnet[0].strip())
+        subnet_end = subnet_start + int(subnet[1].strip())
+        # Now figure out the devices which belongs to this user
+        max_address = subnet_start
+        devices_with_ip_address = Device.objects.filter(
+            alias__istartswith=dev_identifier,
+            ip_address_istartswith=subnet_1
+        )
+        for device in devices_with_ip_address:
+            dev_address = device.ip_address
+            if dev_address is None or device.active is False:
+                continue
+            dev_address = User.address_string_to_numeric(dev_address)
+            if subnet_start <= dev_address and dev_address < subnet_end:
+                if max_address is None or dev_address > max_address:
+                    max_address = dev_address
+        devices_without_ip_address = Device.objects.filter(
+            alias__istartswith=dev_identifier,
+            ip_address__isnull=True
+        )
+        for device in devices_without_ip_address:
+            max_address += 1
+            device.ip_address = max_address
+        
+        Device.objects.bulk_update(devices_without_ip_address, ['ip_address'])
+
+
 def get_or_create_user_device(user: User, data: json) -> Device:
     user_dev_types = UserDeviceType.objects.filter(
         user=user

@@ -191,6 +191,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             status_types.append(StatusTypeSerializer(status_type).data)
 
         device_data = {
+            'id': str(device.id),
+            'numeric_id': device.numeric_id,
+            'active': device.active,
             'ip_address': device.ip_address,
             'alias': device.alias,
             'type': device.type.name if device.type is not None else None,

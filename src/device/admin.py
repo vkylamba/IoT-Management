@@ -60,8 +60,8 @@ def delete_device_types(modeladmin, request, queryset):
 
 class DeviceAdmin(admin.ModelAdmin):
     ordering = ('ip_address',)
-    list_display = ('id', 'ip_address', 'mac', 'Type', 'operator')
-    list_filter = ('ip_address', 'alias', 'id', 'mac')
+    list_display = ('id', 'ip_address', 'alias', 'mac', 'Type', 'operator', 'active', 'created_at')
+    list_filter = ('ip_address', 'alias', 'id', 'mac', 'active', 'created_at')
     actions = [delete_devices]
 
     def Type(self, obj):

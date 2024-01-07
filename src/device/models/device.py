@@ -228,6 +228,8 @@ class Device(models.Model):
 
     other_data = models.JSONField(blank=True, null=True)
 
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     active = models.BooleanField(default=True, blank=True, null=True)
 
     class Meta:
