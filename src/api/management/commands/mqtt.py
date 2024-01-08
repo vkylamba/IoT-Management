@@ -119,13 +119,13 @@ class Command(BaseCommand):
                 try:
                     message_data = json.loads(message_payload)
                 except Exception:
-                    logger.error(f"Invalid json data: {message_payload}")
+                    logger.warning(f"Invalid json data: {message_payload}")
                 else:
                     process_raw_data(device, message_data, channel='mqtt', data_type=topic_type)
             elif topic_type not in [CLIENT_HEARTBEAT_RESP_TOPIC_TYPE, CLIENT_COMMAND_RESP_TOPIC_TYPE]:
-                logger.error("MQTT unknown topic: %s", topic_type)
+                logger.warning("MQTT unknown topic: %s", topic_type)
         else:
-            logger.error("MQTT unknown topic: %s", msg.topic)
+            logger.warning("MQTT unknown topic: %s", msg.topic)
 
     def find_device(self, group_name, device_name, topic_type):
 
