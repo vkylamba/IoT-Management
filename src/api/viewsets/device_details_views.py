@@ -276,7 +276,10 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         for key in data:
             val = data[key]
             if hasattr(device, key):
-                setattr(device, key, val)
+                try:
+                    setattr(device, key, val)
+                except Exception as ex:
+                    logger.warning(ex)
 
         if 'type' in data:
             dev_type = UserDeviceType.objects.filter(user=dev_user, code__iexact=data['type']).first()
