@@ -47,30 +47,28 @@ class Command(BaseCommand):
     help = 'Starts the mqtt service.'
 
     def handle(self, *args, **options):
-        while True:
-            try:
-                client = mqtt.Client()
-                client.on_connect = self.on_connect
-                client.on_message = self.on_message
-                
-                client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
-                client.tls_set(ROOT_CA_FILE_PATH)
-                client.tls_insecure_set(False)
+        try:
+            client = mqtt.Client()
+            client.on_connect = self.on_connect
+            client.on_message = self.on_message
+            
+            client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
+            client.tls_set(ROOT_CA_FILE_PATH)
+            client.tls_insecure_set(False)
 
-                client.connect(
-                    host=settings.MQTT_BROKER,
-                    port=int(settings.MQTT_PORT),
-                    keepalive=settings.MQTT_KEEPALIVE
-                )
+            client.connect(
+                host=settings.MQTT_BROKER,
+                port=int(settings.MQTT_PORT),
+                keepalive=settings.MQTT_KEEPALIVE
+            )
 
-                client.loop_start()
-                
-                self.check_and_send_commands(client)
+            client.loop_start()
+            
+            self.check_and_send_commands(client)
 
-                # client.loop_forever()
-            except Exception as ex:
-                logger.exception(ex)
-            time.sleep(10)
+            # client.loop_forever()
+        except Exception as ex:
+            logger.exception(ex)
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
@@ -168,32 +166,26 @@ class Command(BaseCommand):
         # Get unsent commands
         last_cmd_id = None
         while True:
-            try:
-                commands = CommandsModal.objects.filter(status__iexact='P').prefetch_related('device__types').order_by('-command_in_time')
+            commands = CommandsModal.objects.filter(status__iexact='P').prefetch_related('device__types').order_by('-command_in_time')
+            if last_cmd_id is not None:
+                commands = commands.filter(
+                    pk__gt=last_cmd_id
+                ).order_by('-command_in_time')
 
-                if last_cmd_id is not None:
-                    commands = commands.filter(
-                        pk__gt=last_cmd_id
-                    ).order_by('-command_in_time')
-
-                for command in commands:
-                    last_cmd_id = command.pk
-                    device = command.device
-                    device_types = [x.name for x in device.types.all()]
-                    for device_type_name in device_types:
-                        command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command)
-                        if command_topic is not None:
-                            command_topic = command_topic.format(
-                                dev_mqtt_user='Devtest',
-                                device_alias=device.alias,
-                                device_type_name=device_type_name
-                            )
-                            logger.info("Publishing MQTT %s: %s", command_topic, command.param)
-                            client.publish(command_topic, command.param)
-                    command.status = 'E'
-                    command.command_read_time = timezone.datetime.utcnow()
-                    command.save()
-
-            except Exception as ex:
-                logger.exception(ex)
-            time.sleep(60)
+            for command in commands:
+                last_cmd_id = command.pk
+                device = command.device
+                device_types = [x.name for x in device.types.all()]
+                for device_type_name in device_types:
+                    command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command)
+                    if command_topic is not None:
+                        command_topic = command_topic.format(
+                            dev_mqtt_user='Devtest',
+                            device_alias=device.alias,
+                            device_type_name=device_type_name
+                        )
+                        logger.info("Publishing MQTT %s: %s", command_topic, command.param)
+                        client.publish(command_topic, command.param)
+                command.status = 'E'
+                command.command_read_time = timezone.datetime.utcnow()
+                command.save()
