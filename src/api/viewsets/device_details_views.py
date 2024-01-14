@@ -310,32 +310,33 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                     Q(device=device)
                 ).all()
             # handle the status types update
-            new_available_status_types = request.data.get("available_status_types", [])
-            status_ids_to_keep = []
-            for new_available_status_type in new_available_status_types:
-                status_type_id = new_available_status_type.get("id")
-                if status_type_id is not None:
-                    status_type = StatusType.objects.filter(
-                        id=status_type_id
-                    ).first()
-                    if status_type is None:
-                        errors.append(f"Status type with id {status_type_id} not found!")
-                        continue
-                else:
-                    status_type = StatusType()
-                if len(errors) == 0:
-                    status_type.name = new_available_status_type.get("name", status_type.name)
-                    status_type.target_type = new_available_status_type.get("target_type", status_type.target_type)
-                    status_type.update_trigger = new_available_status_type.get("update_trigger", status_type.update_trigger)
-                    status_type.device = device
-                    status_type.device_type = new_available_status_type.get("device_type", status_type.device_type)
-                    status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
-                    status_type.save()
+            new_available_status_types = request.data.get("available_status_types")
+            if isinstance(new_available_status_types, list):
+                status_ids_to_keep = []
+                for new_available_status_type in new_available_status_types:
+                    status_type_id = new_available_status_type.get("id")
+                    if status_type_id is not None:
+                        status_type = StatusType.objects.filter(
+                            id=status_type_id
+                        ).first()
+                        if status_type is None:
+                            errors.append(f"Status type with id {status_type_id} not found!")
+                            continue
+                    else:
+                        status_type = StatusType()
+                    if len(errors) == 0:
+                        status_type.name = new_available_status_type.get("name", status_type.name)
+                        status_type.target_type = new_available_status_type.get("target_type", status_type.target_type)
+                        status_type.update_trigger = new_available_status_type.get("update_trigger", status_type.update_trigger)
+                        status_type.device = device
+                        status_type.device_type = new_available_status_type.get("device_type", status_type.device_type)
+                        status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
+                        status_type.save()
                 
                 status_ids_to_keep.append(status_type.id)
             
-            # Delete the remaining status types
-            device_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
+                # Delete the remaining status types
+                device_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
 
         properties_data = data.get('properties', {})
         latest_status = DeviceStatus.objects.filter(
