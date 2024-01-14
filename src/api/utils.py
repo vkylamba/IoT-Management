@@ -362,7 +362,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
     for status_type in status_types:
         schema = status_type.translation_schema
         if schema is not None:
-            if isinstance(schema, list):
+            if isinstance(schema, list) and status_type.target_type != StatusType.STATUS_TARGET_METER:
                 for x in schema:
                     x["target"] = status_type.target_type
                     x["name"] = status_type.name
@@ -401,3 +401,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                     else:
                         other_data.update(validated_data.get(status_type.name))
                     user.save()
+            
+            if status_type.target_type == StatusType.STATUS_TARGET_METER:
+                pass
+                # ToDo: Save meter data here

@@ -82,7 +82,6 @@ def translate_data_from_schema(translator: any, data: Dict, existing_statuses: D
     for translator_config in translator:
         schema_target = translator_config.get("target")
         target_name = translator_config.get("name")
-        target_type = translator_config.get("type")
         target_fields = translator_config.get("fields", [])
         required_fields = translator_config.get("required_fields", [])
         data_fields = {}
