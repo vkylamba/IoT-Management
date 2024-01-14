@@ -283,7 +283,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
 
     meters_names_found = []
     for meter_name in message_data:
-        if '_meter' not in meter_name:
+        if 'meter' not in meter_name:
             logger.warning(f"Skipping meter {meter_name}.")
             continue
 
