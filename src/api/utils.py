@@ -324,7 +324,9 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
             meters_and_data,
             data_arrival_time
         )
-    update_device_info_on_meter_data_update(device, meters_and_data, load_data, data_arrival_time)
+    # ToDo: Remove it oonce status are working fine
+    if dev_type_name in IOT_GW_DEVICES:
+        update_device_info_on_meter_data_update(device, meters_and_data, load_data, data_arrival_time)
 
     # update the user/device statuses
     # update_user_and_device_statuses(user, device, raw_data, last_raw_data)
