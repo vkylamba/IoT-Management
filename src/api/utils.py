@@ -378,30 +378,32 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 return "Invalid data! Data doesn't match the schema configured for the device/user."
 
             logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
-            status = DeviceStatus(
-                name=status_type.target_type,
-                device=device,
-                user=user if user is not None and user.is_authenticated else None,
-                status=validated_data
-            )
-            status.save()
-            if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
-                other_data = device.other_data
-                if other_data is None:
-                    other_data = validated_data.get(status_type.name)
-                else:
-                    other_data.update(validated_data.get(status_type.name))
-                device.save()
-            
-            if status_type.target_type == StatusType.STATUS_TARGET_USER:
-                if user is not None and user.is_authenticated:
-                    other_data = user.other_data
+            validated_status_data = validated_data.get(status_type.name, {})
+            if not bool(validated_status_data):
+                status = DeviceStatus(
+                    name=status_type.target_type,
+                    device=device,
+                    user=user if user is not None and user.is_authenticated else None,
+                    status=validated_data
+                )
+                status.save()
+                if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
+                    other_data = device.other_data
                     if other_data is None:
-                        other_data = validated_data.get(status_type.name)
+                        other_data = validated_status_data
                     else:
-                        other_data.update(validated_data.get(status_type.name))
-                    user.save()
-            
-            if status_type.target_type == StatusType.STATUS_TARGET_METER:
-                pass
-                # ToDo: Save meter data here
+                        other_data.update(validated_status_data)
+                    device.save()
+                
+                if status_type.target_type == StatusType.STATUS_TARGET_USER:
+                    if user is not None and user.is_authenticated:
+                        other_data = user.other_data
+                        if other_data is None:
+                            other_data = validated_status_data
+                        else:
+                            other_data.update(validated_status_data)
+                        user.save()
+                
+                if status_type.target_type == StatusType.STATUS_TARGET_METER:
+                    pass
+                    # ToDo: Save meter data here
