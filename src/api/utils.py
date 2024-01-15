@@ -379,7 +379,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
 
             logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
             validated_status_data = validated_data.get(status_type.name, {})
-            if not bool(validated_status_data):
+            if any(validated_status_data):
                 status = DeviceStatus(
                     name=status_type.target_type,
                     device=device,
