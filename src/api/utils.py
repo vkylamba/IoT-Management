@@ -313,19 +313,18 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         except TypeError as e:
             logger.exception(e)
 
-    # Skip if only status meter data is there
-    if len(meters_names_found) == 1 and meters_names_found[0] == "status_meter":
-        return ""
-
-    load_data = None
-    if other_data.get("device_load_detection_on", False):
-        load_data = detect_and_save_meter_loads(
-            device,
-            meters_and_data,
-            data_arrival_time
-        )
     # ToDo: Remove it oonce status are working fine
     if dev_type_name in IOT_GW_DEVICES:
+        # Skip if only status meter data is there
+        if len(meters_names_found) == 1 and meters_names_found[0] == "status_meter":
+            return ""
+        load_data = None
+        if other_data.get("device_load_detection_on", False):
+            load_data = detect_and_save_meter_loads(
+                device,
+                meters_and_data,
+                data_arrival_time
+            )
         update_device_info_on_meter_data_update(device, meters_and_data, load_data, data_arrival_time)
 
     # update the user/device statuses
