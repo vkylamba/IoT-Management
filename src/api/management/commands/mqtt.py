@@ -69,6 +69,7 @@ class Command(BaseCommand):
             # client.loop_forever()
         except Exception as ex:
             logger.exception(ex)
+            raise ex
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
