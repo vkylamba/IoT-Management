@@ -47,29 +47,25 @@ class Command(BaseCommand):
     help = 'Starts the mqtt service.'
 
     def handle(self, *args, **options):
-        try:
-            client = mqtt.Client()
-            client.on_connect = self.on_connect
-            client.on_message = self.on_message
-            
-            client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
-            client.tls_set(ROOT_CA_FILE_PATH)
-            client.tls_insecure_set(False)
+        client = mqtt.Client()
+        client.on_connect = self.on_connect
+        client.on_disconnect = self.on_disconnect
+        client.on_message = self.on_message
+        # client.on_log = self.on_log
+        
+        client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
+        client.tls_set(ROOT_CA_FILE_PATH)
+        client.tls_insecure_set(False)
 
-            client.connect(
-                host=settings.MQTT_BROKER,
-                port=int(settings.MQTT_PORT),
-                keepalive=settings.MQTT_KEEPALIVE
-            )
+        client.connect(
+            host=settings.MQTT_BROKER,
+            port=int(settings.MQTT_PORT),
+            keepalive=settings.MQTT_KEEPALIVE
+        )
 
-            client.loop_start()
-            
-            self.check_and_send_commands(client)
-
-            # client.loop_forever()
-        except Exception as ex:
-            logger.exception(ex)
-            raise ex
+        client.loop_start()
+        
+        self.check_and_send_commands(client)
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
@@ -79,9 +75,16 @@ class Command(BaseCommand):
         else:
             logger.info('MQTT, Bad connection. Code:', rc)
 
+    def on_disconnect(self, mqtt_client, userdata, rc=0):
+        logging.info("MQTT disconnected result code " + str(rc))
+        mqtt_client.loop_stop()
+
     def on_message(self, mqtt_client, user_data, msg):
         logger.info(f'Received message on topic: {msg.topic} with payload: {msg.payload}')
         self.process_message(msg)
+    
+    def on_log(self, mqtt_client, obj, level, string):
+        logger.info(f"{level}: {string}")
 
     def subscribe_all_topics(self, mqtt_client):
         topic = "#"
