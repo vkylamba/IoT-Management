@@ -1,3 +1,4 @@
+import sys
 from django.utils import timezone
 import json
 import logging
@@ -51,7 +52,7 @@ class Command(BaseCommand):
         client.on_connect = self.on_connect
         client.on_disconnect = self.on_disconnect
         client.on_message = self.on_message
-        # client.on_log = self.on_log
+        client.on_log = self.on_log
         
         client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
         client.tls_set(ROOT_CA_FILE_PATH)
@@ -69,7 +70,7 @@ class Command(BaseCommand):
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
-            # logger.info('MQTT connected successful')
+            logger.info('MQTT connected successful')
             self.subscribe_all_topics(mqtt_client)
             # self.subscribe_active_clients_topic(mqtt_client)
         else:
@@ -81,7 +82,11 @@ class Command(BaseCommand):
 
     def on_message(self, mqtt_client, user_data, msg):
         logger.info(f'Received message on topic: {msg.topic} with payload: {msg.payload}')
-        self.process_message(msg)
+        try:
+            self.process_message(msg)
+        except Exception as ex:
+            logger.exception('Expection ocurred while processing MQTT message: {ex}')
+            sys.exit(0)
     
     def on_log(self, mqtt_client, obj, level, string):
         logger.info(f"{level}: {string}")
