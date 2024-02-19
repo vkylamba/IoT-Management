@@ -194,7 +194,7 @@ class Command(BaseCommand):
                             device_type_name=device_type_name
                         )
                         logger.info("Publishing MQTT %s: %s", command_topic, command.param)
-                        client.publish(command_topic, command.param)
+                        client.publish(command_topic, command.param, 1)
                 command.status = 'E'
                 command.command_read_time = timezone.datetime.utcnow()
                 command.save()
