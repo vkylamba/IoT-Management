@@ -436,6 +436,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 )
             end_time = request.data.get("endTime", "").strip()
             end_date = request.data.get("endDate", "").strip()
+            
+            if end_date == '' and end_time == '':
+                end_date = start_date
+                end_time = start_time
+
             if end_date:
                 end_time = timezone.datetime.strptime(
                     end_date, settings.DATE_FORMAT_STRING
@@ -464,26 +469,29 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             ]
         )
         if export_type == "json":
-            x_params = selected_x_params.strip()
-            y_params = selected_y_params.strip().split(',')
+            if data_type == "status":
+                data = data_report.get_current_day_status_data(start_time)
+            else:
+                x_params = selected_x_params.strip()
+                y_params = selected_y_params.strip().split(',')
 
-            params_list = ["time"]
-            if(x_params != '' and x_params != 'time'):
-                params_list += [x_params]
-            for param in y_params:
-                params_list += [param]
+                params_list = ["time"]
+                if(x_params != '' and x_params != 'time'):
+                    params_list += [x_params]
+                for param in y_params:
+                    params_list += [param]
 
-            for param in params_list:
-                dynamic_data[param] = []
+                for param in params_list:
+                    dynamic_data[param] = []
 
-            for param in params_list:
-                data_list = []
-                for each_data in data:
-                    if(param == "time"):
-                        param = "data_arrival_time"
-                    data_list.append(getattr(each_data, param, None))
-                dynamic_data[param] = data_list
-            data = {"error": "success", "dynamic_data": dynamic_data}
+                for param in params_list:
+                    data_list = []
+                    for each_data in data:
+                        if(param == "time"):
+                            param = "data_arrival_time"
+                        data_list.append(getattr(each_data, param, None))
+                    dynamic_data[param] = data_list
+                data = {"error": "success", "dynamic_data": dynamic_data}
             return Response(data)
         else:
             header = ["data_arrival_time", "device", "data"]

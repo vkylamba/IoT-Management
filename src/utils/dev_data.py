@@ -395,7 +395,7 @@ class DataReports(object):
 
         return data_list
 
-    def get_current_day_status_data(self):
+    def get_current_day_status_data(self, day=None):
         time_now = self.get_device_local_time()
         time_now_zero_hour = datetime.datetime(
             year=time_now.year,
@@ -403,8 +403,12 @@ class DataReports(object):
             day=time_now.day,
             tzinfo=time_now.tzinfo
         )
-        date_today = time_now_zero_hour.astimezone(pytz.utc)
-        date_tomorrow = date_today + timezone.timedelta(days=1)
+        if day is None :
+            date_today = time_now_zero_hour.astimezone(pytz.utc)
+            date_tomorrow = date_today + timezone.timedelta(days=1)
+        else:
+            date_today = day.astimezone(pytz.utc)
+            date_tomorrow = date_today + timezone.timedelta(days=1)
 
         status_types = [
             DeviceStatus.DAILY_STATUS,
