@@ -52,7 +52,7 @@ class Command(BaseCommand):
         client.on_connect = self.on_connect
         client.on_disconnect = self.on_disconnect
         client.on_message = self.on_message
-        client.on_log = self.on_log
+        # client.on_log = self.on_log
         
         client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
         client.tls_set(ROOT_CA_FILE_PATH)
