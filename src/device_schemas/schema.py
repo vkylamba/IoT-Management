@@ -93,6 +93,7 @@ def translate_data_from_schema(
         target_name = translator_config.get("name")
         target_fields = translator_config.get("fields", [])
         required_fields = translator_config.get("required_fields", [])
+        least_one_field_list = translator_config.get("least_one_field_list", [])
         data_fields = {}
         data_valid = True
         if isinstance(target_fields, list):
@@ -101,6 +102,11 @@ def translate_data_from_schema(
                 data_fields[target_field_name] = translate_field_value(
                     schema_target, target_field, data, existing_statuses
                 )
+        if isinstance(least_one_field_list, list):
+            for required_field in least_one_field_list:
+                if data_fields.get(required_field) is not None:
+                    data_valid = True
+
         if isinstance(required_fields, list):
             for required_field in required_fields:
                 if data_fields.get(required_field) is None:
