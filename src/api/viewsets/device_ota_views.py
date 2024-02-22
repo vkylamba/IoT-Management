@@ -110,5 +110,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         ).order_by('-created_at').first()
 
         if cfg is not None and cfg.active:
+            cfg.active = False
+            cfg.save()
             return Response(data=cfg.data)
         return Response(status=status.HTTP_404_NOT_FOUND)
