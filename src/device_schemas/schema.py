@@ -5,14 +5,14 @@ from typing import Dict
 
 import jsonschema
 
-logger = logging.getLogger('django')
+logger = logging.getLogger("django")
 
 DEVICE_SCHEMAS = {}
 
 SCHEMA_PATH = "device_schemas/schemas/"
 schema_files = os.listdir(SCHEMA_PATH)
 for schema_file in schema_files:
-    device_type = schema_file.replace('.json', '').upper()
+    device_type = schema_file.replace(".json", "").upper()
     file_path = os.path.join(SCHEMA_PATH, schema_file)
 
     file_p = open(file_path, "r")
@@ -25,7 +25,7 @@ DATA_TRANSLATORS = {}
 DATA_TRANSLATION_FILES_PATH = "device_schemas/data_translation_configurations/"
 translator_files = os.listdir(DATA_TRANSLATION_FILES_PATH)
 for translator_file in translator_files:
-    device_type = translator_file.replace('.json', '').upper()
+    device_type = translator_file.replace(".json", "").upper()
     file_path = os.path.join(DATA_TRANSLATION_FILES_PATH, translator_file)
 
     file_p = open(file_path, "r")
@@ -40,13 +40,18 @@ def validate_data_schema(device_type: str, data: Dict, existing_statuses: Dict) 
     if schema is not None:
         logger.debug(f"Schema for device {device_type} is {schema}")
         if not validate_schema(schema, data):
-            logger.warning(f"Error validating schema for device type {device_type}, data: {data}")
+            logger.warning(
+                f"Error validating schema for device type {device_type}, data: {data}"
+            )
             return None
 
         try:
             translated_data = translate_data(device_type, data, existing_statuses)
         except Exception as ex:
-            logger.warning(f"Error translating data for device type {device_type}, data: {data}", ex)
+            logger.warning(
+                f"Error translating data for device type {device_type}, data: {data}",
+                ex,
+            )
             return None
     else:
         logger.warning(f"No schema file found for schema {device_type}")
@@ -68,14 +73,18 @@ def translate_data(device_type: str, data: Dict, existing_statuses: Dict) -> Dic
     translated_data = {}
     if isinstance(translator, list):
         logger.debug(f"Translation schema for device {device_type} is {translator}")
-        translated_data = translate_data_from_schema(translator, data, existing_statuses)
+        translated_data = translate_data_from_schema(
+            translator, data, existing_statuses
+        )
     else:
         logger.warning(f"No translation schema file found for schema {device_type}")
-    
+
     return translated_data
 
 
-def translate_data_from_schema(translator: any, data: Dict, existing_statuses: Dict = None):
+def translate_data_from_schema(
+    translator: any, data: Dict, existing_statuses: Dict = None
+):
     translated_data = {}
     if isinstance(translator, dict):
         translator = [translator]
@@ -89,18 +98,24 @@ def translate_data_from_schema(translator: any, data: Dict, existing_statuses: D
         if isinstance(target_fields, list):
             for target_field in target_fields:
                 target_field_name = target_field.get("target")
-                data_fields[target_field_name] = translate_field_value(schema_target, target_field, data, existing_statuses)
+                data_fields[target_field_name] = translate_field_value(
+                    schema_target, target_field, data, existing_statuses
+                )
         if isinstance(required_fields, list):
             for required_field in required_fields:
                 if data_fields.get(required_field) is None:
-                    logger.warning(f"Required data field {required_field} missing in the data.")
+                    logger.warning(
+                        f"Required data field {required_field} missing in the data."
+                    )
                     data_valid = False
         if data_valid:
             translated_data[target_name] = data_fields
     return translated_data
 
 
-def translate_field_value(schema_target: str, field_config: Dict, data: Dict, existing_statuses: Dict = None):
+def translate_field_value(
+    schema_target: str, field_config: Dict, data: Dict, existing_statuses: Dict = None
+):
 
     target = field_config.get("target")
     type = field_config.get("type")
@@ -119,13 +134,17 @@ def translate_field_value(schema_target: str, field_config: Dict, data: Dict, ex
         should_pick = source_match_key_current_value == source_match_key_value
 
     if should_pick:
-        logger.info(f"Extracting value for source. source: {source} type: {type} multiplier: {multiplier} offset: {offset}")
+        logger.info(
+            f"Extracting value for source. source: {source} type: {type} multiplier: {multiplier} offset: {offset}"
+        )
         if type == "raw":
             raw_val = extract_data(source, data)
             if raw_val is not None:
                 value = raw_val * multiplier + offset
         elif type == "calculated":
-            raw_val = extract_calculated_data(schema_target, target, source, data, existing_statuses)
+            raw_val = extract_calculated_data(
+                schema_target, target, source, data, existing_statuses
+            )
             if raw_val is not None:
                 value = float(raw_val) * multiplier + offset
         logger.info(f"Extracted value for source {source} is: {value}")
@@ -134,35 +153,44 @@ def translate_field_value(schema_target: str, field_config: Dict, data: Dict, ex
 
 
 def extract_data(field_name: str, data: Dict):
-    fields_list = field_name.split('.')
+    fields_list = field_name.split(".")
     if field_name == "":
         return 0
     current_dict = data
     for this_field_name in fields_list:
-        if isinstance(current_dict, dict):
+        if isinstance(current_dict, dict) and len(this_field_name) > 0:
             current_dict = current_dict.get(this_field_name)
 
     return current_dict
 
-def extract_calculated_data(schema_target: str, target: str, field_name: str, data: Dict, existing_statuses: Dict = None):
+
+def extract_calculated_data(
+    schema_target: str,
+    target: str,
+    field_name: str,
+    data: Dict,
+    existing_statuses: Dict = None,
+):
     fields_and_operators = field_name.split()
-    equation = ''
-    first_today = existing_statuses.get('firstToday', {})
-    last_today = existing_statuses.get('lastToday', {})
+    equation = ""
+    if existing_statuses is None:
+        existing_statuses = {}
+    first_today = existing_statuses.get("firstToday", {})
+    last_today = existing_statuses.get("lastToday", {})
     last_status_data = last_today.get(schema_target, {})
     first_raw_data = first_today.get("raw", {})
     for field_or_operator in fields_and_operators:
         operator = None
         field_name = None
         value_already_fetched = False
-        if field_or_operator.startswith('lastValue__'):
-            field_name = field_or_operator.replace('lastValue__', '')
+        if field_or_operator.startswith("lastValue__"):
+            field_name = field_or_operator.replace("lastValue__", "")
             next_value = extract_data(field_name, last_status_data)
             value_already_fetched = True
             if next_value is None:
                 next_value = 0
-        elif field_or_operator.startswith('changeToday__'):
-            field_name = field_or_operator.replace('changeToday__', '')
+        elif field_or_operator.startswith("changeToday__"):
+            field_name = field_or_operator.replace("changeToday__", "")
             value_now = extract_data(field_name, data)
             value_first = extract_data(field_name, first_raw_data)
             value_already_fetched = True
@@ -172,7 +200,7 @@ def extract_calculated_data(schema_target: str, target: str, field_name: str, da
             except Exception as ex:
                 logger.warning(ex)
                 next_value = value_now
-        elif '.' in field_or_operator:
+        elif "." in field_or_operator:
             field_name = field_or_operator
         else:
             operator = field_or_operator
@@ -185,23 +213,26 @@ def extract_calculated_data(schema_target: str, target: str, field_name: str, da
             equation += f"{next_value}"
 
         elif operator is not None:
-            equation += ' ' + operator + ' '
+            equation += " " + operator + " "
 
     value = None
     try:
         value = eval(equation)
     except Exception as ex:
-        logger.warning(f"Error evaluating equation {equation} for field {field_name}. Exception: {ex}")
+        logger.warning(
+            f"Error evaluating equation {equation} for field {field_name}. Exception: {ex}"
+        )
     return value
 
 
 if __name__ == "__main__":
     print("hello")
-    schemas = ', '.join(DEVICE_SCHEMAS.keys())
+    schemas = ", ".join(DEVICE_SCHEMAS.keys())
     print(f"Available Schemas: {schemas}")
 
-    target_schema = 'IOT-GW-SHAKTI-SOLAR-PUMP'
-    test_data = json.loads("""
+    target_schema = "IOT-GW-SHAKTI-SOLAR-PUMP"
+    test_data = json.loads(
+        """
         {
             "total_time": 1418,
             "total_energy_kwh": 8342,
@@ -209,14 +240,16 @@ if __name__ == "__main__":
             "vfd_master_switch_state": 1,
             "total_flow": 1252
         }
-    """)
+    """
+    )
     validated_data = validate_data_schema(target_schema, test_data, None)
     print(f"{target_schema}: {validated_data}")
     validated_data = validate_data_schema(target_schema, test_data, test_data)
     print(f"{target_schema}: {validated_data}")
 
-    target_schema = 'IOT-GW-V2-MODBUS-WIFI'
-    test_data = json.loads("""
+    target_schema = "IOT-GW-V2-MODBUS-WIFI"
+    test_data = json.loads(
+        """
         {
             "adc": { "1": 1782, "2": 1668, "3": 2037, "4": 2037, "5": 2037, "6": 2037 },
             "dht": {
@@ -226,8 +259,121 @@ if __name__ == "__main__":
                 "hic": 22.748661
             }
         }
-    """)
+    """
+    )
     validated_data = validate_data_schema(target_schema, test_data, None)
     print(f"{target_schema}: {validated_data}")
     validated_data = validate_data_schema(target_schema, test_data, test_data)
     print(f"{target_schema}: {validated_data}")
+
+    schema = [
+        {
+            "required_fields": [],
+            "fields": [
+                {
+                    "target": "energy",
+                    "type": "calculated",
+                    "source": "meter_0.energy or lastValue__meter_0.energy",
+                    "multiplier": 2.78e-7,
+                    "offset": 0,
+                },
+                {
+                    "target": "energy_consumed_this_day",
+                    "type": "calculated",
+                    "source": "changeToday__meter_0.energy or lastValue__energy_consumed_this_day",
+                    "multiplier": 2.78e-7,
+                    "offset": 0,
+                },
+                {
+                    "target": "load_status",
+                    "type": "calculated",
+                    "source": "meter_0.power or lastValue__meter_0.power",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+                {
+                    "target": "uptime",
+                    "type": "calculated",
+                    "source": ".uptime or lastValue__.uptime",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+                {
+                    "target": "system_temperature",
+                    "type": "calculated",
+                    "source": "dht.temperature or lastValue__dht.temperature",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+                {
+                    "target": "system_humidity",
+                    "type": "calculated",
+                    "source": "dht.humidity or lastValue__dht.humidity",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+            ],
+        }
+    ]
+    
+    test_data = json.loads("""
+        {
+            "adc": {
+                "0": 0,
+                "1": 0,
+                "2": 194,
+                "3": 606,
+                "4": 1045,
+                "5": 780
+            },
+            "dht": {
+                "hic": 11553.5,
+                "humidity": 200,
+                "state": 2,
+                "temperature": 200
+            },
+            "meter_0": {
+                "current": 10,
+                "energy": 2398662.75,
+                "frequency": 0,
+                "power": 100,
+                "powerFactor": 1,
+                "typCfg": "WAC[0,1]",
+                "voltage": 10
+            },
+            "meter_1": {
+                "ampSecs": 510200.97,
+                "current": 19.4,
+                "frequency": 48,
+                "typCfg": "AAC[2]"
+            },
+            "meter_2": {
+                "ampSecs": -123889147696906240,
+                "current": 60.6,
+                "frequency": 44,
+                "typCfg": "AAC[3]"
+            },
+            "meter_3": {
+                "ampSecs": 10033661528990810000,
+                "current": 104.5,
+                "frequency": 41,
+                "typCfg": "AAC[4]"
+            },
+            "timeDelta": 649,
+            "timeUTC": "2024-02-22 14:06:30"
+        }
+    """)
+    validated_data = translate_data_from_schema(schema, test_data)
+    print(f"validated data: {validated_data}")
+    
+    test_data = json.loads("""
+        {
+            "battery": 0,
+            "core_version": "6.0.1",
+            "fw_version": "1.1.5",
+            "mac": 268600848269144,
+            "uptime": 446
+        }
+    """)
+    validated_data = translate_data_from_schema(schema, test_data)
+    print(f"validated data: {validated_data}")
