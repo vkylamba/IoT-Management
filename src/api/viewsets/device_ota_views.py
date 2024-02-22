@@ -1,7 +1,7 @@
 import json
 import logging
 
-from device.models import DeviceFirmware
+from device.models import DeviceConfig, DeviceFirmware
 from django.conf import settings
 from django.http import FileResponse
 from rest_framework import status, viewsets
@@ -96,3 +96,19 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         file_resp['Content-Disposition'] = 'attachment; filename="{}.bin"'.format(device_group)
         file_resp['Content-Length'] = open_file.size
         return file_resp
+
+    def get_cfg_updates_for_device(self, request, device):
+        """
+            returned data format:
+            {
+                "key": "value"
+            }
+        """
+        logger.debug(f"OTA cfg check call request device {device}")
+        cfg = DeviceConfig.objects.filter(
+            device__alias__iexact=device,
+        ).order_by('-created_at').first()
+
+        if cfg is not None and cfg.active:
+            return Response(data=cfg.data)
+        return Response(status=status.HTTP_404_NOT_FOUND)

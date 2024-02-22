@@ -3,7 +3,7 @@ import uuid
 
 from django.db import models
 
-from .device import DeviceType
+from .device import DeviceType, Device
 
 
 def get_firmware_path(instance, filename):
@@ -51,3 +51,40 @@ class DeviceFirmware(models.Model):
         if self.group_name is not None:
             owner += ' ' + self.group_name
         return f"{owner} - {self.version}"
+
+class DeviceConfig(models.Model):
+    """
+        model to store device config updates.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.CASCADE)
+    data = models.JSONField(
+        blank=True,
+        null=True,
+    )
+    group_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+    version = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+    description = models.CharField(
+        max_length=1024,
+        blank=True,
+        null=True
+    )
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        app_label = "device"
+        verbose_name = "Device Config"
+        verbose_name_plural = "Device Config"
+
+    def __str__(self):
+        return f"{self.device.alias} - {self.version}"

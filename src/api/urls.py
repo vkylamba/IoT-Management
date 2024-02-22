@@ -128,6 +128,9 @@ urlpatterns = [
     # OTA update check for device
     re_path(r'^ota/device/(?P<device>[\w-]+)',
         DeviceOTAViewSet.as_view({'get': 'get_updates_for_device'}))
+    # OTA config update check for device
+    re_path(r'^ota/cfg/device/(?P<device>[\w-]+)',
+        DeviceOTAViewSet.as_view({'get': 'get_cfg_updates_for_device'}))
 ]
 
 urlpatterns += router.urls
