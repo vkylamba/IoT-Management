@@ -17,7 +17,7 @@ from .device import (
     get_image_path
 )
 
-from .ota import DeviceFirmware
+from .ota import DeviceFirmware, DeviceConfig
 
 from .status import (
     UserDeviceType,
@@ -39,6 +39,7 @@ __all__ = (
     'Document',
     'RawData',
     'Meter',
+    'DeviceConfig',
     'DeviceFirmware',
     'Subnet',
     'UserDeviceType',
