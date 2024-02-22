@@ -163,10 +163,13 @@ def get_existing_status_data_for_today(user, device, last_raw_data):
 
     status_first = {}
     status_last = {}
-    for st_dt in statuses_today:
-        if st_dt.name not in status_first:
-            status_first[st_dt.name] = st_dt.status
-        status_last[st_dt.name] = st_dt.status
+    status_first_today = statuses_today.first()
+    last_first_today = statuses_today.last()
+    
+    if status_first_today is not None:
+        status_first[status_first_today.name] = status_first_today.status
+    if last_first_today is not None:
+        status_last[last_first_today.name] = last_first_today.status
 
     if raw_data_first:
         status_first['raw'] = raw_data_first.data
