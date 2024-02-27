@@ -85,9 +85,10 @@ class Command(BaseCommand):
         try:
             self.process_message(msg)
         except Exception as ex:
-            logger.exception('Expection ocurred while processing MQTT message: {ex}')
-            sys.exit(0)
-    
+            logger.exception('Exception ocurred while processing MQTT message: {ex}')
+            # exit with non zero code, so superwiser restarts the process
+            sys.exit(1)
+
     def on_log(self, mqtt_client, obj, level, string):
         logger.info(f"{level}: {string}")
 
