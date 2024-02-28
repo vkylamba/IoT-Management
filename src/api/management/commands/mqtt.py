@@ -65,7 +65,7 @@ class Command(BaseCommand):
         )
 
         client.loop_start()
-        
+        self.loop_running = True
         self.check_and_send_commands(client)
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
@@ -86,7 +86,8 @@ class Command(BaseCommand):
             self.process_message(msg)
         except Exception as ex:
             logger.exception(f'Exception ocurred while processing MQTT message: {ex}')
-            # exit with non zero code, so super-wiser restarts the process
+            mqtt_client.loop_stop()
+            self.loop_running = False
             sys.exit(500)
 
     def on_log(self, mqtt_client, obj, level, string):
@@ -175,7 +176,7 @@ class Command(BaseCommand):
         """
         # Get unsent commands
         last_cmd_id = None
-        while True:
+        while self.loop_running:
             commands = CommandsModal.objects.filter(status__iexact='P').prefetch_related('device__types').order_by('-command_in_time')
             if last_cmd_id is not None:
                 commands = commands.filter(
@@ -199,3 +200,5 @@ class Command(BaseCommand):
                 command.status = 'E'
                 command.command_read_time = timezone.datetime.utcnow()
                 command.save()
+            time.sleep(10)
+
