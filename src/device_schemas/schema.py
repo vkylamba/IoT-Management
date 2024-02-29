@@ -215,7 +215,9 @@ def extract_calculated_data(
             next_value = extract_data(field_name, data)
             value_already_fetched = True
 
-        if value_already_fetched and next_value is not None:
+        if value_already_fetched:
+            if next_value is None:
+                next_value = 0
             equation += f"{next_value}"
 
         elif operator is not None:
@@ -232,7 +234,7 @@ def extract_calculated_data(
 
 
 if __name__ == "__main__":
-    print("hello")
+
     schemas = ", ".join(DEVICE_SCHEMAS.keys())
     print(f"Available Schemas: {schemas}")
 
@@ -274,7 +276,10 @@ if __name__ == "__main__":
 
     schema = [
         {
+            "target": "DAILY_STATUS",
+            "name": "DAILY_STATUS",
             "required_fields": [],
+            "least_one_field_list": ["meter_0.energy", ".uptime"],
             "fields": [
                 {
                     "target": "energy",
@@ -369,6 +374,15 @@ if __name__ == "__main__":
             "timeUTC": "2024-02-22 14:06:30"
         }
     """)
+    
+    statuses = {
+        'firstToday': {
+            'DAILY_STATUS': test_data
+        },
+        'lastToday':  {
+            'DAILY_STATUS': test_data
+        },
+    }
     validated_data = translate_data_from_schema(schema, test_data)
     print(f"validated data: {validated_data}")
     
@@ -381,5 +395,5 @@ if __name__ == "__main__":
             "uptime": 446
         }
     """)
-    validated_data = translate_data_from_schema(schema, test_data)
+    validated_data = translate_data_from_schema(schema, test_data, statuses)
     print(f"validated data: {validated_data}")
