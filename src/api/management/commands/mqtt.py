@@ -66,7 +66,7 @@ class Command(BaseCommand):
 
         client.loop_start()
         self.loop_running = True
-        # self.check_and_send_commands(client)
+        self.check_and_send_commands(client)
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
