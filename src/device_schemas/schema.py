@@ -91,11 +91,14 @@ def translate_data_from_schema(
     for translator_config in translator:
         schema_target = translator_config.get("target")
         target_name = translator_config.get("name")
+        frequency = translator_config.get("frequency")
         target_fields = translator_config.get("fields", [])
         required_fields = translator_config.get("required_fields", [])
         least_one_field_list = translator_config.get("least_one_field_list", [])
         data_fields = {}
         data_valid = True
+        all_required_fields_exist = len(required_fields) > 0
+        at_least_one_required_field_exist = False
         if isinstance(target_fields, list):
             for target_field in target_fields:
                 target_field_name = target_field.get("target")
@@ -105,7 +108,7 @@ def translate_data_from_schema(
         if isinstance(least_one_field_list, list):
             for required_field in least_one_field_list:
                 if data_fields.get(required_field) is not None:
-                    data_valid = True
+                    at_least_one_required_field_exist = True
 
         if isinstance(required_fields, list):
             for required_field in required_fields:
@@ -113,7 +116,9 @@ def translate_data_from_schema(
                     logger.warning(
                         f"Required data field {required_field} missing in the data."
                     )
-                    data_valid = False
+                    all_required_fields_exist = False
+
+        data_valid = all_required_fields_exist or at_least_one_required_field_exist
         if data_valid:
             translated_data[target_name] = data_fields
     return translated_data
@@ -136,7 +141,7 @@ def translate_field_value(
     if source_match_key is None or source_match_key_value is None:
         should_pick = True
     else:
-        source_match_key_current_value = extract_data(source_match_key, data)
+        source_match_key_current_value = extract_data(source_match_key, data, multiplier, offset)
         should_pick = source_match_key_current_value == source_match_key_value
 
     if should_pick:
@@ -144,21 +149,17 @@ def translate_field_value(
             f"Extracting value for source. source: {source} type: {type} multiplier: {multiplier} offset: {offset}"
         )
         if type == "raw":
-            raw_val = extract_data(source, data)
-            if raw_val is not None:
-                value = raw_val * multiplier + offset
+            value = extract_data(source, data, multiplier, offset)
         elif type == "calculated":
-            raw_val = extract_calculated_data(
-                schema_target, target, source, data, existing_statuses
+            value = extract_calculated_data(
+                schema_target, target, source, data, multiplier, offset, existing_statuses
             )
-            if raw_val is not None:
-                value = float(raw_val) * multiplier + offset
         logger.info(f"Extracted value for source {source} is: {value}")
 
     return value
 
 
-def extract_data(field_name: str, data: Dict):
+def extract_data(field_name: str, data: Dict, multiplier, offset):
     fields_list = field_name.split(".")
     if field_name == "":
         return 0
@@ -166,6 +167,10 @@ def extract_data(field_name: str, data: Dict):
     for this_field_name in fields_list:
         if isinstance(current_dict, dict) and len(this_field_name) > 0:
             current_dict = current_dict.get(this_field_name)
+
+    if isinstance(current_dict, float) or isinstance(current_dict, int):
+        value = current_dict * multiplier + offset
+        return value
 
     return current_dict
 
@@ -175,6 +180,7 @@ def extract_calculated_data(
     target: str,
     field_name: str,
     data: Dict,
+    multiplier, offset,
     existing_statuses: Dict = None,
 ):
     fields_and_operators = field_name.split()
@@ -191,14 +197,14 @@ def extract_calculated_data(
         value_already_fetched = False
         if field_or_operator.startswith("lastValue__"):
             field_name = field_or_operator.replace("lastValue__", "")
-            next_value = extract_data(field_name, last_status_data)
+            next_value = extract_data(field_name, last_status_data, 1, 0)
             value_already_fetched = True
             if next_value is None:
                 next_value = 0
         elif field_or_operator.startswith("changeToday__"):
             field_name = field_or_operator.replace("changeToday__", "")
-            value_now = extract_data(field_name, data)
-            value_first = extract_data(field_name, first_raw_data)
+            value_now = extract_data(field_name, data, multiplier, offset)
+            value_first = extract_data(field_name, first_raw_data, 1, 0)
             value_already_fetched = True
             next_value = None
             try:
@@ -212,7 +218,7 @@ def extract_calculated_data(
             operator = field_or_operator
 
         if field_name is not None and not value_already_fetched:
-            next_value = extract_data(field_name, data)
+            next_value = extract_data(field_name, data, multiplier, offset)
             value_already_fetched = True
 
         if value_already_fetched:
@@ -279,26 +285,26 @@ if __name__ == "__main__":
             "target": "DAILY_STATUS",
             "name": "DAILY_STATUS",
             "required_fields": [],
-            "least_one_field_list": ["meter_0.energy", ".uptime"],
+            "least_one_field_list": ["energy", "uptime"],
             "fields": [
                 {
                     "target": "energy",
                     "type": "calculated",
-                    "source": "meter_0.energy or lastValue__meter_0.energy",
+                    "source": "meter_0.energy or lastValue__.energy",
                     "multiplier": 2.78e-7,
                     "offset": 0,
                 },
                 {
                     "target": "energy_consumed_this_day",
                     "type": "calculated",
-                    "source": "changeToday__meter_0.energy or lastValue__energy_consumed_this_day",
+                    "source": "changeToday__meter_0.energy or lastValue__.energy_consumed_this_day",
                     "multiplier": 2.78e-7,
                     "offset": 0,
                 },
                 {
                     "target": "load_status",
                     "type": "calculated",
-                    "source": "meter_0.power or lastValue__meter_0.power",
+                    "source": "meter_0.power or lastValue__.power",
                     "multiplier": 1,
                     "offset": 0,
                 },
@@ -312,21 +318,21 @@ if __name__ == "__main__":
                 {
                     "target": "system_temperature",
                     "type": "calculated",
-                    "source": "dht.temperature or lastValue__dht.temperature",
+                    "source": "dht.temperature or lastValue__.system_temperature",
                     "multiplier": 1,
                     "offset": 0,
                 },
                 {
                     "target": "system_humidity",
                     "type": "calculated",
-                    "source": "dht.humidity or lastValue__dht.humidity",
+                    "source": "dht.humidity or lastValue__.system_humidity",
                     "multiplier": 1,
                     "offset": 0,
                 },
             ],
         }
     ]
-    
+
     test_data = json.loads("""
         {
             "adc": {
@@ -375,14 +381,31 @@ if __name__ == "__main__":
         }
     """)
     
-    statuses = {
-        'firstToday': {
-            'DAILY_STATUS': test_data
-        },
-        'lastToday':  {
-            'DAILY_STATUS': test_data
-        },
-    }
+    statuses = json.loads("""
+        {
+            "firstToday": {
+                "DAILY_STATUS": {    
+                    "energy": 101,
+                    "energy_consumed_this_day": 101,
+                    "load_status": 101,
+                    "uptime": 101,
+                    "system_temperature": 101,
+                    "system_humidity": 101
+                }
+            },
+            "lastToday": {
+                "DAILY_STATUS": {    
+                    "energy": 110,
+                    "energy_consumed_this_day": 110,
+                    "load_status": 110,
+                    "uptime": 110,
+                    "system_temperature": 110,
+                    "system_humidity": 110
+                }
+            }
+        }
+    """)
+
     validated_data = translate_data_from_schema(schema, test_data)
     print(f"validated data: {validated_data}")
     
