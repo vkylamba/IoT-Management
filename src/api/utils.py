@@ -391,7 +391,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                         name=status_type.target_type,
                         device=device
                     ).last()
-                    if (last_status.created_at - datetime.utcnow()).seconds <= 600:
+                    if (last_status.created_at - datetime.now()).seconds <= 600:
                         last_status.status = validated_data
                         last_status.save()
                         create_new = False
