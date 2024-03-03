@@ -382,7 +382,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
             logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
             validated_status_data = validated_data.get(status_type.name, {})
             if any(validated_status_data):
-                # create a new status if last once was created atleast 10 minutes ago
+                # create a new status if last once was created at least 10 minutes ago
                 last_status = existing_statuses.get('lastToday', {})
                 last_status = last_status.get(status_type.target_type)
                 create_new = True
@@ -391,8 +391,9 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                         name=status_type.target_type,
                         device=device
                     ).last()
-                    if (last_status.created_at - datetime.now()).seconds <= 600:
+                    if (datetime.now() - last_status.created_at).seconds <= 600:
                         last_status.status = validated_data
+                        last_status.updated_at = datetime.now()
                         last_status.save()
                         create_new = False
                 if create_new:

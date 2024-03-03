@@ -741,6 +741,7 @@ class DeviceStatus(models.Model):
     device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.DO_NOTHING)
     user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now_add=True)
 
     status = models.JSONField(blank=True, null=True)
 

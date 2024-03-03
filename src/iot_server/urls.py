@@ -32,6 +32,10 @@ schema_view = get_schema_view(
    permission_classes=[permissions.AllowAny],
 )
 
+admin.site.site_title = "IoT managementAdmin"
+admin.site.site_header = "IoT management Admin"
+admin.site.index_title = "Site administration"
+
 urlpatterns = [
     re_path(r'^admin/', admin.site.urls),
     re_path(r'^api/', include('api.urls')),
