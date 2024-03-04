@@ -429,6 +429,7 @@ class DataReports(object):
         return [{
             "name": x.name,
             "created_at": x.created_at.strftime(settings.TIME_FORMAT_STRING) if x.created_at is not None else None,
+            "updated_at": x.updated_at.strftime(settings.TIME_FORMAT_STRING) if x.updated_at is not None else None,
             "status": x.status
         } for x in data_list]
 
