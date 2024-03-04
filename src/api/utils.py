@@ -193,7 +193,7 @@ def filter_meter_data(data, meter, data_arrival_time):
                 extra_data[key] = val
 
     if data_arrival_time is None:
-        data_arrival_time = datetime.utcnow()
+        data_arrival_time = timezone.now()
 
     meter_data['data_arrival_time'] = data_arrival_time
     meter_data['meter'] = meter
@@ -236,7 +236,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         )
         data_arrival_time = data_arrival_time.astimezone(pytz.utc)
     else:
-        data_arrival_time = datetime.utcnow()
+        data_arrival_time = timezone.now()
 
     # Remove apiKey from the raw data if exists
     if "apiKey" in message_data:
@@ -392,8 +392,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                         device=device
                     ).last()
                     last_status_creation_time = last_status.created_at
-                    time_now = datetime.utcnow()
-                    time_now = pytz.utc.localize(time_now)
+                    time_now = timezone.now()
                     if (time_now - last_status_creation_time).seconds <= 600:
                         last_status.status = validated_data
                         last_status.updated_at = time_now
