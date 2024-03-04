@@ -390,7 +390,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                     last_status = DeviceStatus.objects.filter(
                         name=status_type.target_type,
                         device=device
-                    ).last()
+                    ).order_by('-created_at').first()
                     last_status_creation_time = last_status.created_at
                     time_now = timezone.now()
                     if (time_now - last_status_creation_time).seconds <= 600:
@@ -403,7 +403,8 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                         name=status_type.target_type,
                         device=device,
                         user=user if user is not None and user.is_authenticated else None,
-                        status=validated_data
+                        status=validated_data,
+                        created_at=time_now
                     )
                     status.save()
                 if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
