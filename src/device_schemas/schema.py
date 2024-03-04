@@ -103,7 +103,7 @@ def translate_data_from_schema(
             for target_field in target_fields:
                 target_field_name = target_field.get("target")
                 data_fields[target_field_name] = translate_field_value(
-                    schema_target, target_field, data, existing_statuses
+                    schema_target, target_name, target_field, data, existing_statuses
                 )
         if isinstance(least_one_field_list, list):
             for required_field in least_one_field_list:
@@ -125,10 +125,10 @@ def translate_data_from_schema(
 
 
 def translate_field_value(
-    schema_target: str, field_config: Dict, data: Dict, existing_statuses: Dict = None
+    schema_target: str, target_name: str, field_config: Dict, data: Dict, existing_statuses: Dict = None
 ):
 
-    target = field_config.get("target")
+    target_field_name = field_config.get("target")
     type = field_config.get("type")
     source_match_key = field_config.get("sourceMatchKey")
     source_match_key_value = field_config.get("sourceMatchKeyValue")
@@ -152,7 +152,7 @@ def translate_field_value(
             value = extract_data(source, data, multiplier, offset)
         elif type == "calculated":
             value = extract_calculated_data(
-                schema_target, target, source, data, multiplier, offset, existing_statuses
+                schema_target, target_name, target_field_name, source, data, multiplier, offset, existing_statuses
             )
         logger.info(f"Extracted value for source {source} is: {value}")
 
@@ -177,7 +177,8 @@ def extract_data(field_name: str, data: Dict, multiplier, offset):
 
 def extract_calculated_data(
     schema_target: str,
-    target: str,
+    target_name: str,
+    target_field_name: str,
     field_name: str,
     data: Dict,
     multiplier, offset,
@@ -190,6 +191,7 @@ def extract_calculated_data(
     first_today = existing_statuses.get("firstToday", {})
     last_today = existing_statuses.get("lastToday", {})
     last_status_data = last_today.get(schema_target, {})
+    last_status_data = last_status_data.get(target_name, {})
     first_raw_data = first_today.get("raw", {})
     for field_or_operator in fields_and_operators:
         operator = None
