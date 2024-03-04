@@ -64,7 +64,7 @@ class Notification(models.Model):
         context_dictionary = {
             "event": event,
             "device": event.device,
-            "trigger_time": datetime.now().strftime("%d-%m-%Y %H:%M"),
+            "trigger_time": datetime.utcnow().strftime("%d-%m-%Y %H:%M"),
         }
         if self.context is not None:
             context_dictionary.update(
