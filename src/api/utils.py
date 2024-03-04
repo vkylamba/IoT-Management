@@ -391,9 +391,11 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                         name=status_type.target_type,
                         device=device
                     ).last()
-                    if (datetime.now() - last_status.created_at).seconds <= 600:
+                    last_status_creation_time = last_status.created_at.astimezone(pytz.utc)
+                    time_now = datetime.utcnow()
+                    if (time_now - last_status_creation_time).seconds <= 600:
                         last_status.status = validated_data
-                        last_status.updated_at = datetime.now()
+                        last_status.updated_at = time_now
                         last_status.save()
                         create_new = False
                 if create_new:
