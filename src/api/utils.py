@@ -386,13 +386,13 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 last_status = existing_statuses.get('lastToday', {})
                 last_status = last_status.get(status_type.target_type)
                 create_new = True
+                time_now = timezone.now()
                 if last_status is not None:
                     last_status = DeviceStatus.objects.filter(
                         name=status_type.target_type,
                         device=device
                     ).order_by('-created_at').first()
                     last_status_creation_time = last_status.created_at
-                    time_now = timezone.now()
                     if (time_now - last_status_creation_time).seconds <= 600:
                         last_status.status = validated_data
                         last_status.updated_at = time_now
