@@ -14,9 +14,7 @@ class DeviceConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceConfig
         fields = (
-            'device',
-            'data',
-            'active'
+            'data'
         )
 
     def to_representation(self, device_config):
@@ -121,6 +119,8 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         logger.debug(f"OTA cfg check call request device {device}")
         if request.method == 'POST':
             device_cfg_data = request.data
+            if isinstance(device_cfg_data, dict):
+                device_cfg_data = device_cfg_data.get('data')
             logger.debug(f"Storing existing config data {device_cfg_data}")
             cfg = DeviceConfig.objects.create(
                 device__alias=device,
