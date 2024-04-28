@@ -13,7 +13,7 @@ logger = logging.getLogger('django')
 class DeviceConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceConfig
-        fields = (,)
+        fields = ('data',)
 
     def to_representation(self, device_config):
         return device_config.data
