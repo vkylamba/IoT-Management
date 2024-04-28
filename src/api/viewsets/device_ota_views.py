@@ -105,6 +105,15 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
             }
         """
         logger.debug(f"OTA cfg check call request device {device}")
+        if request.method == 'POST':
+            device_cfg_data = request.data
+            logger.debug(f"Storing existing config data {device_cfg_data}")
+            cfg = DeviceConfig.objects.create(
+                device__alias=device,
+                data=device_cfg_data,
+                active=False
+            )
+            cfg.save()
         cfg = DeviceConfig.objects.filter(
             device__alias__iexact=device,
         ).order_by('-created_at').first()
