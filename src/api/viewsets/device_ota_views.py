@@ -4,10 +4,23 @@ import logging
 from device.models import DeviceConfig, DeviceFirmware
 from django.conf import settings
 from django.http import FileResponse
-from rest_framework import status, viewsets
+from rest_framework import status, viewsets, serializers
 from rest_framework.response import Response
 
 logger = logging.getLogger('django')
+
+
+class DeviceConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeviceConfig
+        fields = (
+            'device',
+            'data',
+            'active'
+        )
+
+    def to_representation(self, device_config):
+        return device_config.data
 
 
 class DeviceOTAViewSet(viewsets.ModelViewSet):
@@ -16,6 +29,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
     """
     permission_classes = ()
     authentication_classes = ()
+    serializer_class = DeviceConfigSerializer
 
     def get_updates_for_device_group(self, request, device_group):
         """
