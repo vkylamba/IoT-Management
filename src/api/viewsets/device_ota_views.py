@@ -115,26 +115,27 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
                 "key": "value"
             }
         """
-        logger.debug(f"OTA cfg check call request device {device}")
+        logger.info(f"OTA cfg check call request device {device}")
         device = get_object_or_404(Device, alias__iexact=device)
+        cfg = DeviceConfig.objects.filter(
+            device=device,
+        ).order_by('-created_at').first()
+        existing_cfg_version = cfg.data.get('cfgVersion') if cfg is not None else ''
         if request.method == 'POST':
             device_cfg_data = request.data
             if isinstance(device_cfg_data, dict):
                 device_cfg_data = device_cfg_data.get('data')
-            logger.debug(f"Storing existing config data {device_cfg_data}")
-            if device_cfg_data is not None:
+                device_cfg_version = device_cfg_data.get('cfgVersion')
+            logger.info(f"Storing existing config data {device_cfg_data}")
+            if device_cfg_data is not None and device_cfg_version != existing_cfg_version:
                 cfg = DeviceConfig.objects.create(
                     device=device,
                     data=device_cfg_data,
                     active=False
                 )
                 cfg.save()
-        cfg = DeviceConfig.objects.filter(
-            device=device,
-        ).order_by('-created_at').first()
-
         if cfg is not None and cfg.active:
-            cfg.active = False
-            cfg.save()
+            # cfg.active = False
+            # cfg.save()
             return Response(data=cfg.data)
         return Response(status=status.HTTP_404_NOT_FOUND)
