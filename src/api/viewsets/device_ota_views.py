@@ -1,9 +1,10 @@
 import json
 import logging
-
+from django.shortcuts import get_object_or_404
 from device.models import DeviceConfig, DeviceFirmware
 from django.conf import settings
 from django.http import FileResponse
+from device.models.device import Device
 from rest_framework import status, viewsets, serializers
 from rest_framework.response import Response
 
@@ -115,19 +116,21 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
             }
         """
         logger.debug(f"OTA cfg check call request device {device}")
+        device = get_object_or_404(Device, ip_address=device)
         if request.method == 'POST':
             device_cfg_data = request.data
             if isinstance(device_cfg_data, dict):
                 device_cfg_data = device_cfg_data.get('data')
             logger.debug(f"Storing existing config data {device_cfg_data}")
-            cfg = DeviceConfig.objects.create(
-                device__alias=device,
-                data=device_cfg_data,
-                active=False
-            )
-            cfg.save()
+            if device_cfg_data is not None:
+                cfg = DeviceConfig.objects.create(
+                    device=device,
+                    data=device_cfg_data,
+                    active=False
+                )
+                cfg.save()
         cfg = DeviceConfig.objects.filter(
-            device__alias__iexact=device,
+            device=device,
         ).order_by('-created_at').first()
 
         if cfg is not None and cfg.active:
