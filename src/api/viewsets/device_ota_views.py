@@ -123,10 +123,8 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         existing_cfg_version = cfg.data.get('cfgVersion') if cfg is not None else ''
         if request.method == 'POST':
             device_cfg_data = request.data
-            if isinstance(device_cfg_data, dict):
-                device_cfg_data = device_cfg_data.get('data')
-                device_cfg_version = device_cfg_data.get('cfgVersion')
             logger.info(f"Storing existing config data {device_cfg_data}")
+            device_cfg_version = device_cfg_data.get('cfgVersion', '') if device_cfg_data is not None else ''
             if device_cfg_data is not None and device_cfg_version != existing_cfg_version:
                 cfg = DeviceConfig.objects.create(
                     device=device,
