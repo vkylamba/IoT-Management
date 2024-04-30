@@ -82,7 +82,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
 
         open_file = firmware.document.open()
         file_resp = FileResponse(open_file)
-        file_resp['Content-Disposition'] = 'attachment; filename="{}.bin"'.format(device_group)
+        file_resp['Content-Disposition'] = 'attachment; filename="{}.bin"'.format(device)
         file_resp['Content-Length'] = open_file.size
         return file_resp
 
@@ -116,7 +116,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
             }
         """
         logger.debug(f"OTA cfg check call request device {device}")
-        device = get_object_or_404(Device, ip_address=device)
+        device = get_object_or_404(Device, alias__iexact=device)
         if request.method == 'POST':
             device_cfg_data = request.data
             if isinstance(device_cfg_data, dict):
