@@ -95,6 +95,7 @@ def translate_data_from_schema(
         target_fields = translator_config.get("fields", [])
         required_fields = translator_config.get("required_fields", [])
         least_one_field_list = translator_config.get("least_one_field_list", [])
+        required_fields_check = len(required_fields) > 0 or len(least_one_field_list) > 0
         data_fields = {}
         data_valid = True
         all_required_fields_exist = len(required_fields) > 0
@@ -118,7 +119,8 @@ def translate_data_from_schema(
                     )
                     all_required_fields_exist = False
 
-        data_valid = all_required_fields_exist or at_least_one_required_field_exist
+        data_valid = (all_required_fields_exist or at_least_one_required_field_exist) if required_fields_check else True
+        logger.debug(f"data_valid: {data_valid}, all_required_fields_exist: {all_required_fields_exist}, at_least_one_required_field_exist: {at_least_one_required_field_exist}")
         if data_valid:
             translated_data[target_name] = data_fields
     return translated_data
