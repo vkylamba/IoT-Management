@@ -427,11 +427,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             start_time = request.data.get("startTime", "").strip()
             start_date = request.data.get("startDate", "").strip()
             if start_date:
-                start_time = timezone.datetime.strptime(
+                start_time = datetime.strptime(
                     start_date, settings.DATE_FORMAT_STRING
                 )
             else:
-                start_time = timezone.datetime.strptime(
+                start_time = datetime.strptime(
                     start_time, settings.TIME_FORMAT_STRING
                 )
             end_time = request.data.get("endTime", "").strip()
@@ -442,11 +442,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 end_time = start_time
 
             if end_date:
-                end_time = timezone.datetime.strptime(
-                    end_date, settings.DATE_FORMAT_STRING
+                end_time = datetime.strptime(
+                    end_date, settings.DATE_FORMAT_STRINGs
                 )
             else:
-                end_time = timezone.datetime.strptime(
+                end_time = datetime.strptime(
                     end_time, settings.TIME_FORMAT_STRING
                 )
         except Exception as e:  # Start time and end time are not provided. So lets send latest data point

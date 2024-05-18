@@ -249,12 +249,10 @@ def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
 
     if grid_current == 0:
         status = "Grid Absent"
-    elif grid_power > 0 and solar_power < (grid_power + load_power) and load_power > 0.3 * grid_power:
-        status = "Importing"
     elif solar_power > (grid_power + load_power) and grid_power > 0:
         status = "Exporting"
-    else:
-        status = "Unknown"
+    elif grid_power > 0:
+        status = "Importing"
 
     dev_prop['value'] = f"{status} {round(grid_power, 2)} W"
 
