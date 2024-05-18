@@ -421,39 +421,31 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         data_type = "raw"
         export_type = "json"
-        try:
-            data_type = request.data.get("dataType")
-            export_type = request.data.get("exportType")
-            start_time = request.data.get("startTime", "").strip()
-            start_date = request.data.get("startDate", "").strip()
-            if start_date:
-                start_time = datetime.strptime(
-                    start_date, settings.DATE_FORMAT_STRING
-                )
-            else:
-                start_time = datetime.strptime(
-                    start_time, settings.TIME_FORMAT_STRING
-                )
-            end_time = request.data.get("endTime", "").strip()
-            end_date = request.data.get("endDate", "").strip()
-            
-            if end_date == '' and end_time == '':
-                end_date = start_date
-                end_time = start_time
-
-            if end_date:
-                end_time = datetime.strptime(
-                    end_date, settings.DATE_FORMAT_STRINGs
-                )
-            else:
-                end_time = datetime.strptime(
-                    end_time, settings.TIME_FORMAT_STRING
-                )
-        except Exception as e:  # Start time and end time are not provided. So lets send latest data point
-            logger.error(e)
-            start_time = None
-            end_time = None
-
+        data_type = request.data.get("dataType")
+        export_type = request.data.get("exportType")
+        start_time = request.data.get("startTime", "").strip()
+        start_date = request.data.get("startDate", "").strip()
+        end_time = request.data.get("endTime", "").strip()
+        end_date = request.data.get("endDate", "").strip()
+        if end_date == '' and end_time == '':
+            end_date = start_date
+            end_time = start_time
+        if start_date:
+            start_time = datetime.strptime(
+                start_date, settings.DATE_FORMAT_STRING
+            )
+        else:
+            start_time = datetime.strptime(
+                start_time, settings.TIME_FORMAT_STRING
+            )
+        if end_date:
+            end_time = datetime.strptime(
+                end_date, settings.DATE_FORMAT_STRING
+            )
+        else:
+            end_time = datetime.strptime(
+                end_time, settings.TIME_FORMAT_STRING
+            )
         selected_x_params = request.data.get("x_params")
         selected_y_params = request.data.get("y_params")
         # aggregate_data = request.GET.get('aggregate', 'yes')

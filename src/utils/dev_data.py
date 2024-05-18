@@ -410,10 +410,9 @@ class DataReports(object):
             device_timezone = self.device.get_timezone()
             if device_timezone is None:
                 device_timezone = pytz.utc
-            date_today = device_timezone.localize(date_today)
-            date_today = day.astimezone(pytz.utc)
+            date_today = device_timezone.localize(day)
+            date_today = date_today.astimezone(pytz.utc)
             date_tomorrow = date_today + timezone.timedelta(days=1)
-
         status_types = [
             DeviceStatus.DAILY_STATUS,
             StatusType.STATUS_TARGET_METER,
