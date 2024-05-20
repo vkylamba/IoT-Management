@@ -451,15 +451,16 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # aggregate_data = request.GET.get('aggregate', 'yes')
 
         data_report = DataReports(devices, multiple=isinstance(devices, Iterable))
-        data = data_report.get_device_data(
-            data_type,
-            start_time,
-            end_time,
-            meter_type=[
-                Meter.AC_METER, Meter.INVERTER_AC_METER,
-                Meter.HOUSEHOLD_AC_METER, Meter.LOAD_AC_METER
-            ]
-        )
+        if data_type == "raw":
+            data = data_report.get_device_data(
+                data_type,
+                start_time,
+                end_time,
+                meter_type=[
+                    Meter.AC_METER, Meter.INVERTER_AC_METER,
+                    Meter.HOUSEHOLD_AC_METER, Meter.LOAD_AC_METER
+                ]
+            )
         if export_type == "json":
             if data_type == "status":
                 data = data_report.get_current_day_status_data(start_time)
