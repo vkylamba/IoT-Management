@@ -179,16 +179,13 @@ def start_bot():
 
     # Get unsent notifications
     while True:
-        try:
-            notifications = process_user_notifications()
-            for notification in notifications:
-                updater.bot.send_message(
-                    chat_id=notification.get("chat_id"),
-                    text=notification.get("text"),
-                    parse_mode=notification.get("parse_mode")
-                )
-        except Exception as ex:
-            logger.exception(ex)
+        notifications = process_user_notifications()
+        for notification in notifications:
+            updater.bot.send_message(
+                chat_id=notification.get("chat_id"),
+                text=notification.get("text"),
+                parse_mode=notification.get("parse_mode")
+            )
         time.sleep(300)
 
 
