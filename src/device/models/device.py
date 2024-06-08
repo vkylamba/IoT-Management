@@ -184,7 +184,13 @@ class Device(models.Model):
     )
     alias = models.CharField(
         max_length=255,
-        help_text='Name of the device',
+        help_text='Device alias',
+        blank=True,
+        null=True
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text='Display name of the device',
         blank=True,
         null=True
     )
@@ -622,7 +628,7 @@ class User(AbstractUser):
         if dev_user.is_superuser:
             max_address = 0
             subnet_end = 0
-            device_list = Device.objects.all().select_related('operator')
+            device_list = Device.objects.all()
             if device_id is not None:
                 device_list = device_list.filter(ip_address=device_id).first()
             if not return_objects:
@@ -640,7 +646,7 @@ class User(AbstractUser):
                 device_id = User.address_string_to_numeric(device_id)
             # Now figure out the devices which belongs to this user
             max_address = subnet_start
-            for device in Device.objects.all().select_related('operator'):
+            for device in Device.objects.all():
                 dev_address = device.ip_address
                 if dev_address is None or device.active is False:
                     continue

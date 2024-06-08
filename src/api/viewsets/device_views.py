@@ -44,6 +44,7 @@ class DeviceViewSet(viewsets.ViewSet):
                 {
                     "id": device.id,
                     "alias": device.alias,
+                    "name": device.name,
                     "ip_address": str(device.ip_address),
                     "lat":  other_data.get("latitude", device.latitude()),
                     "long": other_data.get("longitude", device.longitude()),
@@ -99,7 +100,8 @@ class DeviceViewSet(viewsets.ViewSet):
             return Response(
                 status=status.HTTP_200_OK,
                 data={
-                    'name': device.alias,
+                    "name": device.name,
+                    'alias': device.alias,
                     'ip_address': device.ip_address,
                     'access_token': device.access_token
                 }

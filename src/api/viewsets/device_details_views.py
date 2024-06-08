@@ -195,6 +195,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'numeric_id': device.numeric_id,
             'active': device.active,
             'ip_address': device.ip_address,
+            'name': device.name,
             'alias': device.alias,
             'type': device.type.name if device.type is not None else None,
             'available_status_types': status_types,
@@ -377,6 +378,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         device_data = {
             'ip_address': device.ip_address,
+            'name': device.name,
             'alias': device.alias,
             'type': device.device_type.name if device.device_type is not None else None,
             'available_status_types': status_types,
@@ -609,6 +611,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         device_data = {
             'ip_address': device.ip_address,
+            'name': device.name,
             'alias': device.alias,
             'type': [x.name for x in device.types.all()],
             'device_types': dev_types,
@@ -639,6 +642,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         data = request.data
         device.alias = data.get('alias', device.alias)
+        device.name = data.get('name', device.name)
         device.device_contact_number = data.get('device_contact')
         latitude = data.get('latitude')
         longitude = data.get('longitude')
@@ -667,6 +671,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device_data = {
             'ip_address': device.ip_address,
             'alias': device.alias,
+            'name': device.name,
             'type': [x.name for x in device.types.all()],
             'device_types': dev_types,
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
