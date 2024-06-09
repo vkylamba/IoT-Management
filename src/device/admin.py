@@ -120,10 +120,11 @@ class DeviceEquipmentAdmin(admin.ModelAdmin):
     list_filter = ('device__ip_address', 'equipment__name')
 
     def Device(self, obj):
-        return obj.device
-
+        return obj.device.ip_address
+    
     def Equipment(self, obj):
-        return obj.equipment
+        return obj.equipment.name
+
 
 class StatusTypeAdmin(admin.ModelAdmin):
     ordering = ('name',)

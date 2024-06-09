@@ -120,18 +120,6 @@ class Operator(models.Model):
     def __str__(self):
         return str(self.name) + ": " + str(self.contact_number)
 
-
-DEVICE_TYPE_CHOICES = (
-    ('Home', 'Home'),
-    ('Charge Controller', 'Charge Controller'),
-    ('DELTA-RPI Inverter', 'DELTA-RPI Inverter'),
-    ('WEATHER_STATION', 'WEATHER STATION'),
-    ('SOLAR HYBRID INVERTER', 'SOLAR HYBRID INVERTER'),
-    ('IOT_GATEWAY', 'IOT_GATEWAY'),
-    ('SOLAR_PUMP', 'SOLAR PUMP'),
-    ('OTHER', 'OTHER'),
-)
-
 class DeviceType(models.Model):
 
     """
