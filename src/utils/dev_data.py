@@ -492,7 +492,7 @@ class DataReports(object):
         date_today = time_now_zero_hour.astimezone(pytz.utc)
         date_tomorrow = date_today + timezone.timedelta(days=1)
 
-        device_equipments = [eqp.name for eqp in self.device.get_all_equipments()]
+        device_equipments = [eqp.equipment.name for eqp in self.device.get_all_equipments()]
 
         if len(device_equipments) > 0:
             load_list = MeterLoad.objects.filter(
