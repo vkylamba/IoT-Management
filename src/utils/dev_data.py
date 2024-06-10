@@ -496,7 +496,7 @@ class DataReports(object):
 
         if len(device_equipments) > 0:
             load_list = MeterLoad.objects.filter(
-                equipment__equipment_name__in=device_equipments
+                equipment_name__in=device_equipments
             ).filter(
                 data_arrival_time__gte=date_today,
                 data_arrival_time__lt=date_tomorrow
