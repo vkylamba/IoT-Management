@@ -482,8 +482,6 @@ class DataReports(object):
         return data_weather
 
     def get_appliances_current_day(self):
-        # Todo: Fix it
-        return {}
         time_now = self.get_device_local_time()
         time_now_zero_hour = datetime.datetime(
             year=time_now.year,
@@ -494,11 +492,11 @@ class DataReports(object):
         date_today = time_now_zero_hour.astimezone(pytz.utc)
         date_tomorrow = date_today + timezone.timedelta(days=1)
 
-        device_equipments = [eqp.id for eqp in self.device.get_all_equipments()]
+        device_equipments = [eqp.name for eqp in self.device.get_all_equipments()]
 
         if len(device_equipments) > 0:
             load_list = MeterLoad.objects.filter(
-                equipment__in=device_equipments
+                equipment__equipment_name__in=device_equipments
             ).filter(
                 data_arrival_time__gte=date_today,
                 data_arrival_time__lt=date_tomorrow
