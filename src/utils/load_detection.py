@@ -56,7 +56,6 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
                     while number * equipment_avg_power > power:
                         number -= 1
                     load_data = {
-                        'equipment': load,
                         'name': load.equipment.name,
                         'qty': number,
                         'power': equipment_avg_power * number,
