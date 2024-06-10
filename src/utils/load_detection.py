@@ -117,7 +117,6 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
 
             meter_loads = [
                 MeterLoad(
-                    equipment=load["equipment"] if isinstance(load, dict) else load.equipment,
                     equipment_name=load['name'],
                     device=device.id,
                     data_point=data_point["id"] if isinstance(data_point, dict) else data_point.id,
