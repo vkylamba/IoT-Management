@@ -156,7 +156,6 @@ class MeterLoad(ClickHouseModel):
     """
         Model to store loads running on the device.
     """
-    equipment = ForeignKeyField('DeviceEquipment')
     equipment_name = fields.StringField()
     device = ForeignKeyField('Device')
     data_point = ForeignKeyField(MeterData)
