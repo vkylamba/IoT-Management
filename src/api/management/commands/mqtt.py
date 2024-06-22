@@ -53,6 +53,7 @@ class Command(BaseCommand):
         client.on_disconnect = self.on_disconnect
         client.on_message = self.on_message
         # client.on_log = self.on_log
+        client.on_subscribe = self.on_subscribe
         
         client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
         
@@ -94,10 +95,26 @@ class Command(BaseCommand):
 
     def on_log(self, mqtt_client, obj, level, string):
         logger.info(f"{level}: {string}")
+    
+    def on_subscribe(self, userdata, mid, reason_code, properties):
+        logger.info(f"subscription: {reason_code}, mid: {mid}, properties: {properties}")
 
     def subscribe_all_topics(self, mqtt_client):
-        topic = "#"
-        mqtt_client.subscribe(topic)
+        # topic = "#"
+        # mqtt_client.subscribe(topic)
+        topics = [
+            CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
+            CLIENT_METERS_DATA_TOPIC_TYPE,
+            CLIENT_MODBUS_DATA_TOPIC_TYPE,
+            CLIENT_UPDATE_RESP_TOPIC_TYPE,
+            CLIENT_CMD_RESP_TOPIC_TYPE,
+            CLIENT_CMD_REQ_TOPIC_TYPE,
+            CLIENT_CMD_REQ_TOPIC_TYPE,
+            MEROSS_DEVICE_DATA_TOPIC_TYPE
+        ]
+        for topic in topics:
+            topic_to_subscribe = f"/+/devices/+/{topic}"
+            mqtt_client.subscribe(topic_to_subscribe)
 
     def subscribe_active_clients_topic(self, mqtt_client):
         topic = CLIENT_COUNT_TOPIC
