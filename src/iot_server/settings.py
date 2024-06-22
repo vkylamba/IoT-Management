@@ -260,5 +260,6 @@ MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
 MQTT_KEEPALIVE = os.getenv("MQTT_KEEPALIVE", 60)
 
+MQTT_USE_SSL = os.getenv("MQTT_USE_SSL")
 # ROOT CA
 ROOT_CA = os.getenv("ROOT_CA")

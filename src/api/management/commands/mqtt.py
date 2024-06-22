@@ -55,8 +55,10 @@ class Command(BaseCommand):
         # client.on_log = self.on_log
         
         client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
-        client.tls_set(ROOT_CA_FILE_PATH)
-        client.tls_insecure_set(False)
+        
+        if getattr(settings, "MQTT_USE_SSL", False):
+            client.tls_set(ROOT_CA_FILE_PATH)
+            client.tls_insecure_set(False)
 
         client.connect(
             host=settings.MQTT_BROKER,
