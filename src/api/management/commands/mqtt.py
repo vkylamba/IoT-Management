@@ -21,9 +21,9 @@ ROOT_CA_FILE_PATH = "root_ca.crt"
 CLIENT_SYSTEM_STATUS_TOPIC_TYPE = "status"
 CLIENT_METERS_DATA_TOPIC_TYPE = "meters-data"
 CLIENT_MODBUS_DATA_TOPIC_TYPE = "modbus-data"
+CLIENT_DEVICE_PARAMS_TOPIC_TYPE = "params"
 CLIENT_UPDATE_RESP_TOPIC_TYPE = "update-response"
 CLIENT_CMD_RESP_TOPIC_TYPE = "cmd-resp"
-CLIENT_CMD_REQ_TOPIC_TYPE = "cmd-resp"
 CLIENT_CMD_REQ_TOPIC_TYPE = "cmd-req"
 CLIENT_HEARTBEAT_RESP_TOPIC_TYPE = "heartbeat"
 CLIENT_COMMAND_RESP_TOPIC_TYPE = "command"
@@ -104,12 +104,11 @@ class Command(BaseCommand):
         # mqtt_client.subscribe(topic)
         topics = [
             CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
+            CLIENT_DEVICE_PARAMS_TOPIC_TYPE,
             CLIENT_METERS_DATA_TOPIC_TYPE,
             CLIENT_MODBUS_DATA_TOPIC_TYPE,
             CLIENT_UPDATE_RESP_TOPIC_TYPE,
             CLIENT_CMD_RESP_TOPIC_TYPE,
-            CLIENT_CMD_REQ_TOPIC_TYPE,
-            CLIENT_CMD_REQ_TOPIC_TYPE,
             MEROSS_DEVICE_DATA_TOPIC_TYPE
         ]
         for topic in topics:
@@ -135,9 +134,9 @@ class Command(BaseCommand):
 
             if topic_type in [
                 CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
+                CLIENT_DEVICE_PARAMS_TOPIC_TYPE,
                 CLIENT_METERS_DATA_TOPIC_TYPE,
                 CLIENT_MODBUS_DATA_TOPIC_TYPE,
-                CLIENT_CMD_REQ_TOPIC_TYPE,
                 CLIENT_CMD_RESP_TOPIC_TYPE,
                 CLIENT_UPDATE_RESP_TOPIC_TYPE,
                 MEROSS_DEVICE_DATA_TOPIC_TYPE
