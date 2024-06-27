@@ -244,7 +244,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device_data['current_load'] = data_report.get_possible_equipment_list()
         device_data['tips'] = data_report.get_energy_saving_tips(device_data['current_load'])
 
-        device_data['status_data_today'] = data_report.get_current_day_status_data()
+        device_data['status_data_today'] = data_report.get_current_day_status_data(use_device_timezone=True)
         device_data['loads_today'] = data_report.get_appliances_current_day()
 
         device_data['alarms'] = data_report.get_alarms()
@@ -465,7 +465,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             )
         if export_type == "json":
             if data_type == "status":
-                data = data_report.get_current_day_status_data(start_time)
+                data = data_report.get_current_day_status_data(start_time, use_device_timezone=True)
             else:
                 x_params = selected_x_params.strip()
                 y_params = selected_y_params.strip().split(',')
