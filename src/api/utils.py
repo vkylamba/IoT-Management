@@ -340,11 +340,11 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
     status_types = None
     if user is not None and user.is_authenticated:
         status_types = StatusType.objects.filter(
-            Q(user=user) | Q(device_type=device.device_type) | Q(device=device)
+            Q(user=user) | Q(device_type=device.type) | Q(device=device)
         )
-    elif device.device_type is not None:
+    elif device.type is not None:
         status_types = StatusType.objects.filter(
-            Q(device_type=device.device_type) | Q(device=device)
+            Q(device_type=device.type) | Q(device=device)
         )
     else:
         status_types = StatusType.objects.filter(
