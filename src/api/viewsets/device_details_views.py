@@ -453,7 +453,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # aggregate_data = request.GET.get('aggregate', 'yes')
 
         data_report = DataReports(devices, multiple=isinstance(devices, Iterable))
-        if data_type == "raw":
+        if data_type in ["raw", "raw_data"]:
             data = data_report.get_device_data(
                 data_type,
                 start_time,
@@ -489,13 +489,15 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 data = {"error": "success", "dynamic_data": dynamic_data}
             return Response(data)
         else:
-            header = ["data_arrival_time", "device", "data"]
+            header = ["data_arrival_time", "device", "channel", "data_type", "data"]
             csv_data = []
             if data is not None:
                 for dt in data:
                     rl_data = dt.data
                     csv_data.append([
                         dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING),
+                        dt.channel,
+                        dt.data_type,
                         dt.device.ip_address,
                         str(rl_data)
                     ])

@@ -239,6 +239,8 @@ class DataReports(object):
         )[0:5]
         return [{
             "data_arrival_time": x.data_arrival_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "data_type": x.data_type,
+            "channel": x.channel,
             "data": json.loads(x.data) if isinstance(x.data, str) else x.data 
         } for x in raw_data]
 
