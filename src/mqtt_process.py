@@ -8,7 +8,7 @@ while True:
     proc = subprocess.Popen(["ps -ef | grep 'python manage.py mqtt'"], stdout=subprocess.PIPE, shell=True)
     (out, err) = proc.communicate()
     processes_running = out.decode().split('\n')
-    if len(processes_running) > 2:
+    if len(processes_running) > 3:
         print(f"MQTT process already running. {out}")
     else:
         os.system("python manage.py mqtt")
