@@ -9,7 +9,7 @@ while True:
     (out, err) = proc.communicate()
     processes_running = out.decode().split('\n')
     if len(processes_running) > 2:
-        print("MQTT process already running.")
+        print(f"MQTT process already running. {out}")
     else:
         os.system("python manage.py mqtt")
-    time.sleep(10)
+    time.sleep(60)
