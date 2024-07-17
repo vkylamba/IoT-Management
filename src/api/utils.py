@@ -260,7 +260,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
 
     last_raw_data = get_latest_raw_data(device)
     ## ToDo: Cleanup once all the devices have moved to new schema system
-    if dev_type_name in IOT_GW_DEVICES:
+    if dev_type_name in IOT_GW_DEVICES and data_type is not None and data_type != 'status':
         configured_schema_type = other_data.get("data_schema_type")
         if configured_schema_type is None:
             configured_schema_type = dev_type_name
