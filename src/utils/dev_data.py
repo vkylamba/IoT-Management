@@ -397,6 +397,20 @@ class DataReports(object):
 
         return data_list
 
+    def get_status_data(self, status_types, start_time, end_time):
+        data_list = DeviceStatus.objects.filter(
+            device=self.device,
+            name__in=status_types,
+            created_at__gte=start_time,
+            created_at__lt=end_time
+        )
+        return [{
+            "name": x.name,
+            "created_at": x.created_at.strftime(settings.TIME_FORMAT_STRING) if x.created_at is not None else None,
+            "updated_at": x.updated_at.strftime(settings.TIME_FORMAT_STRING) if x.updated_at is not None else None,
+            "status": x.status
+        } for x in data_list]
+
     def get_current_day_status_data(self, day=None):
         time_now = self.get_device_local_time()
         time_now_zero_hour = datetime.datetime(
@@ -424,20 +438,8 @@ class DataReports(object):
             StatusType.STATUS_TARGET_DEVICE,
             StatusType.STATUS_TARGET_REPORT,
         ]
-        
-        data_list = DeviceStatus.objects.filter(
-            device=self.device,
-            name__in=status_types,
-            created_at__gte=date_today,
-            created_at__lt=date_tomorrow
-        )
 
-        return [{
-            "name": x.name,
-            "created_at": x.created_at.strftime(settings.TIME_FORMAT_STRING) if x.created_at is not None else None,
-            "updated_at": x.updated_at.strftime(settings.TIME_FORMAT_STRING) if x.updated_at is not None else None,
-            "status": x.status
-        } for x in data_list]
+        return self.get_status_data(status_types, date_today, date_tomorrow)
 
     def get_current_day_data(self):
         time_now = self.get_device_local_time()

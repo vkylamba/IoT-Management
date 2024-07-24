@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from device.models import UserDeviceType, StatusType
+from device.models import Permission
 from .device import UserDeviceTypeSerializer, StatusTypeSerializer
 
 User = get_user_model()
@@ -38,6 +39,10 @@ class UserSerializer(serializers.ModelSerializer):
         for status_type in available_status_types:
             if not status_type.active: continue
             status_types.append(StatusTypeSerializer(status_type).data)
+            
+        user_permissions = Permission.objects.filter(
+            user=user
+        )
 
         data = {
             'user_id': user.id,
@@ -53,9 +58,11 @@ class UserSerializer(serializers.ModelSerializer):
             'device_data_token': user.device_data_token,
             'devices': [],
             'available_device_types': dev_types,
-            'available_status_types': status_types
+            'available_status_types': status_types,
+            'user_permissions': [
+                x.name for x in user_permissions
+            ]
         }
-
 
         for device in user_devices:
             device_data = {
