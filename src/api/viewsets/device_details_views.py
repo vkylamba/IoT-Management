@@ -423,7 +423,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         data_type = "raw"
         export_type = "json"
-        data_type = request.data.get("dataType", data_type).lower()
+        data_type = request.data.get("dataType", data_type)
         export_type = request.data.get("exportType")
         start_time = request.data.get("startTime", "").strip()
         start_date = request.data.get("startDate", "").strip()
@@ -463,7 +463,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                     Meter.HOUSEHOLD_AC_METER, Meter.LOAD_AC_METER
                 ]
             )
-        elif export_type != "json" and data_type in ["status", "daily_status"]:
+        elif export_type != "json" and data_type in ["status", "DAILY_STATUS"]:
             data = data_report.get_status_data([data_type], start_time, end_time)
         if export_type == "json":
             if data_type == "status":
