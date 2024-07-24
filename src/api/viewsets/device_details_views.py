@@ -463,7 +463,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                     Meter.HOUSEHOLD_AC_METER, Meter.LOAD_AC_METER
                 ]
             )
-        elif export_type != "json" and data_type in ["status", "DAILY_STATUS"]:
+        elif export_type != "json":
             data = data_report.get_status_data([data_type], start_time, end_time)
         if export_type == "json":
             if data_type == "status":
@@ -497,12 +497,27 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             csv_data = []
             if data is not None:
                 for dt in data:
-                    rl_data = dt.data
+                    if isinstance(dt, dict):
+                        rl_data = dt.get("status")
+                        data_arrival_time = dt.get("created_at")
+                        channel = "calculated"
+                        data_type = dt.get("name")
+                        ip_address = data_report.device.ip_address
+                    else:
+                        rl_data = dt.data
+                        data_arrival_time = dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING)
+                        channel = dt.channel
+                        data_type = dt.data_type
+                        ip_address = dt.device.ip_address
+
+                    if data_arrival_time is None:
+                        data_arrival_time = dt.created_at
+
                     csv_data.append([
-                        dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING),
-                        dt.channel,
-                        dt.data_type,
-                        dt.device.ip_address,
+                        data_arrival_time,
+                        channel,
+                        data_type,
+                        ip_address,
                         str(rl_data)
                     ])
             # Create the HttpResponse object with the appropriate CSV header.
