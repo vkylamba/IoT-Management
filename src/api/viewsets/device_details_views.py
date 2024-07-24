@@ -518,7 +518,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         channel,
                         data_type,
                         ip_address,
-                        str(rl_data)
+                        json.dumps(rl_data)
                     ])
             # Create the HttpResponse object with the appropriate CSV header.
             response = HttpResponse(
