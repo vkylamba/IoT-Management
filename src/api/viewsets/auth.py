@@ -33,14 +33,20 @@ class AuthViewSet(viewsets.ViewSet):
         user_data = None
         try:
             token_user = Token.objects.get(user__username=username)
+            user_permissions = Permission.objects.filter(
+                user=token_user.user
+            )
             if token_user.user.check_password(password):
                 user_data = {
                     'user_id': token_user.user.id,
                     'name': token_user.user.get_full_name(),
                     'email': token_user.user.email,
                     'devices': token_user.user.device_list(),
-                    'isAdmin': token_user.user.has_permission(PERMISSIONS_ADMIN),
-                    'isSuperuser': token_user.user.is_superuser
+                    'isAdmin': PERMISSIONS_ADMIN in user_permissions,
+                    'isSuperuser': token_user.user.is_superuser,
+                    'user_permissions': [
+                        x.name for x in user_permissions
+                    ]
                 }
                 user_token = token_user.key
                 resp_status = status.HTTP_200_OK
