@@ -136,6 +136,13 @@ class UserDeviceTypeAdmin(admin.ModelAdmin):
     ordering = ('name',)
     list_display = ('id', 'name', 'code', 'user', 'identifier_field')
     list_filter = ('name', 'code', 'user', 'identifier_field')
+    
+
+
+class DeviceConfigAdmin(admin.ModelAdmin):
+    ordering = ('updated_at',)
+    list_display = ('id', 'device', 'group_name', 'version', 'active', 'created_at', 'updated_at')
+    list_filter = ('device', 'group_name', 'active')
 
 
 admin.site.register(DeviceType, DeviceTypeAdmin)
@@ -153,9 +160,9 @@ admin.site.register(Command, CommandAdmin)
 admin.site.register(DevCommand)
 admin.site.register(Permission)
 admin.site.register(DeviceFirmware)
-admin.site.register(DeviceConfig)
 admin.site.register(Subnet)
 
 
+admin.site.register(DeviceConfig, DeviceConfigAdmin)
 admin.site.register(UserDeviceType, UserDeviceTypeAdmin)
 admin.site.register(StatusType, StatusTypeAdmin)
