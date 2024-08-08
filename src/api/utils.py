@@ -212,7 +212,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
             dev_type = device.device_type
             dev_type_name = device.device_type.code if device.device_type is not None else None
         except Exception as ex:
-            logger.exception(ex)
+            logger.warning(ex)
 
     if dev_type is None:
         dev_types = [x.name for x in device.types.all()]
