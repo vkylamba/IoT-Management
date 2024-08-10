@@ -124,15 +124,17 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         device_cfg_version = ''
         if request.method == 'POST':
             device_cfg_data = request.data
-            logger.info(f"Storing existing config data {device_cfg_data}")
+            logger.info(f"Device: {device}, Checking new config data from device {device_cfg_data}")
             device_cfg_version = device_cfg_data.get('cfg_version', '') if device_cfg_data is not None else ''
+            logger.info(f"Device: {device}, New config version is: {device_cfg_data}. Existing config version: {existing_cfg_version}")
             if device_cfg_data is not None and device_cfg_version != existing_cfg_version:
-                old_cfg = DeviceConfig.objects.create(
+                new_cfg = DeviceConfig.objects.create(
                     device=device,
                     data=device_cfg_data,
                     active=False
                 )
-                old_cfg.save()
+                new_cfg.save()
+                logger.info(f"Saved new config for device {device}")
         if cfg is not None and cfg.active and existing_cfg_version != device_cfg_version:
             return Response(data=cfg.data)
         return Response(status=status.HTTP_404_NOT_FOUND)
