@@ -263,3 +263,34 @@ MQTT_KEEPALIVE = os.getenv("MQTT_KEEPALIVE", 60)
 MQTT_USE_SSL = os.getenv("MQTT_USE_SSL", False)
 # ROOT CA
 ROOT_CA = os.getenv("ROOT_CA")
+
+
+# Configure logging
+
+LOGGING = {
+    "version": 1,  # the dictConfig format version
+    "disable_existing_loggers": False,  # retain the default loggers
+    "handlers": {
+        "device": {
+            "class": "device.log_handler.DeviceLogHandler",
+            "filename": os.path.join(MEDIA_ROOT, "device-logs/device.log"),
+            "encoding": "utf-8",
+            "when": "midnight",
+            "backupCount": 7,
+            "level": "DEBUG",
+            "formatter": "verbose",
+        },
+    },
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
+        }
+    },
+    "loggers": {
+        "device": {
+            "level": "DEBUG",
+            "handlers": ["device"],
+        },
+    },
+}

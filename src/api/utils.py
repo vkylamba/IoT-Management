@@ -18,8 +18,9 @@ from django.db.models import Q
 from django.utils import timezone
 
 from utils import detect_and_save_meter_loads
+from device.log_handler import set_device_for_logger
 
-logger = logging.getLogger('django')
+logger = logging.getLogger('device')
 
 AVAILABLE_METER_DATA_FIELDS = {
         "voltage": float,
@@ -207,6 +208,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     config_data = message_data.get("config", {})
     dev_type_name = config_data.get("devType")
     dev_type = None
+    set_device_for_logger(logger, device.ip_address)
     if dev_type_name is None:
         try:
             dev_type = device.device_type
@@ -217,7 +219,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     if dev_type is None:
         dev_types = [x.name for x in device.types.all()]
         dev_type_name = dev_types[-1] if len(dev_types) > 0 else None
-    logger.info(f"Data from {dev_type_name} device: {message_data}")
+    logger.info(f"Data from device type {dev_type_name}: {message_data}")
 
     # Save the raw data
     data_arrival_time = message_data.get("last_update_time")
