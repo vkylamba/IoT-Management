@@ -742,10 +742,19 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             return Response(status=status.HTTP_403_FORBIDDEN)
         
         date_str = request.query_params.get("date", None)
+        format = request.query_params.get("format", None)
+        if format is None:
+            format = "file"
         if date_str is None:
             date_str = timezone.now().strftime("%Y-%m-%d")
         log_file = os.path.join(settings.MEDIA_ROOT, f"device-logs/device-{device.ip_address}-{date_str}.log")
         if os.path.exists(log_file):
-            response = FileResponse(open(log_file, "rb"))
-            return response
+            if format == "file":
+                response = FileResponse(open(log_file, "rb"))
+                return response
+            else:
+                logs_data = None
+                with open(log_file, "r") as f:
+                    logs_data = f.readlines()
+                return Response(status=status.HTTP_200_OK, data={"logs": logs_data})
         return Response(status=status.HTTP_404_NOT_FOUND)
