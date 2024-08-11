@@ -84,6 +84,10 @@ urlpatterns = [
         r'^device/reportdata/(?P<device_id>[\w.]+)/(?P<report_type>[\w]+)$',
         DeviceDetailsViewSet.as_view({'get': 'get_report'})
     ),
+    re_path(
+        r'^device/logs/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_logs'})
+    ),
 
     # Data views
     re_path(

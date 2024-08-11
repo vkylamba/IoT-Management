@@ -1,3 +1,4 @@
+import os
 import csv
 import logging
 from collections.abc import Iterable
@@ -14,7 +15,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -725,3 +726,26 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device.active = False
         device.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def get_logs(self, request, device_id):
+        dev_user = request.user
+        dev_user = request.user
+        device = dev_user.device_list(return_objects=True, device_id=device_id)
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        date_str = request.query_params.get("date", None)
+        if date_str is None:
+            date_str = timezone.now().strftime("%Y-%m-%d")
+        log_file = os.path.join(settings.MEDIA_ROOT, f"device-logs/device-{device.ip_address}-{date_str}.log")
+        if os.path.exists(log_file):
+            response = FileResponse(open(log_file, "rb"))
+            return response
+        return Response(status=status.HTTP_404_NOT_FOUND)
