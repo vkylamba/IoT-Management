@@ -1,5 +1,9 @@
+import logging
 from rest_framework import permissions
 from device.models import Device, User
+
+
+logger = logging.getLogger('django')
 
 """
     API permissions module.
@@ -32,6 +36,7 @@ class IsDevice(permissions.BasePermission):
     """
 
     def check_device(self, request):
+        logging.info(f"Device data input request received. Headers: {request.META}, Data: {request.data}")
         token = request.META.get("HTTP_DEVICE")
         mac_address = ""
         if not token:
