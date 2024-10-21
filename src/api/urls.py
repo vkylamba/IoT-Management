@@ -6,7 +6,7 @@ from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
                           UserViewSet, VerifyAuthViewSet, WidgetViewSet,
                           DeviceOTAViewSet, ViewViewSet)
 
-router = routers.DefaultRouter(trailing_slash=False)
+router = routers.DefaultRouter()
 router.register(r'user/details', UserViewSet)
 
 # Wire up our API using automatic URL routing.
@@ -92,6 +92,10 @@ urlpatterns = [
     # Data views
     re_path(
         r'^data/$',
+        DataViewSet.as_view({'post': 'create'})
+    ),
+    re_path(
+        r'^data$',
         DataViewSet.as_view({'post': 'create'})
     ),
 
