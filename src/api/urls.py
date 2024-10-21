@@ -6,7 +6,7 @@ from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
                           UserViewSet, VerifyAuthViewSet, WidgetViewSet,
                           DeviceOTAViewSet, ViewViewSet)
 
-router = routers.DefaultRouter()
+router = routers.DefaultRouter(trailing_slash=False)
 router.register(r'user/details', UserViewSet)
 
 # Wire up our API using automatic URL routing.
