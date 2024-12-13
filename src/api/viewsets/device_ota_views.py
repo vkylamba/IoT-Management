@@ -120,7 +120,7 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
         cfg = DeviceConfig.objects.filter(
             device=device,
         ).order_by('-created_at').first()
-        existing_cfg_version = cfg.data.get('cfg_version') if cfg is not None else ''
+        existing_cfg_version = cfg.data.get('cfg_version') if cfg is not None else None
         device_cfg_version = ''
         if request.method == 'POST':
             device_cfg_data = request.data
