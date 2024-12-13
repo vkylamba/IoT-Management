@@ -126,8 +126,10 @@ class DeviceOTAViewSet(viewsets.ModelViewSet):
             device_cfg_data = request.data
             logger.info(f"Device: {device}, Checking new config data from device {device_cfg_data}")
             device_cfg_version = device_cfg_data.get('cfg_version', '') if device_cfg_data is not None else ''
-            logger.info(f"Device: {device}, New config version is: {device_cfg_data}. Existing config version: {existing_cfg_version}")
-            if device_cfg_data is not None and device_cfg_version != existing_cfg_version:
+            logger.info(f"Device: {device}, New config version is: {device_cfg_version}. Existing config version: {existing_cfg_version}")
+            should_save_config = device_cfg_version is None or existing_cfg_version is None or device_cfg_version != existing_cfg_version
+            should_save_config = should_save_config and device_cfg_data is not None
+            if should_save_config:
                 new_cfg = DeviceConfig.objects.create(
                     device=device,
                     data=device_cfg_data,
