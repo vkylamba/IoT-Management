@@ -236,6 +236,7 @@ def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
     load_power = 0
     status = ""
 
+    grid_meter_power_factor = 1
     for meter_and_data in meters_and_data:
         meter = meter_and_data["meter"]
         data_point = meter_and_data["data"]
@@ -244,14 +245,19 @@ def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
         if meter.name == "grid_meter":
             grid_current = data_point.get("current", 0)
             grid_power = data_point.get("power", 0)
+            grid_meter_power_factor = data_point.get("more_data", {}).get("powerFactor")
+            if grid_meter_power_factor is None:
+                grid_meter_power_factor = 1
+            else:
+                grid_meter_power_factor = float(grid_meter_power_factor)
         if meter.name == "load_meter":
             load_power = data_point.get("power", 0)
 
     if grid_current == 0:
         status = "Grid Absent"
-    elif solar_power > (grid_power + load_power) and grid_power > 0:
+    elif grid_meter_power_factor < 0:# solar_power > (grid_power + load_power) and grid_power > 0:
         status = "Exporting"
-    elif grid_power > 0:
+    else:
         status = "Importing"
 
     dev_prop['value'] = f"{status} {round(grid_power, 2)} W"
@@ -397,12 +403,19 @@ def update_system_status_mona_v1(dev_prop, device, **kwargs):
     system_temperature = 0.0
     system_humidity = 0.0
 
+    grid_meter_power_factor = 1
+
     for meter_and_data in meters_and_data:
         meter = meter_and_data["meter"]
         data_point = meter_and_data["data"]
         if meter.name == "grid_meter":
             grid_current = data_point.get("current", 0)
             grid_power += data_point.get("power", 0)
+            grid_meter_power_factor = data_point.get("more_data", {}).get("powerFactor")
+            if grid_meter_power_factor is None:
+                grid_meter_power_factor = 1
+            else:
+                grid_meter_power_factor = float(grid_meter_power_factor)
         elif meter.meter_type == Meter.LOAD_AC_METER:
             load_power += data_point.get("power", 0)
         elif meter.name == "solar_meter":
@@ -413,7 +426,7 @@ def update_system_status_mona_v1(dev_prop, device, **kwargs):
 
     if grid_current == 0:
         grid_status = "ABSENT"
-    if solar_power > (grid_power + load_power) and grid_power > 0:
+    if grid_meter_power_factor < 0: # solar_power > (grid_power + load_power) and grid_power > 0:
         grid_status = "EXPORTING"
     elif grid_power > 0:
         grid_status = "IMPORTING"
