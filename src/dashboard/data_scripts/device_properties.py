@@ -21,6 +21,7 @@ from .property_updaters import (
     update_system_status,
     update_system_status_mona_v1,
     update_system_temperature_status,
+    update_power_factor,
     update_weather_status
 )
 
@@ -809,6 +810,13 @@ DEV_PROPERTIES = {
             "value": "",
             "update": True,
             "update_method": update_system_temperature_status
+        },
+        {
+            "name": "net_meter_power_factor",
+            "type": "Float",
+            "value": "0.0",
+            "update": True,
+            "update_method": update_power_factor
         },
     ],
 }

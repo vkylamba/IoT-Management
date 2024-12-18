@@ -511,3 +511,16 @@ def update_device_properties(device, meters_and_data):
         prop_names = ', '.join([x["name"] for x in dev_props])
         logger.info(f"Device: {device.ip_address}, Updated properties: {prop_names}")
     return data
+
+def update_power_factor(dev_prop, device, **kwargs):
+
+    meters_and_data = kwargs.get("meters_and_data")
+    grid_meter_power_factor = 0
+
+    for meter_and_data in meters_and_data:
+        meter = meter_and_data["meter"]
+        data_point = meter_and_data["data"]
+        if meter.name == "grid_meter":
+            grid_meter_power_factor = extract_power_factor(data_point)
+
+    dev_prop['net_meter_power_factor'] = grid_meter_power_factor
