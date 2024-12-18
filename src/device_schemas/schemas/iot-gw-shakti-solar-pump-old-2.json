@@ -1,0 +1,23 @@
+{
+	"$schema": "http://json-schema.org/draft-04/schema#",
+	"type": "object",
+	"properties": {
+	  "vfd_master_switch_state": {
+		"type": "integer"
+	  },
+	  "total_energy_kwh": {
+		"type": "number"
+	  },
+	  "total_flow": {
+		"type": "number"
+	  },
+	  "total_time": {
+		"type": "number"
+	  }
+	},
+	"required": [
+		"vfd_master_switch_state",
+		"total_energy_kwh",
+		"total_time"
+	]
+}

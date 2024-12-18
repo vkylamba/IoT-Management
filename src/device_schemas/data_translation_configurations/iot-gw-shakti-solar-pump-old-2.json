@@ -1,0 +1,30 @@
+[
+    {
+        "target": "meter",
+        "name": "load_meter",
+        "type": "DC_METER",
+        "fields": [
+            {
+                "target": "state",
+                "type": "raw",
+                "source": "vfd_master_switch_state",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "energy",
+                "type": "raw",
+                "source": "total_energy_kwh",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "runtime",
+                "type": "raw",
+                "source": "total_time",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
+    }
+]

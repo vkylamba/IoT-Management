@@ -1,27 +1,86 @@
 [
     {
         "target": "meter",
-        "name": "load_meter",
-        "type": "DC_METER",
+        "name": "weather_meter",
+        "type": "WEATHER_METER",
+        "required_fields": ["temperature", "humidity", "state"],
         "fields": [
+            {
+                "target": "temperature",
+                "type": "raw",
+                "source": "dht.temperature",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "humidity",
+                "type": "raw",
+                "source": "dht.humidity",
+                "multiplier": 1,
+                "offset": 0
+            },
             {
                 "target": "state",
                 "type": "raw",
-                "source": "vfd_master_switch_state",
+                "source": "dht.state",
+                "multiplier": 1,
+                "offset": 0
+            }
+        ]
+    },
+    {
+        "target": "meter",
+        "name": "solar_meter",
+        "type": "DC_METER",
+        "required_fields": ["voltage", "current", "power"],
+        "fields": [
+            {
+                "target": "voltage",
+                "type": "raw",
+                "source": "meter_0.voltage",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "current",
+                "type": "raw",
+                "source": "meter_0.current",
+                "multiplier": 1,
+                "offset": 0
+            },
+            {
+                "target": "power",
+                "type": "raw",
+                "source": "meter_0.power",
                 "multiplier": 1,
                 "offset": 0
             },
             {
                 "target": "energy",
                 "type": "raw",
-                "source": "total_energy_kwh",
+                "source": "meter_0.energy",
+                "multiplier": 0.000000278,
+                "offset": 0
+            }
+        ]
+    },
+    {
+        "target": "meter",
+        "name": "status_meter",
+        "type": "STATUS_METER",
+        "required_fields": ["runtime", "state"],
+        "fields": [
+            {
+                "target": "runtime",
+                "type": "raw",
+                "source": "uptime",
                 "multiplier": 1,
                 "offset": 0
             },
             {
-                "target": "runtime",
+                "target": "state",
                 "type": "raw",
-                "source": "total_time",
+                "source": "battery",
                 "multiplier": 1,
                 "offset": 0
             }
