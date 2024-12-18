@@ -737,6 +737,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             ]
             if len(device) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
             return Response(status=status.HTTP_403_FORBIDDEN)
