@@ -1,5 +1,6 @@
 import logging
 
+import json
 from device.models import DeviceProperty, Meter
 from utils.dev_data import DataReports
 from utils.solar.utilization_matrix import get_solar_system_state
@@ -225,6 +226,19 @@ def update_net_meter_status(dev_prop, device, **kwargs):
     grid_power =  -1 * grid_power if grid_power < 0 else grid_power
     dev_prop['value'] = f"{status} {round(grid_power, 2)} W"
 
+def extract_power_factor(data_point):
+    power_factor = 0
+    grid_meter_power_factor = data_point.get("more_data", {})
+    if isinstance(grid_meter_power_factor, str):
+        try:
+            grid_meter_power_factor = json.loads(grid_meter_power_factor)
+            if isinstance(grid_meter_power_factor, dict):
+                grid_meter_power_factor = grid_meter_power_factor.get("powerFactor")
+            if grid_meter_power_factor is not None:
+                power_factor = float(grid_meter_power_factor)
+        except Exception as ex:
+            logger.error(f"Error extracting power factor from data: {data_point}. Ex: {ex}")
+    return power_factor
 
 def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
     # The assumption here is that the inverter charges the batteries on Solar
@@ -245,11 +259,7 @@ def update_net_meter_status_mona_v1(dev_prop, device, **kwargs):
         if meter.name == "grid_meter":
             grid_current = data_point.get("current", 0)
             grid_power = data_point.get("power", 0)
-            grid_meter_power_factor = data_point.get("more_data", {}).get("powerFactor")
-            if grid_meter_power_factor is None:
-                grid_meter_power_factor = 1
-            else:
-                grid_meter_power_factor = float(grid_meter_power_factor)
+            grid_meter_power_factor = extract_power_factor(data_point)
         if meter.name == "load_meter":
             load_power = data_point.get("power", 0)
 
@@ -411,11 +421,7 @@ def update_system_status_mona_v1(dev_prop, device, **kwargs):
         if meter.name == "grid_meter":
             grid_current = data_point.get("current", 0)
             grid_power += data_point.get("power", 0)
-            grid_meter_power_factor = data_point.get("more_data", {}).get("powerFactor")
-            if grid_meter_power_factor is None:
-                grid_meter_power_factor = 1
-            else:
-                grid_meter_power_factor = float(grid_meter_power_factor)
+            grid_meter_power_factor = extract_power_factor(data_point)
         elif meter.meter_type == Meter.LOAD_AC_METER:
             load_power += data_point.get("power", 0)
         elif meter.name == "solar_meter":
