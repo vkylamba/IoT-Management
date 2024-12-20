@@ -523,4 +523,4 @@ def update_power_factor(dev_prop, device, **kwargs):
         if meter.name == "grid_meter":
             grid_meter_power_factor = extract_power_factor(data_point)
 
-    dev_prop['net_meter_power_factor'] = grid_meter_power_factor
+    dev_prop['value'] = grid_meter_power_factor
