@@ -470,9 +470,37 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if export_type == "json":
             if data_type == "status":
                 data = data_report.get_current_day_status_data(start_time)
-            elif data_type is not None and data is None:
+            elif data_type in ["raw", "raw_data"]:
+                json_data = []
+                if data is not None:
+                    for dt in data:
+                        if isinstance(dt, dict):
+                            rl_data = dt.get("status")
+                            data_arrival_time = dt.get("created_at")
+                            channel = "calculated"
+                            data_type = dt.get("name")
+                            ip_address = data_report.device.ip_address
+                        else:
+                            rl_data = dt.data
+                            data_arrival_time = dt.data_arrival_time.strftime(settings.TIME_FORMAT_STRING)
+                            channel = dt.channel
+                            data_type = dt.data_type
+                            ip_address = dt.device.ip_address
+
+                        if data_arrival_time is None:
+                            data_arrival_time = dt.created_at
+
+                        json_data.append({
+                            "data_arrival_time": data_arrival_time,
+                            "channel": channel,
+                            "data_type": data_type,
+                            "ip_address": ip_address,
+                            "data": rl_data
+                        })
+                    data = json_data
+            elif data_type is not None:
                 data = data_report.get_status_data([data_type], start_time, end_time)
-            elif data is None:
+            else:
                 x_params = selected_x_params.strip()
                 y_params = selected_y_params.strip().split(',')
 
