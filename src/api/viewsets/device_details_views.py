@@ -454,6 +454,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # aggregate_data = request.GET.get('aggregate', 'yes')
 
         data_report = DataReports(devices, multiple=isinstance(devices, Iterable))
+        data = None
         if data_type in ["raw", "raw_data"]:
             data = data_report.get_device_data(
                 data_type,
@@ -469,9 +470,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if export_type == "json":
             if data_type == "status":
                 data = data_report.get_current_day_status_data(start_time)
-            elif data_type is not None:
+            elif data_type is not None and data is None:
                 data = data_report.get_status_data([data_type], start_time, end_time)
-            else:
+            elif data is None:
                 x_params = selected_x_params.strip()
                 y_params = selected_y_params.strip().split(',')
 
