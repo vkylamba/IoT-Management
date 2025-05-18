@@ -4,7 +4,7 @@ from rest_framework import routers
 from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
                           DeviceViewSet, EventViewSet, HeartbeatViewSet,
                           UserViewSet, VerifyAuthViewSet, WidgetViewSet,
-                          DeviceOTAViewSet, ViewViewSet)
+                          DeviceOTAViewSet, ViewViewSet, DocumentViewSet)
 
 router = routers.DefaultRouter()
 router.register(r'user/details', UserViewSet)
@@ -71,6 +71,15 @@ urlpatterns = [
             'post': 'update_static_data',
             'delete': 'remove_device',
         })
+    ),
+    # Document views
+    re_path(
+        r'^documents/by-device/(?P<device_id>[^/.]+)$',
+        DocumentViewSet.as_view({'get': 'by_device'})
+    ),
+    re_path(
+        r'^documents/by-user/(?P<user_id>[^/.]+)$',
+        DocumentViewSet.as_view({'get': 'by_user'})
     ),
     re_path(
         r'^device/dynamicdata/(?P<device_id>[\w.]+)$',

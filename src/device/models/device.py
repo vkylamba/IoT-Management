@@ -182,7 +182,7 @@ class Device(models.Model):
         blank=True,
         null=True
     )
-    types = models.ManyToManyField(DeviceType, blank=True, null=True)
+    types = models.ManyToManyField(DeviceType, blank=True)
     device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
     installation_date = models.DateField(
         blank=True,
@@ -215,7 +215,7 @@ class Device(models.Model):
     address = models.TextField(
         blank=True, null=True
     )
-    commands = models.ManyToManyField('DevCommand', blank=True, null=True)
+    commands = models.ManyToManyField('DevCommand', blank=True)
 
     # Access token for the device to push data
     access_token = models.CharField(max_length=40, blank=True, null=True)
@@ -687,6 +687,18 @@ class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.CASCADE)
     user = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
+    doc_type = models.CharField(
+        max_length=255,
+        help_text='Document type',
+        blank=True,
+        null=True
+    )
+    doc_name = models.CharField(
+        max_length=255,
+        help_text='Document name',
+        blank=True,
+        null=True
+    )
     document = models.FileField(
         upload_to=get_image_path,
         blank=True,

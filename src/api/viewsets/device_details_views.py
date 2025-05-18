@@ -10,7 +10,7 @@ from api.serializers import StatusTypeSerializer
 from api.utils import get_or_create_user_device, process_raw_data
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, Meter, StatusType,
-                           UserDeviceType)
+                           UserDeviceType, Document)
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
@@ -18,6 +18,7 @@ from django.db.models import Q
 from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from device.models.ota import DeviceConfig
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -790,3 +791,37 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                     logs_data = f.readlines()
                 return Response(status=status.HTTP_200_OK, data={"logs": logs_data})
         return Response(status=status.HTTP_404_NOT_FOUND)
+
+    def get_config(self, request, device_id):
+        dev_user = request.user
+        dev_user = request.user
+        device = dev_user.device_list(return_objects=True, device_id=device_id)
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        # get the latest config data
+        device = get_object_or_404(Device, alias__iexact=device)
+        cfg = DeviceConfig.objects.filter(
+            device=device,
+        ).order_by('-created_at').first()
+        data = {
+            "id": cfg.id,
+            "data": cfg.data,
+            "group_name": cfg.group_name,
+            "version": cfg.version,
+            "description": cfg.description,
+            "active": cfg.active,
+            "created_at": cfg.created_at.strftime(settings.TIME_FORMAT_STRING) if cfg.created_at is not None else None,
+            "updated_at": cfg.updated_at.strftime(settings.TIME_FORMAT_STRING) if cfg.updated_at is not None else None,
+        }
+        return Response(data=data)

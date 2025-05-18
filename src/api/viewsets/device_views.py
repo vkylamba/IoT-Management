@@ -189,7 +189,6 @@ class DeviceViewSet(viewsets.ViewSet):
             user_widget.save()
         return Response(status=status.HTTP_200_OK)
 
-
     def unmark_as_favorite(self, request, device_id=None):
         dev_user = request.user
         device = dev_user.device_list(return_objects=True, device_id=device_id)

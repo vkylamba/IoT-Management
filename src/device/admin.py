@@ -58,11 +58,33 @@ def delete_device_types(modeladmin, request, queryset):
             deleted += result.deleted_count
     return deleted
 
+class DocumentInline(admin.TabularInline):
+    model = Document
+    extra = 0
+
+class MeterInline(admin.TabularInline):
+    model = Meter
+    extra = 0
+
+class DeviceEquipmentInline(admin.TabularInline):
+    model = DeviceEquipment
+    extra = 0
+
+class DevicePropertyInline(admin.TabularInline):
+    model = DeviceProperty
+    extra = 0
+
+class DeviceConfigInline(admin.TabularInline):
+    model = DeviceConfig
+    extra = 0
+
 class DeviceAdmin(admin.ModelAdmin):
     ordering = ('ip_address',)
     list_display = ('id', 'ip_address', 'alias', 'mac', 'Type', 'operator', 'active', 'created_at')
     list_filter = ('ip_address', 'alias', 'id', 'mac', 'active', 'created_at')
+    search_fields = ('ip_address', 'alias', 'mac', 'operator__name', 'types__name')
     actions = [delete_devices]
+    inlines = [DocumentInline, MeterInline, DeviceEquipmentInline, DevicePropertyInline, DeviceConfigInline]
 
     def Type(self, obj):
 
