@@ -48,22 +48,6 @@ urlpatterns = [
         r'^devices/removefavorite/(?P<device_id>[\w.]+)$',
         DeviceViewSet.as_view({'delete': 'unmark_as_favorite'})
     ),
-
-    # Device details views
-    re_path(
-        r'^device/settings/(?P<device_id>[\w.]+)$',
-        DeviceDetailsViewSet.as_view({
-            'get': 'device_settings_data',
-            'post': 'set_settings_data',
-        })
-    ),
-    re_path(
-        r'^device/staticdata/(?P<device_id>[\w.]+)$',
-        DeviceDetailsViewSet.as_view({
-            'get': 'device_static_data',
-            'post': 'update_static_data',
-        })
-    ),
     re_path(
         r'^device/staticdata/(?P<device_id>[\w.-]+)$',
         DeviceDetailsViewSet.as_view({
@@ -104,6 +88,10 @@ urlpatterns = [
     re_path(
         r'^device/logs/(?P<device_id>[\w.]+)$',
         DeviceDetailsViewSet.as_view({'get': 'get_logs'})
+    ),
+    re_path(
+        r'^device/config/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_config'})
     ),
 
     # Data views

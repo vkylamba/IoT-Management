@@ -10,7 +10,7 @@ from api.serializers import StatusTypeSerializer
 from api.utils import get_or_create_user_device, process_raw_data
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, Meter, StatusType,
-                           UserDeviceType, Document)
+                           UserDeviceType, DeviceType)
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
@@ -632,104 +632,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         return Response(report_data)
 
-    def device_settings_data(self, request, device_id):
-
-        dev_user = request.user
-        device = dev_user.device_list(return_objects=True, device_id=device_id)
-
-        if isinstance(device, list):
-            device = [
-                x for x in device if x.ip_address == device_id
-            ]
-            if len(device) == 0:
-                return Response(status=status.HTTP_404_NOT_FOUND)
-
-        dev_types = []
-        available_device_types = UserDeviceType.objects.filter(
-            user=dev_user,
-            active=True
-        )
-        for dev_type in available_device_types:
-            dev_types.append({'value': dev_type.code, 'label': dev_type.name})
-
-        device_data = {
-            'ip_address': device.ip_address,
-            'name': device.name,
-            'alias': device.alias,
-            'type': [x.name for x in device.types.all()],
-            'device_types': dev_types,
-            'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
-            'operator': {},
-            'device_contact': device.device_contact_number,
-            'avatar': device.avatar.url if device.avatar else None,
-            'position': {
-                'latitude': device.position.get("latitude") if device.position else None,
-                'longitude': device.position.get("longitude") if device.position else None
-            },
-            'api_key': device.access_token,
-        }
-
-        return Response(device_data)
-
-    def set_settings_data(self, request, device_id):
-
-        dev_user = request.user
-        device = dev_user.device_list(return_objects=True, device_id=device_id)
-
-        if isinstance(device, list):
-            device = [
-                x for x in device if x.ip_address == device_id
-            ]
-            if len(device) == 0:
-                return Response(status=status.HTTP_404_NOT_FOUND)
-
-        data = request.data
-        device.alias = data.get('alias', device.alias)
-        device.name = data.get('name', device.name)
-        device.device_contact_number = data.get('device_contact')
-        latitude = data.get('latitude')
-        longitude = data.get('longitude')
-
-        if latitude is not None and longitude is not None:
-            device.position = "{}, {}".format(latitude, longitude)
-
-        avatar = data.get('avatar')
-        if avatar:
-            fs = FileSystemStorage()
-            avatar = fs.save(device.ip_address, avatar)
-            device.avatar = avatar
-
-        dev_type = data.get('type')
-        if isinstance(dev_type, list):
-            dev_type = DeviceType.objects.filter(name__in=dev_type)
-            device.types = dev_type
-
-        device.save()
-        device.refresh_from_db()
-
-        dev_types = []
-        for dev_type in DeviceType.objects.all():
-            dev_types.append({'value': dev_type.name, 'label': dev_type.name})
-
-        device_data = {
-            'ip_address': device.ip_address,
-            'alias': device.alias,
-            'name': device.name,
-            'type': [x.name for x in device.types.all()],
-            'device_types': dev_types,
-            'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
-            'operator': {},
-            'device_contact': device.device_contact_number,
-            'avatar': device.avatar.url if device.avatar else None,
-            'position': {
-                'latitude': device.position.get("latitude") if device.position else None,
-                'longitude': device.position.get("longitude") if device.position else None
-            },
-            'api_key': device.access_token,
-        }
-
-        return Response(device_data)
-
     def remove_device(self, request, device_id):
         dev_user = request.user
         dev = get_object_or_404(Device, id=device_id)
@@ -786,25 +688,19 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
     def get_config(self, request, device_id):
         dev_user = request.user
         dev_user = request.user
-        device = dev_user.device_list(return_objects=True, device_id=device_id)
-        if isinstance(device, list):
-            device = [
-                x for x in device if x.ip_address == device_id
-            ]
-            if len(device) == 0:
-                return Response(status=status.HTTP_404_NOT_FOUND)
-        
+        device, is_admin = is_device_admin(dev_user, device_id)
         if device is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
+        if not is_admin:
             return Response(status=status.HTTP_403_FORBIDDEN)
         
         # get the latest config data
-        device = get_object_or_404(Device, alias__iexact=device)
         cfg = DeviceConfig.objects.filter(
             device=device,
         ).order_by('-created_at').first()
+        if cfg is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
         data = {
             "id": cfg.id,
             "data": cfg.data,
