@@ -24,6 +24,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from utils import DataReports
 from utils.weather import get_weather_data_cached
+from api.viewsets.common_utils import is_device_admin
 
 PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
@@ -148,19 +149,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         """
         # Findout the user
         dev_user = request.user
-        device = dev_user.device_list(return_objects=True, device_id=device_id)
+        device, _ = is_device_admin(dev_user, device_id)
 
-        if isinstance(device, list):
-            device = [
-                x for x in device if x.ip_address == device_id
-            ]
-            if len(device) == 0:
-                return Response(status=status.HTTP_404_NOT_FOUND)
-        
-        if device is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-
-        cached_data = None # cache.get("device_static_data_{}".format(device_id))
+        cached_data = cache.get("device_static_data_{}".format(device_id))
 
         if cached_data is not None:
             return Response(json.loads(cached_data))
@@ -257,7 +248,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             "name": device_meter.name,
             "meter_type": device_meter.meter_type,
         } for device_meter in device.get_meters()]
-        cache.set("device_static_data_{}".format(device_id), json.dumps(device_data), 300)
+        cache.set("device_static_data_{}".format(device_id), json.dumps(device_data), 120)
 
         return Response(device_data)
 
