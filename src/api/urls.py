@@ -74,12 +74,20 @@ urlpatterns = [
     ),
     # Document views
     re_path(
-        r'^documents/by-device/(?P<device_id>[^/.]+)$',
+        r'^documents/by-device/(?P<device_id>[\w.-]+)$',
         DocumentViewSet.as_view({'get': 'by_device'})
     ),
     re_path(
-        r'^documents/by-user/(?P<user_id>[^/.]+)$',
+        r'^documents/by-user/(?P<user_id>[\w.-]+)$',
         DocumentViewSet.as_view({'get': 'by_user'})
+    ),
+    re_path(
+        r'^documents/upload/$',
+        DocumentViewSet.as_view({'post': 'upload'})
+    ),
+    re_path(
+        r'^documents/delete/(?P<pk>[0-9a-fA-F-]{36})$',
+        DocumentViewSet.as_view({'delete': 'delete'})
     ),
     re_path(
         r'^device/dynamicdata/(?P<device_id>[\w.]+)$',
