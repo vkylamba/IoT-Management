@@ -92,11 +92,11 @@ def render_status_to_html(status: dict) -> str:
         if status_type == DeviceStatus.DAILY_STATUS:
 
             html = f"""
-                Device: {device}, Current status:
                 Solar: {status_data.get("solar_status")}
                 Load: {status_data.get("load_status")}
                 Battery: {status_data.get("battery_charging_status")}
                 Net: {status_data.get("net_meter_status")}
+                System: {status_data.get("system_state")}
                 Generated today: {round(status_data.get("energy_generated_this_day", 0), 2)} kwh
                 Consumption today: {round(status_data.get("energy_consumed_this_day", 0), 2)} kwh
                 Exported today: {round(status_data.get("energy_exported_this_day", 0), 2)} kwh

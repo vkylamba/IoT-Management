@@ -71,11 +71,17 @@ def process_message_from_user(username, message, update):
 
     elif valid_ip:
         logger.info(f"[{username}]: Valid ip address received form user")
-
-        cache_name = f"device_status_{message.strip().lower()}"
+        device_ip = message.strip().lower()
+        cache_name = f"device_status_{device_ip}"
         status_data = cache.get(cache_name)
+        if status_data is None:
+            latest_status = DeviceStatus.objects.filter(
+                device__ip_address=device_ip,
+                name=DeviceStatus.DAILY_STATUS
+            ).order_by('-created_at').first()
+            status_data = latest_status.status
+
         if status_data is not None:
-            status_data = json.loads(status_data)
             resp = render_status_to_html(status_data)
             parse_mode = ParseMode.HTML
         else:
