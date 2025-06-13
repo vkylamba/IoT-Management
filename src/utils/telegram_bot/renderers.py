@@ -92,7 +92,7 @@ def render_status_to_html(status) -> str:
         if status_type == DeviceStatus.DAILY_STATUS:
 
             html = f"""
-                Device: {device.alias}
+                Device: {status.device.alias} ({device})
                 Solar: {status_data.get("solar_status")}
                 Load: {status_data.get("load_status")}
                 Battery: {status_data.get("battery_charging_status")}
