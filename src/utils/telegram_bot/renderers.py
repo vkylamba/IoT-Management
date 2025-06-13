@@ -82,7 +82,7 @@ def parse_last_month_report(notification: Notification) -> str:
     return html.replace('\t', '')
 
 
-def render_status_to_html(status: dict) -> str:
+def render_status_to_html(status) -> str:
     html = ''
     if status:
         status_type = status.name
@@ -92,6 +92,7 @@ def render_status_to_html(status: dict) -> str:
         if status_type == DeviceStatus.DAILY_STATUS:
 
             html = f"""
+                Device: {device.alias}
                 Solar: {status_data.get("solar_status")}
                 Load: {status_data.get("load_status")}
                 Battery: {status_data.get("battery_charging_status")}
