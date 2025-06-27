@@ -54,7 +54,9 @@ class WidgetViewSet(viewsets.ViewSet):
         user_device_ids = [
             str(d.id) for d in user_devices
         ]
-        all_dev_props = DeviceProperty.objects.filter(device__id__in=user_device_ids)
+        all_dev_props = DeviceProperty.objects.filter(
+            device__id__in=user_device_ids
+        ).select_related("device")
         all_dev_prop_values = {}
         for dev_prop in all_dev_props:
             existing_values = all_dev_prop_values.get(str(dev_prop.device.id), {})
