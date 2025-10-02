@@ -197,22 +197,17 @@ class Command(BaseCommand):
             client (_type_): _description_
         """
         # Get unsent commands
-        last_cmd_id = None
         while self.loop_running:
             commands = CommandsModal.objects.filter(status__iexact='P').order_by('-command_in_time')
             for command in commands:
                 logger.info("Found command waiting to be processed: %s for device: %s", command.command, command.device.ip_address)
                 device = command.device
                 # get latest active device config
-                cfgs = DeviceConfig.objects.filter(
-                    device=device,
-                    active=True
-                ).order_by('-created_at')
-                if len(cfgs) > 0:
-                    cfg = cfgs[0]
-                else:
-                    logger.warning("No active config found for device %s", command.device.ip_address)
-                    cfg = None
+                cfg = DeviceConfig.objects.filter(
+                    device=device
+                ).order_by('-created_at').first()
+                if cfg is None:
+                    logger.warning("Config not found for device %s", command.device.ip_address)
                 cfg_data = cfg.data if (cfg is not None and cfg.data is not None) else {}
                 dev_mqtt_user = cfg_data.get('mqtt_user', 'Devtest')
                 dev_mqtt_user = dev_mqtt_user if dev_mqtt_user is not None else 'Devtest'
