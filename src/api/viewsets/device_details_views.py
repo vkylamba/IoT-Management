@@ -555,19 +555,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             return response
 
     def send_command(self, request, device_id):
-        dev_user = request.user
-        dev = get_object_or_404(Device, id=device_id)
-        devices = dev_user.device_list(return_objects=True, device_id=dev.ip_address)
-        device = None
-        if isinstance(devices, list):
-            devices = [
-                x for x in devices if x.ip_address == device_id
-            ]
-            device = devices[0] if len(devices) > 0 else None
+        device, is_admin = is_device_admin(request.user, device_id)
         if device is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
+        if not is_admin:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         data = request.data
