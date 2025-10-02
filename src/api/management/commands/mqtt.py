@@ -4,6 +4,7 @@ import json
 import logging
 import time
 
+from device.models.ota import DeviceConfig
 import paho.mqtt.client as mqtt
 from api.utils import process_raw_data
 from device.models import Command as CommandsModal
@@ -205,21 +206,27 @@ class Command(BaseCommand):
                 ).order_by('-command_in_time')
 
             for command in commands:
+                logger.info("Found command waiting to be processed: %s for device: %s", command, command.device.ip_address)
                 last_cmd_id = command.pk
                 device = command.device
-                device_types = [x.name for x in device.types.all()]
-                for device_type_name in device_types:
-                    command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command)
-                    if command_topic is not None:
-                        command_topic = command_topic.format(
-                            dev_mqtt_user='Devtest',
-                            device_alias=device.alias,
-                            device_type_name=device_type_name
-                        )
-                        logger.info("Publishing MQTT %s: %s", command_topic, command.param)
-                        client.publish(command_topic, command.param, 1)
+                # get latest active device config
+                cfg = DeviceConfig.objects.filter(
+                    device=device,
+                    active=True
+                ).order_by('-created_at').first()
+                cfg_data = cfg.data if (cfg is not None and cfg.data is not None) else {}
+                dev_mqtt_user = cfg_data.get('mqtt_user', 'Devtest')
+                dev_mqtt_user = dev_mqtt_user if dev_mqtt_user else 'Devtest'
+                # dev_mqtt_group = cfg_data.get('group_id', 'Devtest')
+                command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command, 'cmd-req')
+                if command_topic is not None:
+                    command_topic = command_topic.format(
+                        dev_mqtt_user=dev_mqtt_user,
+                        device_alias=device.alias
+                    )
+                    logger.info("Publishing MQTT %s: %s", command_topic, command.param)
+                    client.publish(command_topic, command.param, 1)
                 command.status = 'E'
                 command.command_read_time = timezone.datetime.utcnow()
                 command.save()
             time.sleep(10)
-
