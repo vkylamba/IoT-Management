@@ -720,9 +720,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             return Response(status=status.HTTP_403_FORBIDDEN)
         
         page_size = int(request.query_params.get("page_size", 10))
-        page = int(request.query_params.get("page", 1))
-        if page < 1:
-            page = 1
+        page = int(request.query_params.get("page", 0))
+        if page < 0:
+            page = 0
         if page_size < 1:
             page_size = 10
         elif page_size > 100:
@@ -731,7 +731,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             device=device
         ).order_by('-command_in_time')
         total_commands = commands.count()
-        commands = commands[(page-1)*page_size: page*page_size]
+        commands = commands[page*page_size: (page+1)*page_size]
         commands_data = []
         for command in commands:
             commands_data.append({
