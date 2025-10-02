@@ -556,15 +556,19 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
     def send_command(self, request, device_id):
         dev_user = request.user
-        device = dev_user.device_list(
-            return_objects=True, device_id=device_id)
-
-        if isinstance(device, list):
-            device = [
-                x for x in device if x.ip_address == device_id
+        dev = get_object_or_404(Device, id=device_id)
+        devices = dev_user.device_list(return_objects=True, device_id=dev.ip_address)
+        device = None
+        if isinstance(devices, list):
+            devices = [
+                x for x in devices if x.ip_address == device_id
             ]
-            if len(device) == 0:
-                return Response(status=status.HTTP_404_NOT_FOUND)
+            device = devices[0] if len(devices) > 0 else None
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         data = request.data
         command = data.get('command', '').strip()
@@ -574,12 +578,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         if command != "" and command_param != "":
             # Save the command into command model
-            dev_command = get_object_or_404(device.commands, command_name=command)
+            dev_command = device.commands.filter(command_name=command).first()
             cmd = Command(
                 device=device,
                 status='P',
                 command_in_time=timezone.now(),
-                command=dev_command.command_code,
+                command=dev_command.command_code if dev_command else command,
                 param=command_param
             )
             cmd.save()
@@ -710,5 +714,47 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             "active": cfg.active,
             "created_at": cfg.created_at.strftime(settings.TIME_FORMAT_STRING) if cfg.created_at is not None else None,
             "updated_at": cfg.updated_at.strftime(settings.TIME_FORMAT_STRING) if cfg.updated_at is not None else None,
+        }
+        return Response(data=data)
+
+    def get_commands(self, request, device_id):
+        dev_user = request.user
+        dev_user = request.user
+        device, is_admin = is_device_admin(dev_user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if not is_admin:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        page_size = int(request.query_params.get("page_size", 10))
+        page = int(request.query_params.get("page", 1))
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 10
+        elif page_size > 100:
+            page_size = 100
+        commands = Command.objects.filter(
+            device=device
+        ).order_by('-command_in_time')
+        total_commands = commands.count()
+        commands = commands[(page-1)*page_size: page*page_size]
+        commands_data = []
+        for command in commands:
+            commands_data.append({
+                "id": command.id,
+                "device_id": str(command.device.id),
+                "command": command.command,
+                "param": command.param,
+                "status": command.status,
+                "command_in_time": command.command_in_time.strftime(settings.TIME_FORMAT_STRING) if command.command_in_time is not None else None,
+                "command_read_time": command.command_read_time.strftime(settings.TIME_FORMAT_STRING) if command.command_read_time is not None else None,
+            })
+        data = {
+            "total": total_commands,
+            "page": page,
+            "page_size": page_size,
+            "commands": commands_data
         }
         return Response(data=data)

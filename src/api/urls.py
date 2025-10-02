@@ -93,6 +93,10 @@ urlpatterns = [
         r'^device/config/(?P<device_id>[\w.]+)$',
         DeviceDetailsViewSet.as_view({'get': 'get_config'})
     ),
+    re_path(
+        r'^device/commands/(?P<device_id>[\w.]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_commands'})
+    ),
 
     # Data views
     re_path(
