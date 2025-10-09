@@ -327,10 +327,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
                         status_type.save()
                 
-                status_ids_to_keep.append(status_type.id)
+                status_ids_to_keep.append(status_type.pk)
             
                 # Delete the remaining status types
-                device_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
+                if len(errors) == 0:
+                    device_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
 
         properties_data = data.get('properties', {})
         latest_status = DeviceStatus.objects.filter(
