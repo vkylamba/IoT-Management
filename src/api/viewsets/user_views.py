@@ -98,11 +98,13 @@ class UserViewSet(viewsets.ModelViewSet):
                         status_type.user = request.user
                     status_type.translation_schema = available_status_type.get("translation_schema", status_type.translation_schema)
                     status_type.save()
-                
-                status_ids_to_keep.append(status_type.id)
-            
+
+                if getattr(status_type, 'id') is not None:
+                    status_ids_to_keep.append(status_type.id)
+
             # Delete the remaining status types
-            user_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
+            if len(errors) == 0:
+                user_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
             
             if len(errors) > 0:
                 return Response(errors, status=status.HTTP_400_BAD_REQUEST)

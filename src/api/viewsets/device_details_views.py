@@ -263,6 +263,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             ]
             if len(device) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
+            device = device[0]
 
         if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
             return Response(status=status.HTTP_403_FORBIDDEN)
@@ -307,6 +308,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             new_available_status_types = request.data.get("available_status_types")
             if isinstance(new_available_status_types, list):
                 status_ids_to_keep = []
+                status_type = None
                 for new_available_status_type in new_available_status_types:
                     status_type_id = new_available_status_type.get("id")
                     if status_type_id is not None:
@@ -326,27 +328,18 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         status_type.device_type = new_available_status_type.get("device_type", status_type.device_type)
                         status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
                         status_type.save()
-                
-                status_ids_to_keep.append(status_type.pk)
+
+                if getattr(status_type, 'id') is not None:
+                    status_ids_to_keep.append(status_type.id)
             
                 # Delete the remaining status types
                 if len(errors) == 0:
                     device_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
 
-        properties_data = data.get('properties', {})
         latest_status = DeviceStatus.objects.filter(
             device=device,
             name=DeviceStatus.DAILY_STATUS
         ).order_by('-created_at').first()
-        for property_name in properties_data:
-            latest_status.status[property_name] = properties_data.get(property_name)
-            new_status = DeviceStatus(
-                device=device,
-                name=DeviceStatus.DAILY_STATUS,
-                status=latest_status.status
-            )
-            new_status.save()
-            latest_status = new_status
 
         available_device_types = UserDeviceType.objects.filter(
             user=dev_user
