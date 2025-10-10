@@ -307,12 +307,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             # handle the status types update
             new_available_status_types = request.data.get("available_status_types")
             if isinstance(new_available_status_types, list):
-                status_ids_to_keep = []
-                status_type = None
                 for new_available_status_type in new_available_status_types:
                     status_type_id = new_available_status_type.get("id")
+                    status_type = None
                     if status_type_id is not None:
-                        status_type = StatusType.objects.filter(
+                        status_type = device_status_types.filter(
                             id=status_type_id
                         ).first()
                         if status_type is None:
@@ -321,6 +320,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                     else:
                         status_type = StatusType()
                     if len(errors) == 0:
+                        status_type.active = new_available_status_type.get("active", status_type.active)
                         status_type.name = new_available_status_type.get("name", status_type.name)
                         status_type.target_type = new_available_status_type.get("target_type", status_type.target_type)
                         status_type.update_trigger = new_available_status_type.get("update_trigger", status_type.update_trigger)
@@ -328,13 +328,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         status_type.device_type = new_available_status_type.get("device_type", status_type.device_type)
                         status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
                         status_type.save()
-
-                if getattr(status_type, 'id') is not None:
-                    status_ids_to_keep.append(status_type.id)
-            
-                # Delete the remaining status types
-                if len(errors) == 0:
-                    device_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
 
         latest_status = DeviceStatus.objects.filter(
             device=device,
@@ -347,7 +340,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         dev_types = []
         for dev_type in available_device_types:
             dev_types.append({'value': dev_type.code, 'text': dev_type.name})
-
+    
         if device.device_type is not None:
             available_status_types = StatusType.objects.filter(
                 Q(device=device) | Q(device_type=device.device_type)
@@ -361,7 +354,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         for status_type in available_status_types:
             if not status_type.active: continue
             status_types.append(StatusTypeSerializer(status_type).data)
-
 
         device_data = {
             'ip_address': device.ip_address,

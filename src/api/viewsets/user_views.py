@@ -78,11 +78,10 @@ class UserViewSet(viewsets.ModelViewSet):
             user_device_types.filter(~Q(id__in=devices_ids_to_keep)).delete()
 
             user_status_types = StatusType.objects.filter(user=request.user)
-            status_ids_to_keep = []
             for available_status_type in available_status_types:
                 status_type_id = available_status_type.get("id")
                 if status_type_id is not None:
-                    status_type = StatusType.objects.filter(
+                    status_type = user_status_types.filter(
                         id=status_type_id
                     ).first()
                     if status_type is None:
@@ -91,6 +90,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 else:
                     status_type = StatusType()
                 if len(errors) == 0:
+                    status_type.active = available_status_type.get("active", status_type.active)
                     status_type.name = available_status_type.get("name", status_type.name)
                     status_type.target_type = available_status_type.get("target_type", status_type.target_type)
                     status_type.update_trigger = available_status_type.get("update_trigger", status_type.update_trigger)
@@ -98,14 +98,6 @@ class UserViewSet(viewsets.ModelViewSet):
                         status_type.user = request.user
                     status_type.translation_schema = available_status_type.get("translation_schema", status_type.translation_schema)
                     status_type.save()
-
-                if getattr(status_type, 'id') is not None:
-                    status_ids_to_keep.append(status_type.id)
-
-            # Delete the remaining status types
-            if len(errors) == 0:
-                user_status_types.filter(~Q(id__in=status_ids_to_keep)).delete()
-            
             if len(errors) > 0:
                 return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
