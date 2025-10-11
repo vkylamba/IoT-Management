@@ -39,8 +39,12 @@ class DeviceViewSet(viewsets.ViewSet):
         if isinstance(search_term, str) and search_term.strip():
             search_term = search_term.strip().lower()
             devices = [device for device in devices
-                       if search_term in device.ip_address or
-                       search_term in (device.alias or '')]
+                       if isinstance(device.ip_address, str) and search_term in device.ip_address or
+                       isinstance(device.alias, str) and search_term in device.alias.lower() or
+                       isinstance(device.name, str) and search_term in device.name.lower() or
+                       isinstance(device.mac, str) and search_term in device.mac.lower() or
+                       isinstance(device.device_contact_number, str) and search_term in device.device_contact_number.lower() or
+                       isinstance(device.address, str) and search_term in device.address.lower()]
 
         # Pagination
         paginator = Paginator(devices, page_size)
