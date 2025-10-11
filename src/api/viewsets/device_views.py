@@ -7,6 +7,7 @@ from dashboard.models import Widget, UserWidget
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.utils import timezone
+from django.core.paginator import Paginator
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -22,13 +23,32 @@ class DeviceViewSet(viewsets.ViewSet):
 
     def get_devices(self, request):
         """
-            View to return list of devices owned by user.
+            View to return list of devices owned by user with pagination and search.
         """
         user = request.user
+        
+        # Get query parameters
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 10))
+        search_term = request.GET.get('search_term', '').strip()
+        
+        # Get user's devices
+        devices = user.device_list(return_objects=True)
+        
+        # Apply search filter if search_term is provided
+        if search_term:
+            devices = [device for device in devices 
+                      if search_term.lower() in device.ip_address.lower() or 
+                         search_term.lower() in (device.alias or '').lower()]
+        
+        # Pagination
+        paginator = Paginator(devices, page_size)
+        page_obj = paginator.get_page(page)
+        
         devices_list = []
         error = "success"
 
-        for device in user.device_list(return_objects=True):
+        for device in page_obj:
             other_data = device.other_data
 
             try:
@@ -59,7 +79,12 @@ class DeviceViewSet(viewsets.ViewSet):
             "username": user.username,
             "error": error,
             'devices': devices_list,
-            'userAvatar': user.dev_image.url if user.dev_image else None
+            'userAvatar': user.dev_image.url if user.dev_image else None,
+            'page': page_obj.number,
+            'total_count': paginator.count,
+            'page_size': page_size,
+            'has_next': page_obj.has_next(),
+            'has_previous': page_obj.has_previous()
         }
         return Response(data)
 
