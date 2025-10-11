@@ -36,11 +36,12 @@ class DeviceViewSet(viewsets.ViewSet):
         devices = user.device_list(return_objects=True)
         
         # Apply search filter if search_term is provided
-        if search_term:
-            devices = [device for device in devices 
-                      if search_term.lower() in device.ip_address.lower() or 
-                         search_term.lower() in (device.alias or '').lower()]
-        
+        if isinstance(search_term, str) and search_term.strip():
+            search_term = search_term.strip().lower()
+            devices = [device for device in devices
+                       if search_term in device.ip_address or
+                       search_term in (device.alias or '')]
+
         # Pagination
         paginator = Paginator(devices, page_size)
         page_obj = paginator.get_page(page)
