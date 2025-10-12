@@ -220,7 +220,8 @@ class Command(BaseCommand):
                         device_alias=device.alias
                     )
                     logger.info("Publishing MQTT %s: %s", command_topic, command.param)
-                    client.publish(command_topic, command.param, 1)
+                    payload = f"""{{"command":"{command.param}", "device":"{device.alias}"}}"""
+                    client.publish(command_topic, payload, 1)
                 command.status = 'E'
                 command.command_read_time = timezone.datetime.utcnow()
                 command.save()
