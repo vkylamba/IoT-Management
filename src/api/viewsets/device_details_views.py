@@ -725,9 +725,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 "device_id": str(command.device.id),
                 "command": command.command,
                 "param": command.param,
+                "response": command.response,
                 "status": command.status,
                 "command_in_time": command.command_in_time.strftime(settings.TIME_FORMAT_STRING) if command.command_in_time is not None else None,
                 "command_read_time": command.command_read_time.strftime(settings.TIME_FORMAT_STRING) if command.command_read_time is not None else None,
+                "response_time": command.response_time.strftime(settings.TIME_FORMAT_STRING) if command.response_time is not None else None,
             })
         data = {
             "total": total_commands,
