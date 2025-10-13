@@ -212,16 +212,14 @@ class Command(BaseCommand):
                 dev_mqtt_user = cfg_data.get('mqtt_user', 'Devtest')
                 dev_mqtt_user = dev_mqtt_user if dev_mqtt_user is not None else 'Devtest'
                 # dev_mqtt_group = cfg_data.get('group_id', 'Devtest')
-                default_command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get('cmd-req')
-                command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command, default_command_topic)
-                if command_topic is not None:
-                    command_topic = command_topic.format(
-                        dev_mqtt_user=dev_mqtt_user,
-                        device_alias=device.alias
-                    )
-                    logger.info("Publishing MQTT %s: %s", command_topic, command.param)
-                    payload = f"""{{"command":"{command.param}", "device":"{device.alias}"}}"""
-                    client.publish(command_topic, payload, 1)
+                default_command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get('cmd-req', '')
+                command_topic = default_command_topic.format(
+                    dev_mqtt_user=dev_mqtt_user,
+                    device_alias=device.alias
+                )
+                logger.info("Publishing MQTT %s: %s", command_topic, command.param)
+                payload = f"""{{"command":"{command.command} {command.param}", "device":"{device.alias}"}}"""
+                client.publish(command_topic, payload, 1)
                 command.status = 'E'
                 command.command_read_time = timezone.datetime.utcnow()
                 command.save()
