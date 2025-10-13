@@ -524,6 +524,8 @@ class Command(models.Model):
         help_text="Time when the command was read by the remote device", blank=True, null=True)
     command = models.CharField(max_length=20, help_text="Command")
     param = models.CharField(max_length=100, help_text="Command parameter")
+    response = models.TextField(help_text="Command response", blank=True, null=True)
+    response_time = models.DateTimeField(help_text="Time when response was received", blank=True, null=True)
     
     class Meta:
         app_label = "device"

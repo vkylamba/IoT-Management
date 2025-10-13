@@ -146,11 +146,15 @@ class Command(BaseCommand):
                 MEROSS_DEVICE_DATA_TOPIC_TYPE
             ]:
                 logger.debug("MQTT data, group: %s, device: %s, topic: %s", group_name, device_name, topic_type)
-                device = self.find_device(group_name, device_name, topic_type)
                 try:
                     message_data = json.loads(message_payload)
                 except Exception:
                     logger.warning(f"Invalid json data: {message_payload}")
+                    return
+                
+                device = self.find_device(group_name, device_name, topic_type)
+                if topic_type == CLIENT_CMD_RESP_TOPIC_TYPE:
+                    self.process_command_response(device, message_data)
                 else:
                     process_raw_data(device, message_data, channel='mqtt', data_type=topic_type)
             elif topic_type not in [CLIENT_HEARTBEAT_RESP_TOPIC_TYPE, CLIENT_COMMAND_RESP_TOPIC_TYPE]:
@@ -190,6 +194,44 @@ class Command(BaseCommand):
 
         return device
 
+    def process_command_response(self, device, message_data):
+        """
+        Process command response message and update the matching command.
+        
+        Args:
+            device: The device object
+            message_data: Dict containing command response data
+        """
+        try:
+            command_text = message_data.get('command', '')
+            response = message_data.get('response', '')
+            
+            if not command_text or not device:
+                logger.warning("Missing command or device in command response")
+                return
+            temp = command_text.split()
+            cmd_name = temp[0] if temp else ''
+            cmd_param = ' '.join(temp[1:]) if len(temp) > 1 else ''
+            # Find the last matching command for this device that hasn't been responded to
+            command = CommandsModal.objects.filter(
+                device=device,
+                command__icontains=cmd_name if cmd_name else '',  # Match first word of command
+                param__icontains=cmd_param if cmd_param else '',  # Match remaining command parameters
+                status__in=['S']  # Sent but not responded
+            ).order_by('-command_in_time').first()
+            
+            if command:
+                command.response = response
+                command.response_time = timezone.now()
+                command.status = 'C'  # Completed
+                command.save()
+                logger.info(f"Updated command {command.id} with response for device {device.alias}")
+            else:
+                logger.warning(f"No matching command found for response: {command_text} on device {device.alias}")
+                
+        except Exception as ex:
+            logger.exception(f"Error processing command response: {ex}")
+
     def check_and_send_commands(self, client):
         """_summary_
 
@@ -220,7 +262,7 @@ class Command(BaseCommand):
                 logger.info("Publishing MQTT %s: %s", command_topic, command.param)
                 payload = f"""{{"command":"{command.command} {command.param}", "device":"{device.alias}"}}"""
                 client.publish(command_topic, payload, 1)
-                command.status = 'E'
+                command.status = 'S' # Sent
                 command.command_read_time = timezone.datetime.utcnow()
                 command.save()
             time.sleep(10)
