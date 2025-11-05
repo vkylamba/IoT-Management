@@ -172,6 +172,8 @@ class Command(BaseCommand):
                 
                 if time_diff >= 119:
                     process_data = True
+                    del device_data['timestamp']
+                    del device_data['last_update']
                     message_payload = json.dumps(device_data)
                     cache.delete(device_cache_key)
 
@@ -197,6 +199,8 @@ class Command(BaseCommand):
                     self.process_command_response(device, message_data)
                 else:
                     process_raw_data(device, message_data, channel='mqtt', data_type=topic_type)
+            elif not process_data:
+                logger.debug("MQTT data cached for later processing, group: %s, device: %s, topic: %s", group_name, device_name, topic_type)
             elif topic_type not in [CLIENT_HEARTBEAT_RESP_TOPIC_TYPE, CLIENT_COMMAND_RESP_TOPIC_TYPE]:
                 logger.warning("MQTT unknown topic: %s", topic_type)
         else:
