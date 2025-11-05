@@ -175,6 +175,8 @@ class Command(BaseCommand):
                     del device_data['timestamp']
                     del device_data['last_update']
                     message_payload = json.dumps(device_data)
+                    device_data['timestamp'] = current_time.isoformat()
+                    device_data['last_update'] = current_time.isoformat()
                     cache.delete(device_cache_key)
 
             if topic_type in [
