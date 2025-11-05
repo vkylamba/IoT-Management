@@ -165,12 +165,12 @@ class Command(BaseCommand):
                 # Cache the updated data
                 cache.set(device_cache_key, device_data, 300)  # 5 minutes cache
                 
-                # Check if data is older than 10 seconds
+                # Check if data is older than 120 seconds
                 first_timestamp = device_data.get('timestamp')
                 first_time = timezone.datetime.fromisoformat(first_timestamp)
                 time_diff = (current_time - first_time).total_seconds()
                 
-                if time_diff >= 10:
+                if time_diff >= 119:
                     process_data = True
                     message_payload = json.dumps(device_data)
                     cache.delete(device_cache_key)
@@ -184,7 +184,7 @@ class Command(BaseCommand):
                 CLIENT_CMD_RESP_TOPIC_TYPE,
                 CLIENT_UPDATE_RESP_TOPIC_TYPE,
                 MEROSS_DEVICE_DATA_TOPIC_TYPE
-            ] and process_data:
+            ] and (process_data or source_device_type == SOURCE_TYPE_MONA):
                 logger.debug("MQTT data, group: %s, device: %s, topic: %s", group_name, device_name, topic_type)
                 try:
                     message_data = json.loads(message_payload)
