@@ -16,6 +16,8 @@ from django.core.management.base import BaseCommand
 
 logger = logging.getLogger('django')
 
+SOURCE_TYPE_MONA = "mona"
+SOURCE_TYPE_BEKEN = "beken"
 
 ROOT_CA_FILE_PATH = "root_ca.crt"
 
@@ -130,10 +132,45 @@ class Command(BaseCommand):
 
         topic_data_list = message_topic.split("/")
         topic_data_length = len(topic_data_list)
+        source_device_type = SOURCE_TYPE_MONA
         if topic_data_length >= 4:
-            topic_type = topic_data_list[topic_data_length-1]
-            device_name = topic_data_list[topic_data_length-2]
-            group_name = topic_data_list[topic_data_length-4]
+            group_name = topic_data_list[0]
+            device_name = topic_data_list[2]
+            topic_type = topic_data_list[3]
+
+            data_key_name = None
+            data_key_val = message_payload
+            process_data = True
+            if topic_data_length >= 6:
+                source_device_type = SOURCE_TYPE_BEKEN
+                data_key_name = topic_data_list[4]
+                data_key_val = message_payload
+                process_data = False
+
+            if source_device_type == SOURCE_TYPE_BEKEN and data_key_name is not None:
+                # Handle BEKEN device data collection
+                device_cache_key = f"beken_data_{group_name}_{device_name}"
+                device_data = cache.get(device_cache_key, {})
+                
+                # Add current data to the dict
+                current_time = timezone.now()
+                device_data[data_key_name] = data_key_val
+                if 'timestamp' not in device_data:
+                    device_data['timestamp'] = current_time.isoformat()
+                device_data['last_update'] = current_time.isoformat()
+                
+                # Cache the updated data
+                cache.set(device_cache_key, device_data, 300)  # 5 minutes cache
+                
+                # Check if data is older than 10 seconds
+                first_timestamp = device_data.get('timestamp')
+                first_time = timezone.datetime.fromisoformat(first_timestamp)
+                time_diff = (current_time - first_time).total_seconds()
+                
+                if time_diff >= 10:
+                    process_data = True
+                    message_payload = json.dumps(device_data)
+                    cache.delete(device_cache_key)
 
             if topic_type in [
                 CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
@@ -144,7 +181,7 @@ class Command(BaseCommand):
                 CLIENT_CMD_RESP_TOPIC_TYPE,
                 CLIENT_UPDATE_RESP_TOPIC_TYPE,
                 MEROSS_DEVICE_DATA_TOPIC_TYPE
-            ]:
+            ] and process_data:
                 logger.debug("MQTT data, group: %s, device: %s, topic: %s", group_name, device_name, topic_type)
                 try:
                     message_data = json.loads(message_payload)
