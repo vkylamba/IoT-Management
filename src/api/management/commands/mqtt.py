@@ -144,13 +144,13 @@ class Command(BaseCommand):
 
             data_key_name = None
             data_key_val = message_payload
-            if topic_data_length > 6:
+            if topic_data_length > 5:
                 source_device_type = SOURCE_TYPE_BEKEN
                 data_key_name = topic_data_list[5]
                 data_key_val = message_payload
                 process_data = False
 
-            if source_device_type == SOURCE_TYPE_BEKEN and data_key_name is not None:
+            if source_device_type == SOURCE_TYPE_BEKEN:
                 # Handle BEKEN device data collection
                 device_cache_key = f"beken_data_{group_name}_{device_name}"
                 device_data = cache.get(device_cache_key, {})
