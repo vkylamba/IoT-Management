@@ -137,16 +137,16 @@ class Command(BaseCommand):
         source_device_type = SOURCE_TYPE_MONA
         process_data = True
         logger.debug("MQTT message on topic: %s", message_topic)
-        if topic_data_length >= 4:
-            group_name = topic_data_list[0]
-            device_name = topic_data_list[2]
-            topic_type = topic_data_list[3]
+        if topic_data_length > 4:
+            group_name = topic_data_list[1]
+            device_name = topic_data_list[3]
+            topic_type = topic_data_list[4]
 
             data_key_name = None
             data_key_val = message_payload
-            if topic_data_length >= 6:
+            if topic_data_length > 6:
                 source_device_type = SOURCE_TYPE_BEKEN
-                data_key_name = topic_data_list[4]
+                data_key_name = topic_data_list[5]
                 data_key_val = message_payload
                 process_data = False
 
