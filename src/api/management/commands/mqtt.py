@@ -130,7 +130,7 @@ class Command(BaseCommand):
         # Topic is in the following format for IoT devices:
         # /Devtest/devices/Dev-test/meters-data
         message_topic = msg.topic
-        message_payload = msg.payload
+        message_payload = msg.payload.decode('utf-8') if isinstance(msg.payload, bytes) else msg.payload
 
         topic_data_list = message_topic.split("/")
         topic_data_length = len(topic_data_list)
@@ -172,11 +172,19 @@ class Command(BaseCommand):
                 
                 if time_diff >= 119:
                     process_data = True
-                    del device_data['timestamp']
-                    del device_data['last_update']
-                    message_payload = json.dumps(device_data)
-                    device_data['timestamp'] = current_time.isoformat()
-                    device_data['last_update'] = current_time.isoformat()
+                    message_payload = {}
+                    # for each key in device_data, add to message_payload (excluding metadata)
+                    for key, value in device_data.items():
+                        if key not in ['timestamp', 'last_update']:
+                            # Decode bytes if necessary, otherwise use value directly
+                            if isinstance(value, bytes):
+                                try:
+                                    message_payload[key] = value.decode('utf-8')
+                                except UnicodeDecodeError:
+                                    message_payload[key] = str(value)
+                            else:
+                                message_payload[key] = value
+                    message_payload = json.dumps(message_payload)
                     cache.delete(device_cache_key)
 
             if topic_type in [
