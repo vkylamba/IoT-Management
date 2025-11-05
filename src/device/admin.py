@@ -82,7 +82,7 @@ class DeviceAdmin(admin.ModelAdmin):
     ordering = ('ip_address',)
     list_display = ('id', 'ip_address', 'alias', 'mac', 'Type', 'operator', 'active', 'created_at')
     list_filter = ('ip_address', 'alias', 'id', 'mac', 'active', 'created_at')
-    search_fields = ('ip_address', 'alias', 'mac', 'operator__name', 'types__name')
+    search_fields = ('ip_address', 'alias', 'mac')
     actions = [delete_devices]
     inlines = [DocumentInline, MeterInline, DeviceEquipmentInline, DevicePropertyInline, DeviceConfigInline]
 
