@@ -49,7 +49,19 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
         if load.equipment.name in load_model.targets:
             try:
                 model = load_model.targets[load.equipment.name]
-                number = int(model.predict([input_data_list]))
+                
+                # Handle sklearn version compatibility issues
+                try:
+                    number = int(model.predict([input_data_list]))
+                except AttributeError as attr_ex:
+                    if "'LinearRegression' object has no attribute 'positive'" in str(attr_ex):
+                        # Add the missing positive attribute for compatibility
+                        if not hasattr(model, 'positive'):
+                            model.positive = False
+                        number = int(model.predict([input_data_list]))
+                    else:
+                        raise attr_ex
+                
                 equipment_avg_power = (load.equipment.max_power + load.equipment.min_power) / 2
                 if number > 0 and equipment_avg_power <= power:
                     # Find the suitable number.
@@ -63,7 +75,7 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
                     power -= equipment_avg_power * number
                     equipments.append(load_data)
             except Exception as ex:
-                logger.exception(f"Exception occurred while checking for load {load.equipment.name}", ex)
+                logger.exception(f"Exception occurred while checking for load {load.equipment.name}: %s", str(ex))
     return equipments
 
 
