@@ -120,7 +120,11 @@ class Command(BaseCommand):
         for topic in topics:
             topic_to_subscribe = f"/+/devices/+/{topic}"
             mqtt_client.subscribe(topic_to_subscribe)
+            # for the beken devices
             topic_to_subscribe = f"/+/devices/+/{topic}/+/+"
+            mqtt_client.subscribe(topic_to_subscribe)
+            # for the esphome devices
+            topic_to_subscribe = f"/+/devices/+/{topic}/+/+/+"
             mqtt_client.subscribe(topic_to_subscribe)
 
     def subscribe_active_clients_topic(self, mqtt_client):
