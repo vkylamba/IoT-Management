@@ -18,6 +18,7 @@ logger = logging.getLogger('django')
 
 SOURCE_TYPE_MONA = "mona"
 SOURCE_TYPE_BEKEN = "beken"
+SOURCE_TYPE_ESPHOME = "esphome"
 
 ROOT_CA_FILE_PATH = "root_ca.crt"
 
@@ -144,14 +145,19 @@ class Command(BaseCommand):
 
             data_key_name = None
             data_key_val = message_payload
-            if topic_data_length > 5:
+            if topic_data_length > 6:
+                source_device_type = SOURCE_TYPE_ESPHOME
+                data_key_name = topic_data_list[6]
+                data_key_val = message_payload
+                process_data = False
+            elif topic_data_length > 5:
                 source_device_type = SOURCE_TYPE_BEKEN
                 data_key_name = topic_data_list[5]
                 data_key_val = message_payload
                 process_data = False
 
-            if source_device_type == SOURCE_TYPE_BEKEN:
-                # Handle BEKEN device data collection
+            if source_device_type in [SOURCE_TYPE_BEKEN, SOURCE_TYPE_ESPHOME]:
+                # Handle BEKEN and ESPHOME device data collection
                 device_cache_key = f"beken_data_{group_name}_{device_name}"
                 device_data = cache.get(device_cache_key, {})
                 
