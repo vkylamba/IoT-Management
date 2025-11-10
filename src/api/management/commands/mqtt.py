@@ -149,12 +149,12 @@ class Command(BaseCommand):
 
             data_key_name = None
             data_key_val = message_payload
-            if topic_data_length > 6:
+            if topic_data_length > 6 and SOURCE_TYPE_ESPHOME in message_topic:
                 source_device_type = SOURCE_TYPE_ESPHOME
                 data_key_name = topic_data_list[6]
                 data_key_val = message_payload
                 process_data = False
-            elif topic_data_length > 5:
+            elif topic_data_length > 5 and SOURCE_TYPE_BEKEN in message_topic:
                 source_device_type = SOURCE_TYPE_BEKEN
                 data_key_name = topic_data_list[5]
                 data_key_val = message_payload
