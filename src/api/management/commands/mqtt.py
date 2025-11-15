@@ -165,6 +165,24 @@ class Command(BaseCommand):
                 device_cache_key = f"beken_data_{group_name}_{device_name}"
                 device_data = cache.get(device_cache_key, {})
                 
+                # Track previous power value for change detection
+                previous_power = device_data.get('power')
+                
+                # Handle energy accumulation - if new energy is less than previous, add them
+                if data_key_name == "energy":
+                    previous_energy = device_data.get('energy')
+                    if previous_energy is not None:
+                        try:
+                            current_energy = float(data_key_val)
+                            prev_energy_float = float(previous_energy)
+                            if current_energy < prev_energy_float:
+                                # Energy counter reset detected, accumulate
+                                data_key_val = str(prev_energy_float + current_energy)
+                                logger.debug("Energy counter reset detected for device %s, accumulating: %s + %s = %s", 
+                                           device_name, prev_energy_float, current_energy, data_key_val)
+                        except (ValueError, TypeError):
+                            pass
+                
                 # Add current data to the dict
                 current_time = timezone.now()
                 device_data[data_key_name] = data_key_val
@@ -180,7 +198,18 @@ class Command(BaseCommand):
                 first_time = timezone.datetime.fromisoformat(first_timestamp)
                 time_diff = (current_time - first_time).total_seconds()
                 
-                if time_diff >= 119:
+                # Publish if: 1) Time >= 119 seconds OR 2) Power value changed
+                power_changed = False
+                if data_key_name == "power":
+                    try:
+                        current_power = float(data_key_val)
+                        if previous_power is not None:
+                            prev_power_float = float(previous_power)
+                            power_changed = abs(current_power - prev_power_float) > 0.01  # Allow small tolerance
+                    except (ValueError, TypeError):
+                        pass
+                
+                if time_diff >= 119 or power_changed:
                     process_data = True
                     message_payload = {}
                     # for each key in device_data, add to message_payload (excluding metadata)
@@ -196,6 +225,8 @@ class Command(BaseCommand):
                                 message_payload[key] = value
                     message_payload = json.dumps(message_payload)
                     cache.delete(device_cache_key)
+                    if power_changed:
+                        logger.debug("Publishing due to power change for device: %s", device_name)
 
             if topic_type in [
                 CLIENT_SYSTEM_STATUS_TOPIC_TYPE,
