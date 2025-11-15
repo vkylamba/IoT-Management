@@ -173,14 +173,16 @@ class Command(BaseCommand):
                     previous_energy = device_data.get('energy')
                     if previous_energy is not None:
                         try:
-                            current_energy = float(data_key_val)
-                            prev_energy_float = float(previous_energy)
+                            prev_energy_float = float(previous_energy) if isinstance(previous_energy, (int, float, str)) else 0.0
+                            current_energy = float(data_key_val) if isinstance(data_key_val, (int, float, str)) else 0.0
                             if current_energy < prev_energy_float:
                                 # Energy counter reset detected, accumulate
-                                data_key_val = str(prev_energy_float + current_energy)
+                                data_key_val = prev_energy_float + current_energy
                                 logger.debug("Energy counter reset detected for device %s, accumulating: %s + %s = %s", 
                                            device_name, prev_energy_float, current_energy, data_key_val)
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as ex:
+                            logger.warning("Error while parsing energy values for device %s: previous=%s, current=%s. Error: %s",
+                                           device_name, previous_energy, data_key_val, str(ex))
                             pass
                 
                 # Add current data to the dict
