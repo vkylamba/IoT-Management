@@ -392,10 +392,33 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                     ).order_by('-created_at').first()
                     last_status_creation_time = last_status.created_at
                     if (time_now - last_status_creation_time).seconds <= 600:
-                        last_status.status = validated_data
-                        last_status.updated_at = time_now
-                        last_status.save()
                         create_new = False
+                else:
+                    create_new = True
+                if not create_new:
+                    # Create copies of the dicts and remove energy field for comparison
+                    last_validated_data = last_status.status.copy() if isinstance(last_status.status, dict) else {}
+                    current_validated_data = validated_data.copy() if isinstance(validated_data, dict) else {}
+                    
+                    # Remove energy field from both for comparison (handles both flat and nested dicts)
+                    # Remove top-level energy field
+                    last_validated_data.pop('energy', None)
+                    current_validated_data.pop('energy', None)
+                    
+                    # Remove energy from nested dicts
+                    # for key in list(last_validated_data.keys()):
+                    #     if isinstance(last_validated_data[key], dict):
+                    #         last_validated_data[key] = {k: v for k, v in last_validated_data[key].items() if k != 'energy'}
+                    
+                    # for key in list(current_validated_data.keys()):
+                    #     if isinstance(current_validated_data[key], dict):
+                    #         current_validated_data[key] = {k: v for k, v in current_validated_data[key].items() if k != 'energy'}
+
+                    data_changed = last_validated_data != current_validated_data
+                    if data_changed:
+                        create_new = True
+                        logger.debug(f"Status data changed for {status_type.target_type}, creating new status entry")
+                        
                 if create_new:
                     status = DeviceStatus(
                         name=status_type.target_type,
