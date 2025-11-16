@@ -37,6 +37,8 @@ MEROSS_DEVICE_DATA_TOPIC_TYPE = "publish"
 
 CLIENT_COUNT_TOPIC = "$SYS/broker/clients/connected"
 
+# Home Assistant MQTT Discovery
+HOMEASSISTANT_DISCOVERY_PREFIX = "homeassistant"
 
 MQTT_ENABLED_DEVICE_COMMANDS = {
     'cmd-req': "/{dev_mqtt_user}/devices/{device_alias}/cmd-req",
@@ -91,7 +93,7 @@ class Command(BaseCommand):
     def on_message(self, mqtt_client, user_data, msg):
         logger.info(f'Received message on topic: {msg.topic} with payload: {msg.payload}')
         try:
-            self.process_message(msg)
+            self.process_message(msg, mqtt_client)
         except Exception as ex:
             logger.exception(f'Exception ocurred while processing MQTT message: {ex}')
             mqtt_client.loop_stop()
@@ -131,7 +133,7 @@ class Command(BaseCommand):
         topic = CLIENT_COUNT_TOPIC
         mqtt_client.subscribe(topic)
 
-    def process_message(self, msg):
+    def process_message(self, msg, mqtt_client):
         # Topic is in the following format for IoT devices:
         # /Devtest/devices/Dev-test/meters-data
         message_topic = msg.topic
@@ -248,6 +250,18 @@ class Command(BaseCommand):
                     return
                 
                 device = self.find_device(group_name, device_name, topic_type)
+                
+                # Publish Home Assistant discovery for MONA devices (only once per device)
+                if source_device_type == SOURCE_TYPE_MONA and device is not None:
+                    discovery_cache_key = f"ha_discovery_published_{device.id}"
+                    if not cache.get(discovery_cache_key):
+                        try:
+                            self.publish_homeassistant_discovery(mqtt_client, device, group_name)
+                            # Cache for 24 hours to avoid republishing on every message
+                            cache.set(discovery_cache_key, True, 86400)
+                        except Exception as ex:
+                            logger.exception(f"Error publishing HA discovery for device {device.alias}: {ex}")
+                
                 if topic_type == CLIENT_CMD_RESP_TOPIC_TYPE:
                     self.process_command_response(device, message_data)
                 else:
@@ -290,6 +304,186 @@ class Command(BaseCommand):
             cache.set(dev_identifier, device_id, settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES)
 
         return device
+
+    def publish_homeassistant_discovery(self, client, device, group_name):
+        """
+        Publish Home Assistant MQTT discovery messages for a device.
+        This allows Home Assistant to auto-discover the device and its sensors.
+        Supports both IoT-GW-V1 (Modbus-GSM) and IoT-GW-V2 (Modbus-WiFi) schemas.
+        
+        Args:
+            client: MQTT client instance
+            device: Device object
+            group_name: Device group name
+        """
+        device_id = device.alias.lower().replace(' ', '_')
+        device_name = device.alias
+        
+        # Base device info shared across all sensors
+        device_info = {
+            "identifiers": [device_id],
+            "name": device_name,
+            "model": "IoT Gateway",
+            "manufacturer": group_name,
+            "sw_version": "1.0.0"
+        }
+        
+        # State topic where device publishes its data
+        state_topic = f"/{group_name}/devices/{device.alias}/meters-data"
+        
+        # Common sensors for both V1 and V2
+        sensors = [
+            # ADC Channels (0-5, 6 channels total)
+            {"name": "ADC Channel 0", "key": "adc_0", "value_template": "{{ value_json.adc['0'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC Channel 1", "key": "adc_1", "value_template": "{{ value_json.adc['1'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC Channel 2", "key": "adc_2", "value_template": "{{ value_json.adc['2'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC Channel 3", "key": "adc_3", "value_template": "{{ value_json.adc['3'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC Channel 4", "key": "adc_4", "value_template": "{{ value_json.adc['4'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC Channel 5", "key": "adc_5", "value_template": "{{ value_json.adc['5'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            
+            # DHT Sensor data - common to both
+            {"name": "Temperature", "key": "temperature", "value_template": "{{ (value_json.dht.temperature | float(0)) / 100 if value_json.dht is defined else 0 }}", 
+             "unit": "°C", "device_class": "temperature", "state_class": "measurement"},
+            {"name": "Humidity", "key": "humidity", "value_template": "{{ (value_json.dht.humidity | float(0)) / 100 if value_json.dht is defined else 0 }}", 
+             "unit": "%", "device_class": "humidity", "state_class": "measurement"},
+            {"name": "Heat Index", "key": "heat_index", "value_template": "{{ (value_json.dht.hic | float(0)) / 100 if value_json.dht is defined else 0 }}", 
+             "unit": "°C", "device_class": "temperature", "state_class": "measurement"},
+            {"name": "DHT State", "key": "dht_state", "value_template": "{{ value_json.dht.state | int(0) if value_json.dht is defined else 0 }}", "icon": "mdi:state-machine"},
+            
+            # Meter channels (up to 6) - Each meter can have different fields based on type
+            # Meter 1 - all possible fields
+            {"name": "Meter 1 Type", "key": "meter_1_type", "value_template": "{{ value_json.meter_1.typCfg | default('N/A') if value_json.meter_1 is defined else 'N/A' }}", "icon": "mdi:tag"},
+            {"name": "Meter 1 Voltage", "key": "meter_1_voltage", "value_template": "{{ value_json.meter_1.voltage | float(0) if value_json.meter_1 is defined and value_json.meter_1.voltage is defined else 0 }}", 
+             "unit": "V", "device_class": "voltage", "state_class": "measurement", "icon": "mdi:flash"},
+            {"name": "Meter 1 Current", "key": "meter_1_current", "value_template": "{{ value_json.meter_1.current | float(0) if value_json.meter_1 is defined and value_json.meter_1.current is defined else 0 }}", 
+             "unit": "A", "device_class": "current", "state_class": "measurement", "icon": "mdi:current-ac"},
+            {"name": "Meter 1 Power", "key": "meter_1_power", "value_template": "{{ value_json.meter_1.power | float(0) if value_json.meter_1 is defined and value_json.meter_1.power is defined else 0 }}", 
+             "unit": "W", "device_class": "power", "state_class": "measurement", "icon": "mdi:lightning-bolt"},
+            {"name": "Meter 1 Energy", "key": "meter_1_energy", "value_template": "{{ value_json.meter_1.energy | float(0) if value_json.meter_1 is defined and value_json.meter_1.energy is defined else 0 }}", 
+             "unit": "Wh", "device_class": "energy", "state_class": "total_increasing", "icon": "mdi:counter"},
+            {"name": "Meter 1 Frequency", "key": "meter_1_frequency", "value_template": "{{ value_json.meter_1.frequency | float(0) if value_json.meter_1 is defined and value_json.meter_1.frequency is defined else 0 }}", 
+             "unit": "Hz", "device_class": "frequency", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            {"name": "Meter 1 Power Factor", "key": "meter_1_pf", "value_template": "{{ value_json.meter_1.powerFactor | float(0) if value_json.meter_1 is defined and value_json.meter_1.powerFactor is defined else 0 }}", 
+             "unit": "", "device_class": "power_factor", "state_class": "measurement", "icon": "mdi:angle-acute"},
+            {"name": "Meter 1 Value", "key": "meter_1_val", "value_template": "{{ value_json.meter_1.val | float(0) if value_json.meter_1 is defined and value_json.meter_1.val is defined else 0 }}", 
+             "state_class": "measurement", "icon": "mdi:gauge"},
+            
+            # Meter 2-6 with simplified structure (type, val, freq for generic meters)
+            {"name": "Meter 2 Type", "key": "meter_2_type", "value_template": "{{ value_json.meter_2.typCfg | default('N/A') if value_json.meter_2 is defined else 'N/A' }}", "icon": "mdi:tag"},
+            {"name": "Meter 2 Value", "key": "meter_2_val", "value_template": "{{ value_json.meter_2.val | float(0) if value_json.meter_2 is defined and value_json.meter_2.val is defined else 0 }}", 
+             "state_class": "measurement", "icon": "mdi:gauge"},
+            {"name": "Meter 2 Frequency", "key": "meter_2_freq", "value_template": "{{ value_json.meter_2.freq | float(0) if value_json.meter_2 is defined and value_json.meter_2.freq is defined else 0 }}", 
+             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            
+            {"name": "Meter 3 Type", "key": "meter_3_type", "value_template": "{{ value_json.meter_3.typCfg | default('N/A') if value_json.meter_3 is defined else 'N/A' }}", "icon": "mdi:tag"},
+            {"name": "Meter 3 Value", "key": "meter_3_val", "value_template": "{{ value_json.meter_3.val | float(0) if value_json.meter_3 is defined and value_json.meter_3.val is defined else 0 }}", 
+             "state_class": "measurement", "icon": "mdi:gauge"},
+            {"name": "Meter 3 Frequency", "key": "meter_3_freq", "value_template": "{{ value_json.meter_3.freq | float(0) if value_json.meter_3 is defined and value_json.meter_3.freq is defined else 0 }}", 
+             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            
+            {"name": "Meter 4 Type", "key": "meter_4_type", "value_template": "{{ value_json.meter_4.typCfg | default('N/A') if value_json.meter_4 is defined else 'N/A' }}", "icon": "mdi:tag"},
+            {"name": "Meter 4 Value", "key": "meter_4_val", "value_template": "{{ value_json.meter_4.val | float(0) if value_json.meter_4 is defined and value_json.meter_4.val is defined else 0 }}", 
+             "state_class": "measurement", "icon": "mdi:gauge"},
+            {"name": "Meter 4 Frequency", "key": "meter_4_freq", "value_template": "{{ value_json.meter_4.freq | float(0) if value_json.meter_4 is defined and value_json.meter_4.freq is defined else 0 }}", 
+             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            
+            {"name": "Meter 5 Type", "key": "meter_5_type", "value_template": "{{ value_json.meter_5.typCfg | default('N/A') if value_json.meter_5 is defined else 'N/A' }}", "icon": "mdi:tag"},
+            {"name": "Meter 5 Value", "key": "meter_5_val", "value_template": "{{ value_json.meter_5.val | float(0) if value_json.meter_5 is defined and value_json.meter_5.val is defined else 0 }}", 
+             "state_class": "measurement", "icon": "mdi:gauge"},
+            {"name": "Meter 5 Frequency", "key": "meter_5_freq", "value_template": "{{ value_json.meter_5.freq | float(0) if value_json.meter_5 is defined and value_json.meter_5.freq is defined else 0 }}", 
+             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            
+            {"name": "Meter 6 Type", "key": "meter_6_type", "value_template": "{{ value_json.meter_6.typCfg | default('N/A') if value_json.meter_6 is defined else 'N/A' }}", "icon": "mdi:tag"},
+            {"name": "Meter 6 Value", "key": "meter_6_val", "value_template": "{{ value_json.meter_6.val | float(0) if value_json.meter_6 is defined and value_json.meter_6.val is defined else 0 }}", 
+             "state_class": "measurement", "icon": "mdi:gauge"},
+            {"name": "Meter 6 Frequency", "key": "meter_6_freq", "value_template": "{{ value_json.meter_6.freq | float(0) if value_json.meter_6 is defined and value_json.meter_6.freq is defined else 0 }}", 
+             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            
+            # ADC RMS values (6 channels)
+            {"name": "ADC RMS Channel 0", "key": "adc_rms_0", "value_template": "{{ value_json.adcRms['0'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC RMS Channel 1", "key": "adc_rms_1", "value_template": "{{ value_json.adcRms['1'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC RMS Channel 2", "key": "adc_rms_2", "value_template": "{{ value_json.adcRms['2'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC RMS Channel 3", "key": "adc_rms_3", "value_template": "{{ value_json.adcRms['3'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC RMS Channel 4", "key": "adc_rms_4", "value_template": "{{ value_json.adcRms['4'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            {"name": "ADC RMS Channel 5", "key": "adc_rms_5", "value_template": "{{ value_json.adcRms['5'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            
+            # Network info - IoT-GW-V1 specific
+            {"name": "Network State", "key": "network_state", "value_template": "{{ value_json.network.state | default('unknown') if value_json.network is defined else 'unknown' }}", 
+             "icon": "mdi:network"},
+            {"name": "Network IP", "key": "network_ip", "value_template": "{{ value_json.network.ip | default('0.0.0.0') if value_json.network is defined else '0.0.0.0' }}", 
+             "icon": "mdi:ip-network"},
+            {"name": "Network TTS", "key": "network_tts", "value_template": "{{ value_json.network.tts | int(0) if value_json.network is defined else 0 }}", 
+             "unit": "ms", "icon": "mdi:timer"},
+            
+            # System info - IoT-GW-V2 specific
+            {"name": "Battery", "key": "battery", "value_template": "{{ value_json.battery | float(0) if value_json.battery is defined else 0 }}", 
+             "unit": "%", "device_class": "battery", "state_class": "measurement"},
+            {"name": "Uptime", "key": "uptime", "value_template": "{{ value_json.uptime | int(0) if value_json.uptime is defined else 0 }}", 
+             "unit": "s", "device_class": "duration", "state_class": "total_increasing"},
+        ]
+        
+        # Text sensors for device info and firmware
+        text_sensors = [
+            # Time information
+            {"name": "Time UTC", "key": "time_utc", "value_template": "{{ value_json.timeUTC | default('unknown') }}", "icon": "mdi:clock-outline"},
+            {"name": "Time Delta", "key": "time_delta", "value_template": "{{ value_json.timeDelta | int(0) if value_json.timeDelta is defined else 0 }}", "icon": "mdi:timer-sand"},
+            
+            # Config info - IoT-GW-V1 specific
+            {"name": "Device Type", "key": "dev_type", "value_template": "{{ value_json.config.devType | default('unknown') if value_json.config is defined else 'unknown' }}", "icon": "mdi:chip"},
+            {"name": "Device ID", "key": "dev_id", "value_template": "{{ value_json.config.devId | default(0) if value_json.config is defined else 0 }}", "icon": "mdi:identifier"},
+            {"name": "Work Mode", "key": "work_mode", "value_template": "{{ value_json.config.workMode | default(0) if value_json.config is defined else 0 }}", "icon": "mdi:cog"},
+            {"name": "MAC Address", "key": "mac", "value_template": "{{ value_json.config.mac | default(value_json.mac) | default('unknown') }}", "icon": "mdi:network"},
+            
+            # Firmware versions - IoT-GW-V2 specific
+            {"name": "Core Version", "key": "core_version", "value_template": "{{ value_json.core_version | default('unknown') }}", "icon": "mdi:chip"},
+            {"name": "Firmware Version", "key": "fw_version", "value_template": "{{ value_json.fw_version | default('unknown') }}", "icon": "mdi:application-cog"},
+        ]
+        
+        # Publish regular sensors
+        for sensor in sensors:
+            config_topic = f"{HOMEASSISTANT_DISCOVERY_PREFIX}/sensor/{device_id}/{sensor['key']}/config"
+            
+            config = {
+                "name": sensor["name"],
+                "unique_id": f"{device_id}_{sensor['key']}",
+                "state_topic": state_topic,
+                "value_template": sensor["value_template"],
+                "device": device_info,
+                "availability_topic": state_topic,
+                "payload_available": "online",
+                "payload_not_available": "offline"
+            }
+            
+            # Add optional fields
+            if sensor.get("unit"):
+                config["unit_of_measurement"] = sensor["unit"]
+            if sensor.get("device_class"):
+                config["device_class"] = sensor["device_class"]
+            if sensor.get("state_class"):
+                config["state_class"] = sensor["state_class"]
+            if sensor.get("icon"):
+                config["icon"] = sensor["icon"]
+            
+            client.publish(config_topic, json.dumps(config), retain=True, qos=1)
+            logger.debug(f"Published HA discovery for {device_name} - {sensor['name']}")
+        
+        # Publish text sensors
+        for sensor in text_sensors:
+            config_topic = f"{HOMEASSISTANT_DISCOVERY_PREFIX}/sensor/{device_id}/{sensor['key']}/config"
+            
+            config = {
+                "name": sensor["name"],
+                "unique_id": f"{device_id}_{sensor['key']}",
+                "state_topic": state_topic,
+                "value_template": sensor["value_template"],
+                "device": device_info,
+                "icon": sensor.get("icon", "mdi:information")
+            }
+            
+            client.publish(config_topic, json.dumps(config), retain=True, qos=1)
+            logger.debug(f"Published HA discovery for {device_name} - {sensor['name']}")
+        
+        logger.info(f"Published Home Assistant discovery for device {device_name} with {len(sensors) + len(text_sensors)} sensors")
 
     def process_command_response(self, device, message_data):
         """
