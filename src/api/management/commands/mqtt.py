@@ -334,12 +334,12 @@ class Command(BaseCommand):
         # Common sensors for both V1 and V2
         sensors = [
             # ADC Channels (0-5, 6 channels total)
-            {"name": "ADC Channel 0", "key": "adc_0", "value_template": "{{ value_json.adc['0'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC Channel 1", "key": "adc_1", "value_template": "{{ value_json.adc['1'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC Channel 2", "key": "adc_2", "value_template": "{{ value_json.adc['2'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC Channel 3", "key": "adc_3", "value_template": "{{ value_json.adc['3'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC Channel 4", "key": "adc_4", "value_template": "{{ value_json.adc['4'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC Channel 5", "key": "adc_5", "value_template": "{{ value_json.adc['5'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC Channel 0", "key": "adc_0", "value_template": "{{ value_json.adc['0'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC Channel 1", "key": "adc_1", "value_template": "{{ value_json.adc['1'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC Channel 2", "key": "adc_2", "value_template": "{{ value_json.adc['2'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC Channel 3", "key": "adc_3", "value_template": "{{ value_json.adc['3'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC Channel 4", "key": "adc_4", "value_template": "{{ value_json.adc['4'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC Channel 5", "key": "adc_5", "value_template": "{{ value_json.adc['5'] | int(0) if value_json.adc is defined else 0 }}", "icon": "mdi:sine-wave"},
             
             # DHT Sensor data - common to both
             {"name": "Temperature", "key": "temperature", "value_template": "{{ (value_json.dht.temperature | float(0)) / 100 if value_json.dht is defined else 0 }}", 
@@ -348,79 +348,126 @@ class Command(BaseCommand):
              "unit": "%", "device_class": "humidity", "state_class": "measurement"},
             {"name": "Heat Index", "key": "heat_index", "value_template": "{{ (value_json.dht.hic | float(0)) / 100 if value_json.dht is defined else 0 }}", 
              "unit": "°C", "device_class": "temperature", "state_class": "measurement"},
-            {"name": "DHT State", "key": "dht_state", "value_template": "{{ value_json.dht.state | int(0) if value_json.dht is defined else 0 }}", "icon": "mdi:state-machine"},
+            # {"name": "DHT State", "key": "dht_state", "value_template": "{{ value_json.dht.state | int(0) if value_json.dht is defined else 0 }}", "icon": "mdi:state-machine"},
+        ]
+        
+        # Meter sensors - dynamically created based on meter type
+        # Meters 1-6: Each can be energy/current/voltage meter or generic sensor
+        for meter_num in range(0, 6):
+            meter_key = f"meter_{meter_num}"
             
-            # Meter channels (up to 6) - Each meter can have different fields based on type
-            # Meter 1 - all possible fields
-            {"name": "Meter 1 Type", "key": "meter_1_type", "value_template": "{{ value_json.meter_1.typCfg | default('N/A') if value_json.meter_1 is defined else 'N/A' }}", "icon": "mdi:tag"},
-            {"name": "Meter 1 Voltage", "key": "meter_1_voltage", "value_template": "{{ value_json.meter_1.voltage | float(0) if value_json.meter_1 is defined and value_json.meter_1.voltage is defined else 0 }}", 
-             "unit": "V", "device_class": "voltage", "state_class": "measurement", "icon": "mdi:flash"},
-            {"name": "Meter 1 Current", "key": "meter_1_current", "value_template": "{{ value_json.meter_1.current | float(0) if value_json.meter_1 is defined and value_json.meter_1.current is defined else 0 }}", 
-             "unit": "A", "device_class": "current", "state_class": "measurement", "icon": "mdi:current-ac"},
-            {"name": "Meter 1 Power", "key": "meter_1_power", "value_template": "{{ value_json.meter_1.power | float(0) if value_json.meter_1 is defined and value_json.meter_1.power is defined else 0 }}", 
-             "unit": "W", "device_class": "power", "state_class": "measurement", "icon": "mdi:lightning-bolt"},
-            {"name": "Meter 1 Energy", "key": "meter_1_energy", "value_template": "{{ value_json.meter_1.energy | float(0) if value_json.meter_1 is defined and value_json.meter_1.energy is defined else 0 }}", 
-             "unit": "Wh", "device_class": "energy", "state_class": "total_increasing", "icon": "mdi:counter"},
-            {"name": "Meter 1 Frequency", "key": "meter_1_frequency", "value_template": "{{ value_json.meter_1.frequency | float(0) if value_json.meter_1 is defined and value_json.meter_1.frequency is defined else 0 }}", 
-             "unit": "Hz", "device_class": "frequency", "state_class": "measurement", "icon": "mdi:sine-wave"},
-            {"name": "Meter 1 Power Factor", "key": "meter_1_pf", "value_template": "{{ value_json.meter_1.powerFactor | float(0) if value_json.meter_1 is defined and value_json.meter_1.powerFactor is defined else 0 }}", 
-             "unit": "", "device_class": "power_factor", "state_class": "measurement", "icon": "mdi:angle-acute"},
-            {"name": "Meter 1 Value", "key": "meter_1_val", "value_template": "{{ value_json.meter_1.val | float(0) if value_json.meter_1 is defined and value_json.meter_1.val is defined else 0 }}", 
-             "state_class": "measurement", "icon": "mdi:gauge"},
+            # Type sensor for each meter
+            sensors.append({
+                "name": f"Meter {meter_num} Type",
+                "key": f"{meter_key}_type",
+                "value_template": f"{{{{ value_json.{meter_key}.typCfg | default('N/A') if value_json.{meter_key} is defined else 'N/A' }}}}",
+                "icon": "mdi:tag"
+            })
             
-            # Meter 2-6 with simplified structure (type, val, freq for generic meters)
-            {"name": "Meter 2 Type", "key": "meter_2_type", "value_template": "{{ value_json.meter_2.typCfg | default('N/A') if value_json.meter_2 is defined else 'N/A' }}", "icon": "mdi:tag"},
-            {"name": "Meter 2 Value", "key": "meter_2_val", "value_template": "{{ value_json.meter_2.val | float(0) if value_json.meter_2 is defined and value_json.meter_2.val is defined else 0 }}", 
-             "state_class": "measurement", "icon": "mdi:gauge"},
-            {"name": "Meter 2 Frequency", "key": "meter_2_freq", "value_template": "{{ value_json.meter_2.freq | float(0) if value_json.meter_2 is defined and value_json.meter_2.freq is defined else 0 }}", 
-             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            # For energy meters (WAC/WDC), add all power-related fields
+            sensors.append({
+                "name": f"Meter {meter_num} Voltage",
+                "key": f"{meter_key}_voltage",
+                "value_template": f"{{{{ value_json.{meter_key}.voltage | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.voltage is defined else 0 }}}}",
+                "unit": "V",
+                "device_class": "voltage",
+                "state_class": "measurement",
+                "icon": "mdi:flash"
+            })
             
-            {"name": "Meter 3 Type", "key": "meter_3_type", "value_template": "{{ value_json.meter_3.typCfg | default('N/A') if value_json.meter_3 is defined else 'N/A' }}", "icon": "mdi:tag"},
-            {"name": "Meter 3 Value", "key": "meter_3_val", "value_template": "{{ value_json.meter_3.val | float(0) if value_json.meter_3 is defined and value_json.meter_3.val is defined else 0 }}", 
-             "state_class": "measurement", "icon": "mdi:gauge"},
-            {"name": "Meter 3 Frequency", "key": "meter_3_freq", "value_template": "{{ value_json.meter_3.freq | float(0) if value_json.meter_3 is defined and value_json.meter_3.freq is defined else 0 }}", 
-             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            sensors.append({
+                "name": f"Meter {meter_num} Current",
+                "key": f"{meter_key}_current",
+                "value_template": f"{{{{ value_json.{meter_key}.current | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.current is defined else 0 }}}}",
+                "unit": "A",
+                "device_class": "current",
+                "state_class": "measurement",
+                "icon": "mdi:current-ac"
+            })
             
-            {"name": "Meter 4 Type", "key": "meter_4_type", "value_template": "{{ value_json.meter_4.typCfg | default('N/A') if value_json.meter_4 is defined else 'N/A' }}", "icon": "mdi:tag"},
-            {"name": "Meter 4 Value", "key": "meter_4_val", "value_template": "{{ value_json.meter_4.val | float(0) if value_json.meter_4 is defined and value_json.meter_4.val is defined else 0 }}", 
-             "state_class": "measurement", "icon": "mdi:gauge"},
-            {"name": "Meter 4 Frequency", "key": "meter_4_freq", "value_template": "{{ value_json.meter_4.freq | float(0) if value_json.meter_4 is defined and value_json.meter_4.freq is defined else 0 }}", 
-             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            sensors.append({
+                "name": f"Meter {meter_num} Power",
+                "key": f"{meter_key}_power",
+                "value_template": f"{{{{ value_json.{meter_key}.power | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.power is defined else 0 }}}}",
+                "unit": "W",
+                "device_class": "power",
+                "state_class": "measurement",
+                "icon": "mdi:lightning-bolt"
+            })
             
-            {"name": "Meter 5 Type", "key": "meter_5_type", "value_template": "{{ value_json.meter_5.typCfg | default('N/A') if value_json.meter_5 is defined else 'N/A' }}", "icon": "mdi:tag"},
-            {"name": "Meter 5 Value", "key": "meter_5_val", "value_template": "{{ value_json.meter_5.val | float(0) if value_json.meter_5 is defined and value_json.meter_5.val is defined else 0 }}", 
-             "state_class": "measurement", "icon": "mdi:gauge"},
-            {"name": "Meter 5 Frequency", "key": "meter_5_freq", "value_template": "{{ value_json.meter_5.freq | float(0) if value_json.meter_5 is defined and value_json.meter_5.freq is defined else 0 }}", 
-             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            sensors.append({
+                "name": f"Meter {meter_num} Energy",
+                "key": f"{meter_key}_energy",
+                "value_template": f"{{{{ value_json.{meter_key}.energy | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.energy is defined else 0 }}}}",
+                "unit": "Wh",
+                "device_class": "energy",
+                "state_class": "total_increasing",
+                "icon": "mdi:counter"
+            })
             
-            {"name": "Meter 6 Type", "key": "meter_6_type", "value_template": "{{ value_json.meter_6.typCfg | default('N/A') if value_json.meter_6 is defined else 'N/A' }}", "icon": "mdi:tag"},
-            {"name": "Meter 6 Value", "key": "meter_6_val", "value_template": "{{ value_json.meter_6.val | float(0) if value_json.meter_6 is defined and value_json.meter_6.val is defined else 0 }}", 
-             "state_class": "measurement", "icon": "mdi:gauge"},
-            {"name": "Meter 6 Frequency", "key": "meter_6_freq", "value_template": "{{ value_json.meter_6.freq | float(0) if value_json.meter_6 is defined and value_json.meter_6.freq is defined else 0 }}", 
-             "unit": "Hz", "state_class": "measurement", "icon": "mdi:sine-wave"},
+            sensors.append({
+                "name": f"Meter {meter_num} Frequency",
+                "key": f"{meter_key}_frequency",
+                "value_template": f"{{{{ value_json.{meter_key}.frequency | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.frequency is defined else 0 }}}}",
+                "unit": "Hz",
+                "device_class": "frequency",
+                "state_class": "measurement",
+                "icon": "mdi:sine-wave"
+            })
             
+            sensors.append({
+                "name": f"Meter {meter_num} Power Factor",
+                "key": f"{meter_key}_pf",
+                "value_template": f"{{{{ value_json.{meter_key}.powerFactor | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.powerFactor is defined else 0 }}}}",
+                "unit": "",
+                "device_class": "power_factor",
+                "state_class": "measurement",
+                "icon": "mdi:angle-acute"
+            })
+            
+            # Generic value field (for non-energy meters like Distance, PIR, etc.)
+            sensors.append({
+                "name": f"Meter {meter_num} Value",
+                "key": f"{meter_key}_val",
+                "value_template": f"{{{{ value_json.{meter_key}.val | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.val is defined else 0 }}}}",
+                "state_class": "measurement",
+                "icon": "mdi:gauge"
+            })
+            
+            # Generic frequency field (for non-energy meters)
+            sensors.append({
+                "name": f"Meter {meter_num} Freq",
+                "key": f"{meter_key}_freq",
+                "value_template": f"{{{{ value_json.{meter_key}.freq | float(0) if value_json.{meter_key} is defined and value_json.{meter_key}.freq is defined else 0 }}}}",
+                "unit": "Hz",
+                "state_class": "measurement",
+                "icon": "mdi:sine-wave"
+            })
+        
+        # Continue with other sensors
+        # sensors.extend([
             # ADC RMS values (6 channels)
-            {"name": "ADC RMS Channel 0", "key": "adc_rms_0", "value_template": "{{ value_json.adcRms['0'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC RMS Channel 1", "key": "adc_rms_1", "value_template": "{{ value_json.adcRms['1'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC RMS Channel 2", "key": "adc_rms_2", "value_template": "{{ value_json.adcRms['2'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC RMS Channel 3", "key": "adc_rms_3", "value_template": "{{ value_json.adcRms['3'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC RMS Channel 4", "key": "adc_rms_4", "value_template": "{{ value_json.adcRms['4'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
-            {"name": "ADC RMS Channel 5", "key": "adc_rms_5", "value_template": "{{ value_json.adcRms['5'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC RMS Channel 0", "key": "adc_rms_0", "value_template": "{{ value_json.adcRms['0'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC RMS Channel 1", "key": "adc_rms_1", "value_template": "{{ value_json.adcRms['1'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC RMS Channel 2", "key": "adc_rms_2", "value_template": "{{ value_json.adcRms['2'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC RMS Channel 3", "key": "adc_rms_3", "value_template": "{{ value_json.adcRms['3'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC RMS Channel 4", "key": "adc_rms_4", "value_template": "{{ value_json.adcRms['4'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
+            # {"name": "ADC RMS Channel 5", "key": "adc_rms_5", "value_template": "{{ value_json.adcRms['5'] | int(0) if value_json.adcRms is defined else 0 }}", "icon": "mdi:sine-wave"},
             
             # Network info - IoT-GW-V1 specific
-            {"name": "Network State", "key": "network_state", "value_template": "{{ value_json.network.state | default('unknown') if value_json.network is defined else 'unknown' }}", 
-             "icon": "mdi:network"},
-            {"name": "Network IP", "key": "network_ip", "value_template": "{{ value_json.network.ip | default('0.0.0.0') if value_json.network is defined else '0.0.0.0' }}", 
-             "icon": "mdi:ip-network"},
-            {"name": "Network TTS", "key": "network_tts", "value_template": "{{ value_json.network.tts | int(0) if value_json.network is defined else 0 }}", 
-             "unit": "ms", "icon": "mdi:timer"},
+            # {"name": "Network State", "key": "network_state", "value_template": "{{ value_json.network.state | default('unknown') if value_json.network is defined else 'unknown' }}", 
+            #  "icon": "mdi:network"},
+            # {"name": "Network IP", "key": "network_ip", "value_template": "{{ value_json.network.ip | default('0.0.0.0') if value_json.network is defined else '0.0.0.0' }}", 
+            #  "icon": "mdi:ip-network"},
+            # {"name": "Network TTS", "key": "network_tts", "value_template": "{{ value_json.network.tts | int(0) if value_json.network is defined else 0 }}", 
+            #  "unit": "ms", "icon": "mdi:timer"},
             
             # System info - IoT-GW-V2 specific
-            {"name": "Battery", "key": "battery", "value_template": "{{ value_json.battery | float(0) if value_json.battery is defined else 0 }}", 
-             "unit": "%", "device_class": "battery", "state_class": "measurement"},
-            {"name": "Uptime", "key": "uptime", "value_template": "{{ value_json.uptime | int(0) if value_json.uptime is defined else 0 }}", 
-             "unit": "s", "device_class": "duration", "state_class": "total_increasing"},
-        ]
+            # {"name": "Battery", "key": "battery", "value_template": "{{ value_json.battery | float(0) if value_json.battery is defined else 0 }}", 
+            #  "unit": "%", "device_class": "battery", "state_class": "measurement"},
+            # {"name": "Uptime", "key": "uptime", "value_template": "{{ value_json.uptime | int(0) if value_json.uptime is defined else 0 }}", 
+            #  "unit": "s", "device_class": "duration", "state_class": "total_increasing"},
+        # ])
         
         # Text sensors for device info and firmware
         text_sensors = [
@@ -429,14 +476,14 @@ class Command(BaseCommand):
             {"name": "Time Delta", "key": "time_delta", "value_template": "{{ value_json.timeDelta | int(0) if value_json.timeDelta is defined else 0 }}", "icon": "mdi:timer-sand"},
             
             # Config info - IoT-GW-V1 specific
-            {"name": "Device Type", "key": "dev_type", "value_template": "{{ value_json.config.devType | default('unknown') if value_json.config is defined else 'unknown' }}", "icon": "mdi:chip"},
-            {"name": "Device ID", "key": "dev_id", "value_template": "{{ value_json.config.devId | default(0) if value_json.config is defined else 0 }}", "icon": "mdi:identifier"},
-            {"name": "Work Mode", "key": "work_mode", "value_template": "{{ value_json.config.workMode | default(0) if value_json.config is defined else 0 }}", "icon": "mdi:cog"},
-            {"name": "MAC Address", "key": "mac", "value_template": "{{ value_json.config.mac | default(value_json.mac) | default('unknown') }}", "icon": "mdi:network"},
+            # {"name": "Device Type", "key": "dev_type", "value_template": "{{ value_json.config.devType | default('unknown') if value_json.config is defined else 'unknown' }}", "icon": "mdi:chip"},
+            # {"name": "Device ID", "key": "dev_id", "value_template": "{{ value_json.config.devId | default(0) if value_json.config is defined else 0 }}", "icon": "mdi:identifier"},
+            # {"name": "Work Mode", "key": "work_mode", "value_template": "{{ value_json.config.workMode | default(0) if value_json.config is defined else 0 }}", "icon": "mdi:cog"},
+            # {"name": "MAC Address", "key": "mac", "value_template": "{{ value_json.config.mac | default(value_json.mac) | default('unknown') }}", "icon": "mdi:network"},
             
             # Firmware versions - IoT-GW-V2 specific
-            {"name": "Core Version", "key": "core_version", "value_template": "{{ value_json.core_version | default('unknown') }}", "icon": "mdi:chip"},
-            {"name": "Firmware Version", "key": "fw_version", "value_template": "{{ value_json.fw_version | default('unknown') }}", "icon": "mdi:application-cog"},
+            # {"name": "Core Version", "key": "core_version", "value_template": "{{ value_json.core_version | default('unknown') }}", "icon": "mdi:chip"},
+            # {"name": "Firmware Version", "key": "fw_version", "value_template": "{{ value_json.fw_version | default('unknown') }}", "icon": "mdi:application-cog"},
         ]
         
         # Publish regular sensors
