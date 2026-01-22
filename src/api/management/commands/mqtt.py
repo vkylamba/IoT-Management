@@ -598,7 +598,10 @@ class Command(BaseCommand):
                 dev_mqtt_user = dev_mqtt_user if dev_mqtt_user is not None else 'Devtest'
                 dev_mqtt_group = cfg_data.get('group_id', 'Devtest')
                 dev_mqtt_group = dev_mqtt_group if dev_mqtt_group is not None else 'Devtest'
-                default_command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get('cmd-req', '')
+
+                default_command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get(command.command, '')
+                if default_command_topic is None or default_command_topic == '':
+                    default_command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get('cmd-req', '')
                 command_topic = default_command_topic.format(
                     dev_mqtt_user=dev_mqtt_user,
                     device_alias=device.alias,
