@@ -42,7 +42,8 @@ HOMEASSISTANT_DISCOVERY_PREFIX = "homeassistant"
 
 MQTT_ENABLED_DEVICE_COMMANDS = {
     'cmd-req': "/{dev_mqtt_user}/devices/{device_alias}/cmd-req",
-    'update-trigger': "/{dev_mqtt_user}/devices/{device_alias}/update-trigger",
+    'update-trigger-device': "/{dev_mqtt_user}/devices/{device_alias}/update-trigger",
+    'update-trigger-group': "/{dev_mqtt_user}/devices/{device_group}/update-trigger",
 }
 
 
@@ -262,8 +263,8 @@ class Command(BaseCommand):
                         except Exception as ex:
                             logger.exception(f"Error publishing HA discovery for device {device.alias}: {ex}")
                 
-                if topic_type == CLIENT_CMD_RESP_TOPIC_TYPE:
-                    self.process_command_response(device, message_data)
+                if topic_type == CLIENT_CMD_RESP_TOPIC_TYPE or topic_type == CLIENT_UPDATE_RESP_TOPIC_TYPE:
+                    self.process_command_response(topic_type, device, message_data)
                 else:
                     process_raw_data(device, message_data, channel='mqtt', data_type=topic_type)
             elif not process_data:
@@ -532,7 +533,7 @@ class Command(BaseCommand):
         
         logger.info(f"Published Home Assistant discovery for device {device_name} with {len(sensors) + len(text_sensors)} sensors")
 
-    def process_command_response(self, device, message_data):
+    def process_command_response(self, topic_type, device, message_data):
         """
         Process command response message and update the matching command.
         
@@ -543,6 +544,10 @@ class Command(BaseCommand):
         try:
             command_text = message_data.get('command', '')
             response = message_data.get('response', '')
+
+            if topic_type == CLIENT_UPDATE_RESP_TOPIC_TYPE:
+                command_text = "update-trigger"
+                response = str(message_data)
             
             if not command_text or not device:
                 logger.warning("Missing command or device in command response")
@@ -559,7 +564,7 @@ class Command(BaseCommand):
             ).order_by('-command_in_time').first()
             
             if command:
-                command.response = response
+                command.response = response if command.response is None else f"{command.response}\n{response}"
                 command.response_time = timezone.now()
                 command.status = 'C'  # Completed
                 command.save()
@@ -591,11 +596,13 @@ class Command(BaseCommand):
                 cfg_data = cfg.data if (cfg is not None and cfg.data is not None) else {}
                 dev_mqtt_user = cfg_data.get('mqtt_user', 'Devtest')
                 dev_mqtt_user = dev_mqtt_user if dev_mqtt_user is not None else 'Devtest'
-                # dev_mqtt_group = cfg_data.get('group_id', 'Devtest')
+                dev_mqtt_group = cfg_data.get('group_id', 'Devtest')
+                dev_mqtt_group = dev_mqtt_group if dev_mqtt_group is not None else 'Devtest'
                 default_command_topic = MQTT_ENABLED_DEVICE_COMMANDS.get('cmd-req', '')
                 command_topic = default_command_topic.format(
                     dev_mqtt_user=dev_mqtt_user,
-                    device_alias=device.alias
+                    device_alias=device.alias,
+                    device_group=dev_mqtt_group
                 )
                 logger.info("Publishing MQTT %s: %s", command_topic, command.param)
                 payload = f"""{{"command":"{command.command} {command.param}", "device":"{device.alias}"}}"""
