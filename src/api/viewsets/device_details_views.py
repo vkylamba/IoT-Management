@@ -554,7 +554,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if command_param and isinstance(command_param, str):
             command_param = command_param.strip()
 
-        if command != "" and command_param != "":
+        if command != "":
             # Save the command into command model
             dev_command = device.commands.filter(command_name=command).first()
             cmd = Command(
