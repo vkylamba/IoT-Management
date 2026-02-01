@@ -715,7 +715,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             page_size = 100
         commands = Command.objects.filter(
             device=device
-        ).order_by('-command_in_time')
+        ).select_related('device').order_by('-command_in_time')
         total_commands = commands.count()
         commands = commands[page*page_size: (page+1)*page_size]
         commands_data = []
