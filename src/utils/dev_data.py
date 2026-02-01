@@ -35,7 +35,8 @@ class DataReports(object):
         self.device = device
         self.multiple = multiple
         if not multiple:
-            self.device_types = [x.name for x in self.device.types.all()]
+            non_null_device_types = [x for x in self.device.types.all() if x is not None]
+            self.device_types = [x.name for x in non_null_device_types]
             self.rate = DeviceProperty.objects.filter(device=self.device, name='pay_per_unit').first()
             self.meters = Meter.objects.filter(
                 device=self.device
