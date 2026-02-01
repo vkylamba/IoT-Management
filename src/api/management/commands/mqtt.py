@@ -43,7 +43,7 @@ HOMEASSISTANT_DISCOVERY_PREFIX = "homeassistant"
 MQTT_ENABLED_DEVICE_COMMANDS = {
     'cmd-req': "/{dev_mqtt_user}/devices/{device_alias}/cmd-req",
     'update-trigger-device': "/{dev_mqtt_user}/devices/{device_alias}/update-trigger",
-    'update-trigger-group': "/{dev_mqtt_user}/devices/{device_group}/update-trigger",
+    'update-trigger-group': "/{dev_mqtt_user}/groups/{device_group}/update-trigger",
 }
 
 
