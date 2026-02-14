@@ -751,7 +751,16 @@ DEVICE_STATUS_NAMES = (
 
 class DeviceStatus(models.Model):
     """
-        model to store device status.
+    Model to store device status.
+    
+    This model is backed by a MongoDB time series collection for optimized
+    time-based queries and efficient storage of device status data.
+    
+    To create the time series collection, run:
+        python manage.py migrate device
+    
+    Or manually:
+        python manage.py setup_timeseries_collection
     """
     DAILY_STATUS = 'DAILY_STATUS'
     LAST_DAY_REPORT = 'LAST_DAY_REPORT'
@@ -759,10 +768,10 @@ class DeviceStatus(models.Model):
     LAST_MONTH_REPORT = 'LAST_MONTH_REPORT'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255, blank=True, null=True)
-    device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.DO_NOTHING)
-    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING)
-    created_at = models.DateTimeField(auto_now_add=True)
+    name = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
+    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now_add=True)
 
     status = models.JSONField(blank=True, null=True)
@@ -771,6 +780,12 @@ class DeviceStatus(models.Model):
         app_label = "device"
         verbose_name = "Device Status"
         verbose_name_plural = "Devices Status"
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['name', '-created_at']),
+            models.Index(fields=['device', '-created_at']),
+            models.Index(fields=['user', '-created_at']),
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.device.ip_address} - {self.created_at}"
@@ -825,20 +840,36 @@ class Meter(models.Model):
 
 class RawData(models.Model):
     """
-        Model to store raw data received from device.
+    Model to store raw data received from device.
+    
+    This model is backed by a MongoDB time series collection for optimized
+    time-based queries and efficient storage of IoT device data.
+    
+    To create the time series collection, run:
+        python manage.py migrate device
+    
+    Or manually:
+        python manage.py setup_timeseries_collection
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    device = models.ForeignKey('Device', on_delete=models.DO_NOTHING)
-    channel = models.CharField(max_length=255, null=True, blank=True)
-    data_type = models.CharField(max_length=255, null=True, blank=True)
-    data_arrival_time = models.DateTimeField()
+    device = models.ForeignKey('Device', on_delete=models.DO_NOTHING, db_index=True)
+    channel = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    data_type = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    data_arrival_time = models.DateTimeField(db_index=True)
     data = models.JSONField()
 
     class Meta:
         app_label = "device"
         verbose_name = "RawData"
         verbose_name_plural = "RawData"
+        indexes = [
+            models.Index(fields=['-data_arrival_time']),
+            models.Index(fields=['device', '-data_arrival_time']),
+            models.Index(fields=['channel', '-data_arrival_time']),
+            models.Index(fields=['data_type', '-data_arrival_time']),
+            models.Index(fields=['device', 'channel', '-data_arrival_time']),
+        ]
 
     def __str__(self) -> str:
         return f"{self.device.ip_address}-{self.data_arrival_time.strftime(settings.TIME_FORMAT_STRING)}"
