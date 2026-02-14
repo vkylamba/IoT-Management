@@ -9,7 +9,6 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import models
 from django.template import Context, Template
 from django.utils import timezone
-from utils import DataReports
 
 from notification.http_requests import send_get_requests, send_post_requests
 

@@ -4,10 +4,12 @@ from rest_framework import routers
 from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
                           DeviceViewSet, EventViewSet, HeartbeatViewSet,
                           UserViewSet, VerifyAuthViewSet, WidgetViewSet,
-                          DeviceOTAViewSet, ViewViewSet, DocumentViewSet)
+                          DeviceOTAViewSet, ViewViewSet, DocumentViewSet,
+                          SentNotificationViewSet)
 
 router = routers.DefaultRouter()
 router.register(r'user/details', UserViewSet)
+router.register(r'notifications', SentNotificationViewSet, basename='notifications')
 
 # Wire up our API using automatic URL routing.
 # Additionally, we include login URLs for the browse-able API.
