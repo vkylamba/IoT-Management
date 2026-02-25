@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from device.models import UserDeviceType, StatusType
-from device.models import Permission
+from django.db.models import prefetch_related_objects
 from .device import UserDeviceTypeSerializer, StatusTypeSerializer
 
 User = get_user_model()
@@ -23,26 +22,22 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
     def to_representation(self, user):
-        user_devices = user.device_list(return_objects=True)
-        available_device_types = UserDeviceType.objects.filter(
-            user=user
-        ).all()
-        available_status_types = StatusType.objects.filter(
-            user=user
-        ).all()
+        skip_devices = self.context.get('skip_devices', False)
+        available_device_types = user.userdevicetype_set.all()
+        available_status_types = user.statustype_set.all()
         dev_types = []
         for dev_type in available_device_types:
-            if not dev_type.active: continue
+            if not dev_type.active:
+                continue
             dev_types.append(UserDeviceTypeSerializer(dev_type).data)
         
         status_types = []
         for status_type in available_status_types:
-            if not status_type.active: continue
+            if not status_type.active:
+                continue
             status_types.append(StatusTypeSerializer(status_type).data)
-            
-        user_permissions = Permission.objects.filter(
-            user=user
-        )
+
+        user_permissions = user.permissions.all()
 
         data = {
             'user_id': user.id,
@@ -56,7 +51,6 @@ class UserSerializer(serializers.ModelSerializer):
             'postal_code': user.postal_code,
             'about_me': user.description,
             'device_data_token': user.device_data_token,
-            'devices': [],
             'available_device_types': dev_types,
             'available_status_types': status_types,
             'user_permissions': [
@@ -64,12 +58,16 @@ class UserSerializer(serializers.ModelSerializer):
             ]
         }
 
-        for device in user_devices:
-            device_data = {
-                "ip_address": device.ip_address,
-                "alias": device.alias,
-                "type": ", ".join([typ.name for typ in device.types.all()])
-            }
-            data["devices"].append(device_data)
+        if not skip_devices:
+            user_devices = user.device_list(return_objects=True)
+            prefetch_related_objects(user_devices, 'types')
+            data['devices'] = []
+            for device in user_devices:
+                device_data = {
+                    "ip_address": device.ip_address,
+                    "alias": device.alias,
+                    "type": ", ".join([typ.name for typ in device.types.all()])
+                }
+                data["devices"].append(device_data)
 
         return data

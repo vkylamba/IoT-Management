@@ -14,6 +14,16 @@ router.register(r'notifications', SentNotificationViewSet, basename='notificatio
 # Wire up our API using automatic URL routing.
 # Additionally, we include login URLs for the browse-able API.
 urlpatterns = [
+    re_path(
+        r'^user/details/(?P<pk>[0-9a-fA-F-]{36})/$',
+        UserViewSet.as_view({
+            'get': 'retrieve',
+            'post': 'post',
+            'patch': 'partial_update',
+            'put': 'update'
+        })
+    ),
+
     # Auth Views
     re_path(
         r'^api-token-auth/$',

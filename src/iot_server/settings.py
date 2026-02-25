@@ -235,6 +235,7 @@ else:
 
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+SUPERSET_ENABLED = os.getenv("SUPERSET_ENABLED", "False") == 'True'
 
 sentry_sdk.init(
     dsn=os.getenv("SENTRY_DSN", ""),

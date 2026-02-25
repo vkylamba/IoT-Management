@@ -27,13 +27,37 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['username', 'email', 'first_name', 'last_name']
-    queryset = User.objects.all()
+    queryset = User.objects.prefetch_related(
+        'permissions',
+        'userdevicetype_set',
+        'statustype_set'
+    )
+
+    @staticmethod
+    def _to_bool(value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    def get_serializer_context(self):
+        context = super(UserViewSet, self).get_serializer_context()
+        context['skip_devices'] = self._to_bool(
+            self.request.query_params.get('skipDevices')
+        )
+        return context
 
     def list(self, request):
         if request.user.is_superuser:
             return super(UserViewSet, self).list(request)
         else:
-            return Response(data=self.serializer_class(request.user).data)
+            return Response(
+                data=self.serializer_class(
+                    request.user,
+                    context=self.get_serializer_context()
+                ).data
+            )
 
     def post(self, request, pk):
         if 'file' in request.data:
@@ -78,6 +102,7 @@ class UserViewSet(viewsets.ModelViewSet):
             user_device_types.filter(~Q(id__in=devices_ids_to_keep)).delete()
 
             user_status_types = StatusType.objects.filter(user=request.user)
+            status_type_ids_to_keep = []
             for available_status_type in available_status_types:
                 status_type_id = available_status_type.get("id")
                 if status_type_id is not None:
@@ -98,6 +123,9 @@ class UserViewSet(viewsets.ModelViewSet):
                         status_type.user = request.user
                     status_type.translation_schema = available_status_type.get("translation_schema", status_type.translation_schema)
                     status_type.save()
+                    status_type_ids_to_keep.append(status_type.id)
+            # Delete the remaining status types
+            user_status_types.filter(~Q(id__in=status_type_ids_to_keep)).delete()
             if len(errors) > 0:
                 return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
