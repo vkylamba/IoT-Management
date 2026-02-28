@@ -147,9 +147,21 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         """
         The view should return static data of the device.
         """
-        # Findout the user
+        if device_id in [None, '', 'None', 'null', 'NULL']:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "Invalid device_id"}
+            )
+
+        # Find out the user
         dev_user = request.user
         device, _ = is_device_admin(dev_user, device_id)
+
+        if device is None:
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={"error": "Device not found"}
+            )
 
         cached_data = cache.get("device_static_data_{}".format(device_id))
 

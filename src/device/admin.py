@@ -3,13 +3,26 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from pymongo import MongoClient
+from typing import Any
 
 from device.models import DeviceFirmware, Meter, RawData, UserDeviceType, StatusType, DeviceConfig
 from device.models.device import *
 
 User = get_user_model()
 
-class OperatorAdmin(admin.ModelAdmin):
+
+class DisableAdminLogMixin:
+    def log_addition(self, request, object, message) -> Any:
+        return None
+
+    def log_change(self, request, object, message) -> Any:
+        return None
+
+    def log_deletion(self, request, object, object_repr) -> Any:
+        return None
+
+
+class OperatorAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('name',)
     list_display = ('name', 'contact_number', 'avatar')
     list_filter = ('name',)
@@ -78,7 +91,7 @@ class DeviceConfigInline(admin.TabularInline):
     model = DeviceConfig
     extra = 0
 
-class DeviceAdmin(admin.ModelAdmin):
+class DeviceAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('ip_address',)
     list_display = ('id', 'ip_address', 'alias', 'mac', 'Type', 'operator', 'active', 'created_at')
     list_filter = ('ip_address', 'alias', 'id', 'mac', 'active', 'created_at')
@@ -90,19 +103,19 @@ class DeviceAdmin(admin.ModelAdmin):
 
         return ", ".join(tpe.name for tpe in obj.types.all())
 
-class DeviceTypeAdmin(admin.ModelAdmin):
+class DeviceTypeAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('name',)
     list_display = ('id', 'name')
     list_filter = ('name', )
     actions = [delete_device_types]
 
 
-class RawDataAdmin(admin.ModelAdmin):
+class RawDataAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('-data_arrival_time',)
     list_display = ('id', 'device', 'channel', 'data_type', 'data_arrival_time')
     list_filter = ('device__ip_address', 'device__alias', 'data_type', 'channel')
 
-class CommandAdmin(admin.ModelAdmin):
+class CommandAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('-command_in_time',)
     list_display = ('Device', 'status', 'command_in_time',
                     'command_read_time', 'command', 'param')
@@ -112,13 +125,13 @@ class CommandAdmin(admin.ModelAdmin):
 
         return obj.device
 
-class DeviceStatusAdmin(admin.ModelAdmin):
+class DeviceStatusAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('-created_at',)
     list_display = ('id', 'name', 'device', 'created_at')
     list_filter = ('device__ip_address', 'name')
 
 
-class MeterAdmin(admin.ModelAdmin):
+class MeterAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('device__ip_address',)
     list_display = ('id', 'name', 'meter_type', 'Device')
     list_filter = ('device__ip_address', 'name', 'meter_type')
@@ -127,7 +140,7 @@ class MeterAdmin(admin.ModelAdmin):
         return obj.device
 
 
-class DevicePropertyAdmin(admin.ModelAdmin):
+class DevicePropertyAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('device__ip_address',)
     list_display = ('id', 'name', 'value', 'Device')
     list_filter = ('device__ip_address', 'name')
@@ -136,7 +149,7 @@ class DevicePropertyAdmin(admin.ModelAdmin):
         return obj.device
 
 
-class DeviceEquipmentAdmin(admin.ModelAdmin):
+class DeviceEquipmentAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('device__ip_address',)
     list_display = ('id', 'Device', 'meter_id', 'Equipment')
     list_filter = ('device__ip_address', 'equipment__name')
@@ -148,20 +161,20 @@ class DeviceEquipmentAdmin(admin.ModelAdmin):
         return obj.equipment.name
 
 
-class StatusTypeAdmin(admin.ModelAdmin):
+class StatusTypeAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('name',)
     list_display = ('id', 'name', 'target_type', 'user', 'device', 'device_type', 'update_trigger')
     list_filter = ('name', 'target_type', 'user', 'device', 'device_type', 'update_trigger')
 
 
-class UserDeviceTypeAdmin(admin.ModelAdmin):
+class UserDeviceTypeAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('name',)
     list_display = ('id', 'name', 'code', 'user', 'identifier_field')
     list_filter = ('name', 'code', 'user', 'identifier_field')
     
 
 
-class DeviceConfigAdmin(admin.ModelAdmin):
+class DeviceConfigAdmin(DisableAdminLogMixin, admin.ModelAdmin):
     ordering = ('updated_at',)
     list_display = ('id', 'device', 'group_name', 'version', 'active', 'created_at', 'updated_at')
     list_filter = ('device', 'group_name', 'active')
@@ -174,7 +187,13 @@ admin.site.register(RawData, RawDataAdmin)
 admin.site.register(Equipment)
 admin.site.register(DeviceEquipment, DeviceEquipmentAdmin)
 admin.site.register(DeviceProperty, DevicePropertyAdmin)
-admin.site.register(User)
+
+
+class UserAdmin(DisableAdminLogMixin, admin.ModelAdmin):
+    pass
+
+
+admin.site.register(User, UserAdmin)
 admin.site.register(DeviceStatus, DeviceStatusAdmin)
 admin.site.register(Document)
 admin.site.register(Meter, MeterAdmin)

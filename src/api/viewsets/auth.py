@@ -5,6 +5,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from api.permissions import IsDeviceUser
+from django.contrib.auth import authenticate
 
 from django.contrib.auth import get_user_model
 from device.models import Permission, Subnet
@@ -31,31 +32,26 @@ class AuthViewSet(viewsets.ViewSet):
         error = None
         user_token = None
         user_data = None
-        try:
-            token_user = Token.objects.get(user__username=username)
-            user_permissions = Permission.objects.filter(
-                user=token_user.user
-            )
-            if token_user.user.check_password(password):
-                user_data = {
-                    'user_id': token_user.user.id,
-                    'name': token_user.user.get_full_name(),
-                    'email': token_user.user.email,
-                    'devices': token_user.user.device_list(),
-                    'isAdmin': PERMISSIONS_ADMIN in user_permissions,
-                    'isSuperuser': token_user.user.is_superuser,
-                    'user_permissions': [
-                        x.name for x in user_permissions
-                    ]
-                }
-                user_token = token_user.key
-                resp_status = status.HTTP_200_OK
-            else:
-                resp_status = status.HTTP_400_BAD_REQUEST
-                error = "Invalid username or password"
-        except Token.DoesNotExist:
+        user = authenticate(request=request, username=username, password=password)
+        if user is None:
             resp_status = status.HTTP_400_BAD_REQUEST
             error = "Invalid username or password"
+        else:
+            token, _ = Token.objects.get_or_create(user=user)
+            user_permissions = Permission.objects.filter(user=user)
+            user_data = {
+                'user_id': user.id,
+                'name': user.get_full_name(),
+                'email': user.email,
+                'devices': user.device_list(),
+                'isAdmin': PERMISSIONS_ADMIN in user_permissions,
+                'isSuperuser': user.is_superuser,
+                'user_permissions': [
+                    x.name for x in user_permissions
+                ]
+            }
+            user_token = token.key
+            resp_status = status.HTTP_200_OK
 
         data = {
             "success": False if error else True,
