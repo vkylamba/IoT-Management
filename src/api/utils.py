@@ -89,6 +89,15 @@ def assign_ip_address_to_existing_user_devices(user: User, user_device_type: Use
         Device.objects.bulk_update(devices_without_ip_address, ['ip_address'])
 
 
+def merge_device_other_data(device: Device, updates: dict):
+    latest_device = Device.objects.filter(pk=device.pk).first()
+    other_data = dict((latest_device.other_data if latest_device else device.other_data) or {})
+    other_data.update(updates)
+    device.other_data = other_data
+    device.save()
+    return other_data
+
+
 def get_or_create_user_device(user: User, data: json) -> Device:
     user_dev_types = UserDeviceType.objects.filter(
         user=user
@@ -250,13 +259,9 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     )
     raw_data.save()
 
-    other_data = device.other_data
-    if other_data is None:
-        other_data = {}
-
-    other_data["last_data_sync_time"] = data_arrival_time.strftime(settings.TIME_FORMAT_STRING)
-    device.other_data = other_data
-    device.save()
+    other_data = merge_device_other_data(device, {
+        "last_data_sync_time": data_arrival_time.strftime(settings.TIME_FORMAT_STRING)
+    })
 
     if data_type == 'status':
         logger.info("Status data received, skipping meter data processing.")

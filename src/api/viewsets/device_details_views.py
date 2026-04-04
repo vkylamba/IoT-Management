@@ -7,7 +7,7 @@ from datetime import datetime
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
-from api.utils import get_or_create_user_device, process_raw_data
+from api.utils import get_or_create_user_device, merge_device_other_data, process_raw_data
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, Meter, StatusType,
                            UserDeviceType, DeviceType)
@@ -71,9 +71,9 @@ class HeartbeatViewSet(viewsets.ViewSet):
                     last_datasync_time = datetime.strptime(last_datasync_time, settings.TIME_FORMAT_STRING)
                     time_to_sync = (datetime.utcnow() - last_datasync_time).total_seconds() >= settings.DEFAULT_SYNC_FREQUENCY_MINUTES * 60
 
-                other_data["last_heartbeat_time"] = datetime.utcnow().strftime(settings.TIME_FORMAT_STRING)
-                device.other_data = other_data
-                device.save()
+                    merge_device_other_data(device, {
+                        "last_heartbeat_time": datetime.utcnow().strftime(settings.TIME_FORMAT_STRING)
+                    })
             elif device_mac:
                 device = Device(
                     mac=device_mac,
@@ -280,8 +280,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if not dev_user.has_permission(settings.PERMISSIONS_ADMIN):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
+        original_device_id = device.ip_address
+
         for key in data:
             val = data[key]
+            if key in {'other_data', 'position'} and isinstance(val, dict):
+                existing_value = getattr(device, key, None) or {}
+                setattr(device, key, {**existing_value, **val})
+                continue
             if hasattr(device, key):
                 try:
                     setattr(device, key, val)
@@ -297,6 +303,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device.device_contact_number = data.get('device_contact', device.device_contact_number)
 
         device.save()
+
+        cache.delete("device_static_data_{}".format(original_device_id))
+        cache.delete("device_static_data_{}".format(device.ip_address))
 
         device_meters = device.get_meters()
 

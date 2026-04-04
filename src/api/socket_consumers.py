@@ -8,7 +8,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from device.models import Device
 from device_schemas.device_types import IOT_GW_DEVICES
 from django.conf import settings
-from api.utils import process_raw_data
+from api.utils import merge_device_other_data, process_raw_data
 
 
 logger = logging.getLogger('django')
@@ -42,11 +42,12 @@ def process_device_message_sync(message):
                     last_datasync_time = datetime.strptime(last_datasync_time, settings.TIME_FORMAT_STRING)
                     time_to_sync = (datetime.utcnow() - last_datasync_time).total_seconds() >= settings.DEFAULT_SYNC_FREQUENCY_MINUTES * 60
 
-                other_data["last_heartbeat_time"] = datetime.utcnow().strftime(settings.TIME_FORMAT_STRING)
+                updates = {
+                    "last_heartbeat_time": datetime.utcnow().strftime(settings.TIME_FORMAT_STRING)
+                }
                 if time_to_sync:
-                    other_data["last_data_sync_time"] = other_data["last_heartbeat_time"]
-                device.other_data = other_data
-                device.save()
+                    updates["last_data_sync_time"] = updates["last_heartbeat_time"]
+                merge_device_other_data(device, updates)
             elif device_mac:
                 # Create new device
                 device = Device.objects.filter(
