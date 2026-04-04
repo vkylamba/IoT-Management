@@ -5,8 +5,6 @@ from datetime import datetime
 
 import pytz
 import simplejson as json
-from dashboard.data_scripts.data_update_signal_receiver import \
-    update_device_info_on_meter_data_update
 from device.clickhouse_models import MeterData, create_model_instance
 from device.models import (Device, DeviceStatus, Meter, RawData, StatusType,
                            User, UserDeviceType)
@@ -51,8 +49,8 @@ def generate_device_alias(dev_identifier_field, dev_id):
     for field_name in dev_identifier_fields:
         if field_name not in names_to_skip:
             if alias != '':
-                alias + '-'
-            alias = alias + field_name.upper()
+                alias += '-'
+            alias += field_name.upper()
     return alias + '-' + str(dev_id)
 
 
@@ -265,19 +263,6 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         return ""
 
     last_raw_data = get_latest_raw_data(device)
-    ## ToDo: Cleanup once all the devices have moved to new schema system
-    if dev_type_name in IOT_GW_DEVICES and data_type is not None:
-        configured_schema_type = other_data.get("data_schema_type")
-        if configured_schema_type is None:
-            configured_schema_type = dev_type_name
-        existing_statuses = get_existing_status_data_for_today(user, device, last_raw_data)
-        validated_data = validate_data_schema(configured_schema_type, message_data, existing_statuses)
-        if validated_data is None:
-            logger.warning(f"Invalid data! for schema {dev_type_name}. Data: {message_data}")
-            return "Invalid data! Data doesn't match the schema configured for the device."
-
-        logger.info(f"Validated data for schema {dev_type_name} is: {validated_data}")
-        message_data = validated_data
 
     meters_and_data = []
     dev_meters_list = Meter.objects.filter(
@@ -323,12 +308,11 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         # Skip if only status meter data is there
         if not(len(meters_names_found) == 1 and meters_names_found[0] == "status_meter"):
             try:
-                load_data = detect_and_save_meter_loads(
+                detect_and_save_meter_loads(
                     device,
                     meters_and_data,
                     data_arrival_time
                 )
-                update_device_info_on_meter_data_update(device, meters_and_data, load_data, data_arrival_time)
             except Exception as ex:
                 logger.exception("Load detection error: ", ex)
 
@@ -359,7 +343,7 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
     if status_types is None:
         logger.info(f"No status linked to device. {device}")
         return None
-    status_types = status_types.filter(update_trigger__in=['data', 'data/schedule'])
+
     existing_statuses = get_existing_status_data_for_today(user, device, last_raw_data)
     if isinstance(raw_data, RawData):
         raw_data = raw_data.data

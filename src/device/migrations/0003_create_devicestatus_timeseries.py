@@ -1,7 +1,7 @@
 """
-Migration to create MongoDB time series collection for RawData model.
+Migration to create MongoDB time series collection for DeviceStatus model.
 
-This migration creates a time series collection optimized for IoT device data
+This migration creates a time series collection optimized for device status data
 with automatic data expiration and efficient time-based queries.
 """
 from django.conf import settings
@@ -12,9 +12,9 @@ import os
 from datetime import datetime
 
 
-def create_timeseries_collection(apps, schema_editor):
+def create_devicestatus_timeseries_collection(apps, schema_editor):
     """
-    Create MongoDB time series collection for RawData model.
+    Create MongoDB time series collection for DeviceStatus model.
     If a non-timeseries collection exists, migrate data to a new timeseries collection.
     """
     # Get MongoDB connection details from settings
@@ -35,8 +35,7 @@ def create_timeseries_collection(apps, schema_editor):
     db = client[db_name]
     
     # Collection name following Django's naming convention: appname_modelname
-    collection_name = "device_rawdata"
-    temp_collection_name = f"{collection_name}_temp"
+    collection_name = "device_devicestatus"
     
     try:
         # Check if collection already exists
@@ -68,9 +67,9 @@ def create_timeseries_collection(apps, schema_editor):
                     db.create_collection(
                         collection_name,
                         timeseries={
-                            "timeField": "data_arrival_time",
+                            "timeField": "created_at",
                             "metaField": "device_id",
-                            "granularity": "seconds"
+                            "granularity": "hours"  # Status updates are typically less frequent
                         }
                     )
                     
@@ -102,9 +101,9 @@ def create_timeseries_collection(apps, schema_editor):
                         print(f"Successfully copied {copied_count:,} documents")
                     
                     print(f"Successfully migrated to time series collection '{collection_name}'")
-                    print(f"  - Time field: data_arrival_time")
+                    print(f"  - Time field: created_at")
                     print(f"  - Meta field: device_id")
-                    print(f"  - Granularity: seconds")
+                    print(f"  - Granularity: hours")
                     print(f"  - Migrated documents: {doc_count}")
                     print(f"")
                     print(f"⚠️  Old collection backed up as '{old_collection_name}'")
@@ -117,24 +116,23 @@ def create_timeseries_collection(apps, schema_editor):
         db.create_collection(
             collection_name,
             timeseries={
-                "timeField": "data_arrival_time",
+                "timeField": "created_at",
                 "metaField": "device_id",  # Using device_id as metadata for efficient grouping
-                "granularity": "seconds"   # Optimized for second-level granularity
+                "granularity": "hours"     # Status updates are typically less frequent than raw data
             },
-            # Optional: Set expiration time for old data (e.g., 1 year)
-            # expireAfterSeconds=31536000
+            # Optional: Set expiration time for old data (e.g., 2 years)
+            # expireAfterSeconds=63072000
         )
         
         # Create additional indexes for common query patterns
-        db[collection_name].create_index([("channel", 1), ("data_arrival_time", -1)])
-        db[collection_name].create_index([("data_type", 1), ("data_arrival_time", -1)])
-        db[collection_name].create_index([("device_id", 1), ("channel", 1), ("data_arrival_time", -1)])
+        db[collection_name].create_index([("name", 1), ("created_at", -1)])
+        db[collection_name].create_index([("user_id", 1), ("created_at", -1)])
         
         print(f"Successfully created time series collection '{collection_name}'")
-        print(f"  - Time field: data_arrival_time")
+        print(f"  - Time field: created_at")
         print(f"  - Meta field: device_id")
-        print(f"  - Granularity: seconds")
-        print(f"  - Additional indexes: channel, data_type, device_id+channel")
+        print(f"  - Granularity: hours")
+        print(f"  - Additional indexes: name, user_id")
         
     except CollectionInvalid as e:
         print(f"Error creating collection: {e}")
@@ -155,7 +153,7 @@ def create_timeseries_collection(apps, schema_editor):
         client.close()
 
 
-def drop_timeseries_collection(apps, schema_editor):
+def drop_devicestatus_timeseries_collection(apps, schema_editor):
     """
     Drop the time series collection (reverse migration).
     """
@@ -173,7 +171,7 @@ def drop_timeseries_collection(apps, schema_editor):
     client = MongoClient(connection_uri)
     db = client[db_name]
     
-    collection_name = "device_rawdata"
+    collection_name = "device_devicestatus"
     
     if collection_name in db.list_collection_names():
         db.drop_collection(collection_name)
@@ -185,12 +183,12 @@ def drop_timeseries_collection(apps, schema_editor):
 class Migration(migrations.Migration):
     
     dependencies = [
-        # Add dependencies here if needed, e.g., ('device', '0001_initial')
+        ('device', '0002_create_rawdata_timeseries'),
     ]
     
     operations = [
         migrations.RunPython(
-            create_timeseries_collection,
-            reverse_code=drop_timeseries_collection
+            create_devicestatus_timeseries_collection,
+            reverse_code=drop_devicestatus_timeseries_collection
         ),
     ]
