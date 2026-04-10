@@ -321,7 +321,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
                 )
                 logger.info(f"Weather and loads data detected for device {device.ip_address}: {weather_and_loads_data}")
             except Exception as ex:
-                logger.exception("Load detection error: ", ex)
+                logger.exception("Load detection error: %s", ex)
 
     try:
         update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)
