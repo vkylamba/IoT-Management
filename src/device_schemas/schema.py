@@ -33,7 +33,7 @@ for translator_file in translator_files:
     file_p.close()
 
 
-def validate_data_schema(device_type: str, data: Dict, existing_statuses: Dict) -> Dict:
+def validate_data_schema(device_type: str, data: Dict, existing_statuses: Dict, data_cache: Dict = None) -> Dict:
 
     schema = DEVICE_SCHEMAS.get(device_type)
     translated_data = None
@@ -46,7 +46,7 @@ def validate_data_schema(device_type: str, data: Dict, existing_statuses: Dict) 
             return None
 
         try:
-            translated_data = translate_data(device_type, data, existing_statuses)
+            translated_data = translate_data(device_type, data, existing_statuses, data_cache)
         except Exception as ex:
             logger.warning(
                 f"Error translating data for device type {device_type}, data: {data}",
@@ -68,13 +68,13 @@ def validate_schema(schema: Dict, data: Dict):
     return True
 
 
-def translate_data(device_type: str, data: Dict, existing_statuses: Dict) -> Dict:
+def translate_data(device_type: str, data: Dict, existing_statuses: Dict, data_cache: Dict = None) -> Dict:
     translator = DATA_TRANSLATORS.get(device_type)
     translated_data = {}
     if isinstance(translator, list):
         logger.debug(f"Translation schema for device {device_type} is {translator}")
         translated_data = translate_data_from_schema(
-            translator, data, existing_statuses
+            translator, data, existing_statuses, data_cache
         )
     else:
         logger.warning(f"No translation schema file found for schema {device_type}")
@@ -83,7 +83,7 @@ def translate_data(device_type: str, data: Dict, existing_statuses: Dict) -> Dic
 
 
 def translate_data_from_schema(
-    translator: any, data: Dict, existing_statuses: Dict = None
+    translator: any, data: Dict, existing_statuses: Dict = None, data_cache: Dict = None
 ):
     translated_data = {}
     if isinstance(translator, dict):
@@ -104,7 +104,7 @@ def translate_data_from_schema(
             for target_field in target_fields:
                 target_field_name = target_field.get("target")
                 data_fields[target_field_name] = translate_field_value(
-                    schema_target, target_name, target_field, data, existing_statuses
+                    schema_target, target_name, target_field, data, existing_statuses, data_cache
                 )
         if isinstance(least_one_field_list, list):
             for required_field in least_one_field_list:
@@ -127,7 +127,7 @@ def translate_data_from_schema(
 
 
 def translate_field_value(
-    schema_target: str, target_name: str, field_config: Dict, data: Dict, existing_statuses: Dict = None
+    schema_target: str, target_name: str, field_config: Dict, data: Dict, existing_statuses: Dict = None, data_cache: Dict = None
 ):
 
     target_field_name = field_config.get("target")
@@ -156,6 +156,8 @@ def translate_field_value(
             value = extract_calculated_data(
                 schema_target, target_name, target_field_name, source, data, multiplier, offset, existing_statuses
             )
+        elif type == "dataCache":
+            value = (data_cache or {}).get(source)
         logger.info(f"Extracted value for source {source} is: {value}")
 
     return value

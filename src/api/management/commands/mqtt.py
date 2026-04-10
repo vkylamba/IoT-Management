@@ -22,11 +22,13 @@ SOURCE_TYPE_ESPHOME = "esphome"
 
 ROOT_CA_FILE_PATH = "root_ca.crt"
 
+# Mona has topic format: /{mqtt-user}/devices/{device_name}/{topic_type}
 CLIENT_SYSTEM_STATUS_TOPIC_TYPE = "status"
 CLIENT_METERS_DATA_TOPIC_TYPE = "meters-data"
 CLIENT_SENSORS_DATA_TOPIC_TYPE = "sensors-data"
 CLIENT_MODBUS_DATA_TOPIC_TYPE = "modbus-data"
 CLIENT_DEVICE_PARAMS_TOPIC_TYPE = "params"
+CLIENT_UPDATE_TRIGGER_TOPIC_TYPE = "update-trigger"
 CLIENT_UPDATE_RESP_TOPIC_TYPE = "update-response"
 CLIENT_CMD_RESP_TOPIC_TYPE = "cmd-resp"
 CLIENT_CMD_REQ_TOPIC_TYPE = "cmd-req"
@@ -45,6 +47,8 @@ MQTT_ENABLED_DEVICE_COMMANDS = {
     'update-trigger-device': "/{dev_mqtt_user}/devices/{device_alias}/update-trigger",
     'update-trigger-group': "/{dev_mqtt_user}/groups/{device_group}/update-trigger",
 }
+
+COMMAND_RESPONSE_CACHE_TTL = 60 * 60
 
 
 class Command(BaseCommand):
@@ -121,6 +125,7 @@ class Command(BaseCommand):
             MEROSS_DEVICE_DATA_TOPIC_TYPE
         ]
         for topic in topics:
+            
             topic_to_subscribe = f"/+/devices/+/{topic}"
             mqtt_client.subscribe(topic_to_subscribe)
             # for the beken devices
@@ -251,6 +256,9 @@ class Command(BaseCommand):
                     return
                 
                 device = self.find_device(group_name, device_name, topic_type)
+
+                if source_device_type == SOURCE_TYPE_MONA and device is not None:
+                    self.update_device_mqtt_user_config(device, group_name, topic_type)
                 
                 # Publish Home Assistant discovery for MONA devices (only once per device)
                 if source_device_type == SOURCE_TYPE_MONA and device is not None:
@@ -273,6 +281,42 @@ class Command(BaseCommand):
                 logger.warning("MQTT unknown topic: %s", topic_type)
         else:
             logger.warning("MQTT unknown topic: %s", msg.topic)
+
+    def update_device_mqtt_user_config(self, device, mqtt_user, topic_type=None):
+        if device is None or not mqtt_user:
+            return
+
+        should_update_group_name = topic_type in [
+            CLIENT_UPDATE_TRIGGER_TOPIC_TYPE,
+            CLIENT_UPDATE_RESP_TOPIC_TYPE,
+        ]
+
+        cfg = DeviceConfig.objects.filter(device=device).order_by('-created_at').first()
+        cfg_data = dict(cfg.data or {}) if cfg is not None else {}
+
+        if (
+            cfg_data.get('mqtt_user') == mqtt_user
+            and (not should_update_group_name or (cfg is not None and cfg.group_name == mqtt_user))
+        ):
+            return
+
+        cfg_data['mqtt_user'] = mqtt_user
+
+        if cfg is None:
+            DeviceConfig.objects.create(
+                device=device,
+                data=cfg_data,
+                group_name=mqtt_user if should_update_group_name else None,
+                active=False,
+                description='Auto-captured MQTT routing metadata'
+            )
+            logger.info("Created device config with mqtt_user=%s for device %s", mqtt_user, device.alias)
+            return
+
+        setattr(cfg, 'data', cfg_data)
+        if should_update_group_name:
+            cfg.group_name = mqtt_user
+        cfg.save()
 
     def find_device(self, group_name, device_name, topic_type):
 
@@ -544,36 +588,135 @@ class Command(BaseCommand):
         try:
             command_text = message_data.get('command', '')
             response = message_data.get('response', '')
+            response_type = message_data.get('resp_type', '')
 
             if topic_type == CLIENT_UPDATE_RESP_TOPIC_TYPE:
                 command_text = "update-trigger"
-                response = str(message_data)
+                response = json.dumps(message_data)
             
             if not command_text or not device:
                 logger.warning("Missing command or device in command response")
                 return
-            temp = command_text.split()
-            cmd_name = temp[0] if temp else ''
-            cmd_param = ' '.join(temp[1:]) if len(temp) > 1 else ''
-            # Find the last matching command for this device that hasn't been responded to
-            command = CommandsModal.objects.filter(
-                device=device,
-                command__icontains=cmd_name if cmd_name else '',  # Match first word of command
-                param__icontains=cmd_param if cmd_param else '',  # Match remaining command parameters
-                status__in=['S']  # Sent but not responded
-            ).order_by('-command_in_time').first()
-            
-            if command:
-                command.response = response if command.response is None else f"{command.response}\n{response}"
-                command.response_time = timezone.now()
-                command.status = 'C'  # Completed
-                command.save()
-                logger.info(f"Updated command {command.id} with response for device {device.alias}")
-            else:
+
+            command = self.find_command_for_response(device, command_text)
+
+            if command is None:
                 logger.warning(f"No matching command found for response: {command_text} on device {device.alias}")
+                return
+
+            assembled_response, is_complete = self.build_command_response_payload(
+                command,
+                message_data,
+                response,
+                response_type,
+            )
+
+            if assembled_response is not None:
+                command.response = assembled_response
+
+            command.response_time = timezone.now()
+            if is_complete:
+                command.status = 'C'
+                self.clear_command_response_cache(command)
+
+            command.save()
+            logger.info(
+                "Updated command %s with response for device %s%s",
+                command.id,
+                device.alias,
+                " (complete)" if is_complete else "",
+            )
                 
         except Exception as ex:
             logger.exception(f"Error processing command response: {ex}")
+
+    def get_command_response_cache_key(self, command):
+        return f"command_response_binding_{command.device_id}_{command.command}_{command.param}"
+
+    def get_command_chunk_cache_key(self, command):
+        return f"command_response_chunks_{command.id}"
+
+    def find_command_for_response(self, device, command_text):
+        temp = command_text.split()
+        cmd_name = temp[0] if temp else ''
+        cmd_param = ' '.join(temp[1:]) if len(temp) > 1 else ''
+        binding_cache_key = f"command_response_binding_{device.id}_{cmd_name}_{cmd_param}"
+        cached_command_id = cache.get(binding_cache_key)
+
+        if cached_command_id is not None:
+            command = CommandsModal.objects.filter(id=cached_command_id).first()
+            if command is not None:
+                return command
+
+        command = CommandsModal.objects.filter(
+            device=device,
+            command__icontains=cmd_name if cmd_name else '',
+            param__icontains=cmd_param if cmd_param else '',
+            status__in=['S']
+        ).order_by('-command_in_time').first()
+
+        if command is not None:
+            cache.set(binding_cache_key, str(command.id), COMMAND_RESPONSE_CACHE_TTL)
+
+        return command
+
+    def build_command_response_payload(self, command, message_data, response, response_type):
+        if response_type == 'result':
+            return self.build_chunked_command_response(command, message_data, response)
+
+        status_line = self.format_command_status_response(message_data, response)
+        existing_response = command.response or ''
+        if not existing_response:
+            return status_line, False
+        if status_line and status_line not in existing_response.splitlines():
+            return f"{existing_response}\n{status_line}", False
+        return existing_response, False
+
+    def build_chunked_command_response(self, command, message_data, response):
+        chunk_cache_key = self.get_command_chunk_cache_key(command)
+        chunk_state = cache.get(chunk_cache_key, {}) or {}
+        chunk_parts = dict(chunk_state.get('parts') or {})
+        part_index = int(message_data.get('part', 0) or 0)
+        parts_total = int(message_data.get('parts_total', 1) or 1)
+        response_complete = bool(message_data.get('response_complete', False))
+
+        chunk_parts[part_index] = response or ''
+        chunk_state = {
+            'parts': chunk_parts,
+            'parts_total': parts_total,
+        }
+        cache.set(chunk_cache_key, chunk_state, COMMAND_RESPONSE_CACHE_TTL)
+
+        if not response_complete and len(chunk_parts) < parts_total:
+            return command.response, False
+
+        ordered_response = ''.join(
+            chunk_parts.get(idx, '')
+            for idx in range(parts_total)
+        )
+        existing_response = command.response or ''
+        if existing_response and ordered_response and ordered_response not in existing_response:
+            return f"{existing_response}\n{ordered_response}", True
+        return ordered_response or command.response, True
+
+    def format_command_status_response(self, message_data, response):
+        status_value = message_data.get('status')
+        status_message = message_data.get('status_message')
+
+        if status_value and status_message:
+            return f"[{status_value}] {status_message}"
+        if status_value:
+            return f"[{status_value}]"
+        if status_message:
+            return status_message
+        if isinstance(response, str):
+            return response
+        return json.dumps(message_data)
+
+    def clear_command_response_cache(self, command):
+        binding_cache_key = f"command_response_binding_{command.device_id}_{command.command}_{command.param}"
+        cache.delete(binding_cache_key)
+        cache.delete(self.get_command_chunk_cache_key(command))
 
     def check_and_send_commands(self, client):
         """_summary_
@@ -607,10 +750,14 @@ class Command(BaseCommand):
                     device_alias=device.alias,
                     device_group=dev_mqtt_group
                 )
-                logger.info("Publishing MQTT %s: %s", command_topic, command.param)
-                payload = f"""{{"command":"{command.command} {command.param}", "device":"{device.alias}"}}"""
+                logger.info("Publishing MQTT %s: %s %s", command_topic, command.command, command.param)
+                payload = json.dumps({
+                    "command": f"{command.command} {command.param}".strip(),
+                    "device": device.alias,
+                    "command_id": command.id.hex[-10:],
+                })
                 client.publish(command_topic, payload, 1)
                 command.status = 'S' # Sent
-                command.command_read_time = timezone.datetime.utcnow()
+                command.command_read_time = timezone.now()
                 command.save()
             time.sleep(10)

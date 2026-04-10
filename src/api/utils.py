@@ -309,27 +309,29 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         except TypeError as e:
             logger.exception(e)
 
+    weather_and_loads_data = {}
     if other_data.get("device_load_detection_on", False):
         # Skip if only status meter data is there
         if not(len(meters_names_found) == 1 and meters_names_found[0] == "status_meter"):
             try:
-                detect_and_save_meter_loads(
+                weather_and_loads_data = detect_and_save_meter_loads(
                     device,
                     meters_and_data,
                     data_arrival_time
                 )
+                logger.info(f"Weather and loads data detected for device {device.ip_address}: {weather_and_loads_data}")
             except Exception as ex:
                 logger.exception("Load detection error: ", ex)
 
     try:
-        update_user_and_device_statuses(user, device, raw_data, last_raw_data)
+        update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)
     except Exception as ex:
         logger.exception(ex)
 
     return ""
 
 
-def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
+def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data: dict = None):
 
     # get status types, which should be updated
     status_types = None
@@ -365,7 +367,12 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data):
                 schema["name"] = status_type.name
                 # schema["type"] = status_type.target_type
 
-            validated_data = translate_data_from_schema(schema, raw_data, existing_statuses)
+            validated_data = translate_data_from_schema(
+                schema,
+                raw_data,
+                existing_statuses,
+                weather_and_loads_data or {},
+            )
             if validated_data is None:
                 logger.warning(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
                 return "Invalid data! Data doesn't match the schema configured for the device/user."

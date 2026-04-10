@@ -5,13 +5,14 @@ from django.contrib import admin
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
+from iot_server.admin_utils import DjongoSafeModelAdmin
 
 from event.models import Action, DeviceEvent, EventHistory, EventType
 
-admin.site.register(EventType)
+admin.site.register(EventType, DjongoSafeModelAdmin)
 # admin.site.register(DeviceEvent)
-admin.site.register(EventHistory)
-admin.site.register(Action)
+admin.site.register(EventHistory, DjongoSafeModelAdmin)
+admin.site.register(Action, DjongoSafeModelAdmin)
 
 
 class FireForm(forms.Form):
@@ -28,7 +29,7 @@ class FireForm(forms.Form):
         pass
 
 
-class DeviceEventAdmin(admin.ModelAdmin):
+class DeviceEventAdmin(DjongoSafeModelAdmin):
 
     list_display = (
         'id',

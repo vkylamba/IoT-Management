@@ -1,17 +1,18 @@
 from django import forms
 from django.contrib import admin
+from iot_server.admin_utils import DjongoSafeModelAdmin
 
 from notification.models import (Notification, SentNotification,
                                  TemplateContext, UserChatContext)
 
 
-class NotificationAdmin(admin.ModelAdmin):
+class NotificationAdmin(DjongoSafeModelAdmin):
     list_display = ('name', 'sent', 'title', 'user')
     list_filter = ('name', 'sent', 'title', 'user')
 
 admin.site.register(Notification, NotificationAdmin)
-admin.site.register(SentNotification)
-admin.site.register(UserChatContext)
+admin.site.register(SentNotification, DjongoSafeModelAdmin)
+admin.site.register(UserChatContext, DjongoSafeModelAdmin)
 
 class TemplateContextForm(forms.ModelForm):
 
@@ -22,7 +23,7 @@ class TemplateContextForm(forms.ModelForm):
         fields = ('name', 'script', 'code_result')
 
 
-class TemplateContextAdmin(admin.ModelAdmin):
+class TemplateContextAdmin(DjongoSafeModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
     form = TemplateContextForm
