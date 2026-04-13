@@ -68,6 +68,10 @@ urlpatterns = [
             'delete': 'remove_device',
         })
     ),
+    re_path(
+        r'^device/status-preview/(?P<device_id>[\w.-]+)$',
+        DeviceDetailsViewSet.as_view({'post': 'get_status_type_preview'})
+    ),
     # Document views
     re_path(
         r'^documents/by-device/(?P<device_id>[\w.-]+)$',

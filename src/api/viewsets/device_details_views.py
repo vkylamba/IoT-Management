@@ -3,14 +3,16 @@ import csv
 import logging
 from collections.abc import Iterable
 from datetime import datetime
+import re
 
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
-from api.utils import get_or_create_user_device, merge_device_other_data, process_raw_data
+from api.utils import get_existing_status_data_for_today, get_or_create_user_device, merge_device_other_data, process_raw_data
 from device.clickhouse_models import DerivedData
-from device.models import (Command, Device, DeviceStatus, Meter, StatusType,
+from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter, RawData, StatusType,
                            UserDeviceType, DeviceType)
+from device_schemas.schema import extract_data, translate_data_from_schema, translate_field_value
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
@@ -143,6 +145,212 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
     """
     permission_classes = (IsAuthenticated, IsDeviceUser)
 
+    def _resolve_calculated_expression(self, source_expression, raw_data, existing_statuses, schema_target, target_name):
+        if not source_expression:
+            return {
+                'expression': '',
+                'resolved_expression': '',
+                'resolved_tokens': []
+            }
+
+        last_today = (existing_statuses or {}).get("lastToday", {})
+        first_today = (existing_statuses or {}).get("firstToday", {})
+        last_status_data = ((last_today.get(schema_target, {}) or {}).get(target_name, {}) or {})
+        first_raw_data = first_today.get("raw", {}) or {}
+
+        tokens = source_expression.split()
+        resolved_tokens = []
+        equation_parts = []
+
+        def _as_number(value):
+            return value if isinstance(value, (int, float)) else 0
+
+        for token in tokens:
+            if token.startswith("lastValue__"):
+                field_name = token.replace("lastValue__", "")
+                value = extract_data(field_name, last_status_data, 1, 0)
+                if value is None:
+                    value = 0
+                resolved_tokens.append({
+                    'token': token,
+                    'kind': 'lastValue',
+                    'field': field_name,
+                    'value': value
+                })
+                equation_parts.append(str(value))
+            elif token.startswith("changeToday__"):
+                field_name = token.replace("changeToday__", "")
+                value_now = extract_data(field_name, raw_data, 1, 0)
+                value_first = extract_data(field_name, first_raw_data, 1, 0)
+                try:
+                    value = _as_number(value_now) - _as_number(value_first)
+                except Exception:
+                    value = value_now if value_now is not None else 0
+                resolved_tokens.append({
+                    'token': token,
+                    'kind': 'changeToday',
+                    'field': field_name,
+                    'value_now': value_now,
+                    'value_first': value_first,
+                    'value': value
+                })
+                equation_parts.append(str(value))
+            elif "." in token:
+                value = extract_data(token, raw_data, 1, 0)
+                if value is None:
+                    value = 0
+                resolved_tokens.append({
+                    'token': token,
+                    'kind': 'rawField',
+                    'field': token,
+                    'value': value
+                })
+                equation_parts.append(str(value))
+            elif re.match(r'^-?\d+(\.\d+)?$', token):
+                resolved_tokens.append({
+                    'token': token,
+                    'kind': 'number',
+                    'value': float(token) if '.' in token else int(token)
+                })
+                equation_parts.append(token)
+            else:
+                resolved_tokens.append({
+                    'token': token,
+                    'kind': 'operator'
+                })
+                equation_parts.append(token)
+
+        return {
+            'expression': source_expression,
+            'resolved_expression': " ".join(equation_parts),
+            'resolved_tokens': resolved_tokens
+        }
+
+    def get_status_type_preview(self, request, device_id):
+        if device_id in [None, '', 'None', 'null', 'NULL']:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "Invalid device_id"}
+            )
+
+        dev_user = request.user
+        device, _ = is_device_admin(dev_user, device_id)
+        if device is None:
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={"error": "Device not found"}
+            )
+
+        status_type = request.data.get('status_type', {}) or {}
+        schema = status_type.get('translation_schema')
+        target_name = status_type.get('name')
+        schema_target = status_type.get('target_type')
+        data_cache = request.data.get('data_cache', {}) or {}
+
+        if schema is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "Missing status_type.translation_schema"}
+            )
+
+        normalized_schema = schema
+        if isinstance(normalized_schema, dict):
+            normalized_schema = {
+                **normalized_schema,
+                'name': target_name or normalized_schema.get('name'),
+                'target': schema_target or normalized_schema.get('target')
+            }
+        elif isinstance(normalized_schema, list):
+            normalized_schema = [
+                {
+                    **item,
+                    'name': item.get('name') or target_name,
+                    'target': item.get('target') or schema_target
+                } if isinstance(item, dict) else item
+                for item in normalized_schema
+            ]
+
+        latest_raw = RawData.objects.filter(device=device).order_by('-data_arrival_time').first()
+        raw_data = (latest_raw.data if latest_raw is not None else {}) or {}
+        existing_statuses = get_existing_status_data_for_today(dev_user, device, latest_raw)
+
+        translated = translate_data_from_schema(
+            normalized_schema,
+            raw_data,
+            existing_statuses,
+            data_cache,
+        )
+
+        if not target_name and isinstance(normalized_schema, dict):
+            target_name = normalized_schema.get('name')
+
+        calculated_values = translated.get(target_name, {}) if target_name else translated
+
+        field_details = []
+        schema_items = normalized_schema if isinstance(normalized_schema, list) else [normalized_schema]
+        for schema_item in schema_items:
+            if not isinstance(schema_item, dict):
+                continue
+
+            item_target = schema_item.get('target') or schema_target
+            item_name = schema_item.get('name') or target_name
+            for field in schema_item.get('fields', []) or []:
+                if not isinstance(field, dict):
+                    continue
+
+                field_type = field.get('type', 'raw')
+                field_target = field.get('target')
+                source = field.get('source')
+                source = source if isinstance(source, str) else ''
+                item_target = item_target if isinstance(item_target, str) else ''
+                item_name = item_name if isinstance(item_name, str) else ''
+
+                input_detail = {
+                    'type': field_type,
+                    'source': source,
+                    'multiplier': field.get('multiplier', 1),
+                    'offset': field.get('offset', 0),
+                }
+
+                if field_type == 'raw':
+                    input_detail['resolved_input'] = extract_data(source, raw_data, 1, 0)
+                elif field_type == 'dataCache':
+                    input_detail['resolved_input'] = data_cache.get(source)
+                elif field_type == 'calculated':
+                    input_detail['calculation'] = self._resolve_calculated_expression(
+                        source,
+                        raw_data,
+                        existing_statuses,
+                        item_target,
+                        item_name,
+                    )
+
+                output_value = translate_field_value(
+                    item_target,
+                    item_name,
+                    field,
+                    raw_data,
+                    existing_statuses,
+                    data_cache,
+                )
+
+                field_details.append({
+                    'key': field_target,
+                    'input': input_detail,
+                    'output': output_value,
+                })
+
+        return Response({
+            'status_type': {
+                'name': target_name,
+                'target_type': schema_target,
+            },
+            'calculated_values': calculated_values,
+            'field_details': field_details,
+            'raw_data_sample': raw_data,
+            'data_arrival_time': latest_raw.data_arrival_time if latest_raw is not None else None,
+        })
+
     def device_static_data(self, request, device_id):
         """
         The view should return static data of the device.
@@ -214,7 +422,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 'longitude': device.position.get("longitude") if device.position else None
             },
             'commands': [c.command_name for c in device.commands.all()],
-            'properties': latest_status.status if latest_status else None,
+            'properties': {
+                **((device.other_data or {}).get('device_properties', {})),
+                **{p.name: p.get_value() for p in DeviceProperty.objects.filter(device=device)},
+                **((latest_status.status if latest_status else None) or {})
+            },
             'address': device.address,
             'other_data': device.other_data,
             'token': device.access_token
@@ -287,6 +499,26 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             if key in {'other_data', 'position'} and isinstance(val, dict):
                 existing_value = getattr(device, key, None) or {}
                 setattr(device, key, {**existing_value, **val})
+                continue
+            if key == 'properties' and isinstance(val, dict):
+                # DeviceProperty model fields (string or float) — upsert as rows
+                DEVICE_PROPERTY_KEYS = {'currency', 'pay_per_unit', 'total_investment', 'total_recovery_amount'}
+                for prop_key, prop_val in val.items():
+                    if prop_key in DEVICE_PROPERTY_KEYS:
+                        val_type = DeviceProperty.STRING if prop_key == 'currency' else DeviceProperty.FLOAT
+                        DeviceProperty.objects.update_or_create(
+                            device=device, name=prop_key,
+                            defaults={'value': str(prop_val), 'val_type': val_type}
+                        )
+                # Remaining keys go into other_data['device_properties']
+                remaining = {k: v for k, v in val.items() if k not in DEVICE_PROPERTY_KEYS}
+                if remaining:
+                    existing_other_data = device.other_data or {}
+                    existing_device_properties = existing_other_data.get('device_properties', {})
+                    device.other_data = {
+                        **existing_other_data,
+                        'device_properties': {**existing_device_properties, **remaining}
+                    }
                 continue
             if hasattr(device, key):
                 try:
@@ -391,7 +623,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 'longitude': device.position.get("longitude") if device.position else None
             },
             'commands': [c.command_name for c in device.commands.all()],
-            'properties': latest_status.status if latest_status else None,
+            'properties': {
+                **((device.other_data or {}).get('device_properties', {})),
+                **{p.name: p.get_value() for p in DeviceProperty.objects.filter(device=device)},
+                **((latest_status.status if latest_status else None) or {})
+            },
             'address': device.address,
             'other_data': device.other_data
         }
