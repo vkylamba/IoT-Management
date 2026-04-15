@@ -83,9 +83,17 @@ def translate_data(device_type: str, data: Dict, existing_statuses: Dict, data_c
 
 
 def translate_data_from_schema(
-    translator: any, data: Dict, existing_statuses: Dict = None, data_cache: Dict = None
+    translator: any,
+    data: Dict,
+    existing_statuses: Dict = None,
+    data_cache: Dict = None,
+    include_debug: bool = False,
 ):
     translated_data = {}
+    field_details = []
+
+    first_today = (existing_statuses or {}).get("firstToday", {}) or {}
+    last_today = (existing_statuses or {}).get("lastToday", {}) or {}
     if isinstance(translator, dict):
         translator = [translator]
     for translator_config in translator:
@@ -103,9 +111,26 @@ def translate_data_from_schema(
         if isinstance(target_fields, list):
             for target_field in target_fields:
                 target_field_name = target_field.get("target")
-                data_fields[target_field_name] = translate_field_value(
-                    schema_target, target_name, target_field, data, existing_statuses, data_cache
+                translated_field = translate_field_value(
+                    schema_target,
+                    target_name,
+                    target_field,
+                    data,
+                    existing_statuses,
+                    data_cache,
+                    include_debug=include_debug,
                 )
+                if include_debug:
+                    data_fields[target_field_name] = translated_field.get("value")
+                    field_details.append({
+                        "status_name": target_name,
+                        "status_target": schema_target,
+                        "key": target_field_name,
+                        "input": translated_field.get("input", {}),
+                        "output": translated_field.get("value"),
+                    })
+                else:
+                    data_fields[target_field_name] = translated_field
         if isinstance(least_one_field_list, list):
             for required_field in least_one_field_list:
                 if data_fields.get(required_field) is not None:
@@ -123,11 +148,32 @@ def translate_data_from_schema(
         logger.debug(f"data_valid: {data_valid}, all_required_fields_exist: {all_required_fields_exist}, at_least_one_required_field_exist: {at_least_one_required_field_exist}")
         if data_valid:
             translated_data[target_name] = data_fields
+    if include_debug:
+        return {
+            "translated_data": translated_data,
+            "field_details": field_details,
+            "debug_context": {
+                "first_raw": first_today.get("raw", {}),
+                "last_raw": last_today.get("raw", {}),
+                "first_statuses": {
+                    key: value for key, value in first_today.items() if key != "raw"
+                },
+                "last_statuses": {
+                    key: value for key, value in last_today.items() if key != "raw"
+                },
+            },
+        }
     return translated_data
 
 
 def translate_field_value(
-    schema_target: str, target_name: str, field_config: Dict, data: Dict, existing_statuses: Dict = None, data_cache: Dict = None
+    schema_target: str,
+    target_name: str,
+    field_config: Dict,
+    data: Dict,
+    existing_statuses: Dict = None,
+    data_cache: Dict = None,
+    include_debug: bool = False,
 ):
 
     target_field_name = field_config.get("target")
@@ -139,12 +185,25 @@ def translate_field_value(
     offset = field_config.get("offset", 0)
 
     value = None
+    input_detail = {
+        "type": type,
+        "source": source,
+        "multiplier": multiplier,
+        "offset": offset,
+    }
     should_pick = False
     if source_match_key is None or source_match_key_value is None:
         should_pick = True
     else:
         source_match_key_current_value = extract_data(source_match_key, data, multiplier, offset)
         should_pick = source_match_key_current_value == source_match_key_value
+        if include_debug:
+            input_detail["source_match"] = {
+                "key": source_match_key,
+                "expected": source_match_key_value,
+                "actual": source_match_key_current_value,
+                "matched": should_pick,
+            }
 
     if should_pick:
         logger.info(
@@ -152,13 +211,37 @@ def translate_field_value(
         )
         if type == "raw":
             value = extract_data(source, data, multiplier, offset)
+            if include_debug:
+                input_detail["resolved_input"] = extract_data(source, data, 1, 0)
         elif type == "calculated":
-            value = extract_calculated_data(
-                schema_target, target_name, target_field_name, source, data, multiplier, offset, existing_statuses
+            calculated_output = extract_calculated_data(
+                schema_target,
+                target_name,
+                target_field_name,
+                source,
+                data,
+                multiplier,
+                offset,
+                existing_statuses,
+                include_debug=include_debug,
             )
+            if include_debug:
+                value = calculated_output.get("value")
+                input_detail["calculation"] = calculated_output.get("detail", {})
+            else:
+                value = calculated_output
         elif type == "dataCache":
             value = (data_cache or {}).get(source)
+            if include_debug:
+                input_detail["resolved_input"] = value
         logger.info(f"Extracted value for source {source} is: {value}")
+
+    if include_debug:
+        input_detail["picked"] = should_pick
+        return {
+            "value": value,
+            "input": input_detail,
+        }
 
     return value
 
@@ -187,37 +270,92 @@ def extract_calculated_data(
     data: Dict,
     multiplier, offset,
     existing_statuses: Dict = None,
+    include_debug: bool = False,
 ):
+    def _normalize_snapshot(value):
+        if isinstance(value, dict):
+            return value
+        return {}
+
+    def _resolve_status_scope(status_snapshot, status_name):
+        status_snapshot = _normalize_snapshot(status_snapshot)
+        nested_status = status_snapshot.get(status_name)
+        if isinstance(nested_status, dict):
+            return nested_status
+        return status_snapshot
+
+    def _as_number(value):
+        return value if isinstance(value, (int, float)) else 0
+
+    original_expression = field_name
     fields_and_operators = field_name.split()
     equation = ""
+    resolved_tokens = []
     if existing_statuses is None:
         existing_statuses = {}
-    first_today = existing_statuses.get("firstToday", {})
-    last_today = existing_statuses.get("lastToday", {})
-    last_status_data = last_today.get(schema_target, {})
-    last_status_data = last_status_data.get(target_name, {})
-    first_raw_data = first_today.get("raw", {})
+    first_today = _normalize_snapshot(existing_statuses.get("firstToday", {}))
+    last_today = _normalize_snapshot(existing_statuses.get("lastToday", {}))
+    last_status_root = _normalize_snapshot(last_today.get(schema_target, {}))
+    first_status_root = _normalize_snapshot(first_today.get(schema_target, {}))
+    last_status_data = _resolve_status_scope(last_status_root, target_name)
+    first_status_data = _resolve_status_scope(first_status_root, target_name)
+    first_raw_data = _normalize_snapshot(first_today.get("raw", {}))
+    last_raw_data = _normalize_snapshot(last_today.get("raw", {}))
     for field_or_operator in fields_and_operators:
         operator = None
         field_name = None
         value_already_fetched = False
+        next_value = None
         if field_or_operator.startswith("lastValue__"):
             field_name = field_or_operator.replace("lastValue__", "")
+            value_source = "last_status_scope"
             next_value = extract_data(field_name, last_status_data, 1, 0)
+            if next_value is None:
+                value_source = "last_status_root"
+                next_value = extract_data(field_name, last_status_root, 1, 0)
+            if next_value is None:
+                value_source = "last_raw"
+                next_value = extract_data(field_name, last_raw_data, 1, 0)
             value_already_fetched = True
             if next_value is None:
                 next_value = 0
+                value_source = "default_zero"
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "lastValue",
+                    "field": field_name,
+                    "value": next_value,
+                    "source": value_source,
+                })
         elif field_or_operator.startswith("changeToday__"):
             field_name = field_or_operator.replace("changeToday__", "")
             value_now = extract_data(field_name, data, multiplier, offset)
             value_first = extract_data(field_name, first_raw_data, 1, 0)
+            value_first_source = "first_raw"
+            if value_first is None:
+                value_first_source = "first_status_scope"
+                value_first = extract_data(field_name, first_status_data, 1, 0)
+            if value_first is None:
+                value_first_source = "first_status_root"
+                value_first = extract_data(field_name, first_status_root, 1, 0)
             value_already_fetched = True
-            next_value = None
             try:
-                next_value = value_now - value_first
+                next_value = _as_number(value_now) - _as_number(value_first)
             except Exception as ex:
                 logger.warning(ex)
                 next_value = value_now
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "changeToday",
+                    "field": field_name,
+                    "value_now": value_now,
+                    "value_first": value_first,
+                    "value": next_value,
+                    "value_now_source": "current_raw",
+                    "value_first_source": value_first_source,
+                })
         elif "." in field_or_operator:
             field_name = field_or_operator
         else:
@@ -226,6 +364,13 @@ def extract_calculated_data(
         if field_name is not None and not value_already_fetched:
             next_value = extract_data(field_name, data, multiplier, offset)
             value_already_fetched = True
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "rawField",
+                    "field": field_name,
+                    "value": next_value,
+                })
 
         if value_already_fetched:
             if next_value is None:
@@ -234,6 +379,11 @@ def extract_calculated_data(
 
         elif operator is not None:
             equation += " " + operator + " "
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "operator",
+                })
 
     value = None
     try:
@@ -242,6 +392,17 @@ def extract_calculated_data(
         logger.warning(
             f"Error evaluating equation {equation} for field {field_name}. Exception: {ex}"
         )
+    if include_debug:
+        return {
+            "value": value,
+            "detail": {
+                "expression": original_expression,
+                "resolved_expression": equation,
+                "resolved_tokens": resolved_tokens,
+                "first_status_scope": first_status_data,
+                "last_status_scope": last_status_data,
+            },
+        }
     return value
 
 

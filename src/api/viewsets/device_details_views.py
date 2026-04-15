@@ -3,7 +3,6 @@ import csv
 import logging
 from collections.abc import Iterable
 from datetime import datetime
-import re
 
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
@@ -12,7 +11,7 @@ from api.utils import get_existing_status_data_for_today, get_or_create_user_dev
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter, RawData, StatusType,
                            UserDeviceType, DeviceType)
-from device_schemas.schema import extract_data, translate_data_from_schema, translate_field_value
+from device_schemas.schema import translate_data_from_schema
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
@@ -145,87 +144,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
     """
     permission_classes = (IsAuthenticated, IsDeviceUser)
 
-    def _resolve_calculated_expression(self, source_expression, raw_data, existing_statuses, schema_target, target_name):
-        if not source_expression:
-            return {
-                'expression': '',
-                'resolved_expression': '',
-                'resolved_tokens': []
-            }
-
-        last_today = (existing_statuses or {}).get("lastToday", {})
-        first_today = (existing_statuses or {}).get("firstToday", {})
-        last_status_data = ((last_today.get(schema_target, {}) or {}).get(target_name, {}) or {})
-        first_raw_data = first_today.get("raw", {}) or {}
-
-        tokens = source_expression.split()
-        resolved_tokens = []
-        equation_parts = []
-
-        def _as_number(value):
-            return value if isinstance(value, (int, float)) else 0
-
-        for token in tokens:
-            if token.startswith("lastValue__"):
-                field_name = token.replace("lastValue__", "")
-                value = extract_data(field_name, last_status_data, 1, 0)
-                if value is None:
-                    value = 0
-                resolved_tokens.append({
-                    'token': token,
-                    'kind': 'lastValue',
-                    'field': field_name,
-                    'value': value
-                })
-                equation_parts.append(str(value))
-            elif token.startswith("changeToday__"):
-                field_name = token.replace("changeToday__", "")
-                value_now = extract_data(field_name, raw_data, 1, 0)
-                value_first = extract_data(field_name, first_raw_data, 1, 0)
-                try:
-                    value = _as_number(value_now) - _as_number(value_first)
-                except Exception:
-                    value = value_now if value_now is not None else 0
-                resolved_tokens.append({
-                    'token': token,
-                    'kind': 'changeToday',
-                    'field': field_name,
-                    'value_now': value_now,
-                    'value_first': value_first,
-                    'value': value
-                })
-                equation_parts.append(str(value))
-            elif "." in token:
-                value = extract_data(token, raw_data, 1, 0)
-                if value is None:
-                    value = 0
-                resolved_tokens.append({
-                    'token': token,
-                    'kind': 'rawField',
-                    'field': token,
-                    'value': value
-                })
-                equation_parts.append(str(value))
-            elif re.match(r'^-?\d+(\.\d+)?$', token):
-                resolved_tokens.append({
-                    'token': token,
-                    'kind': 'number',
-                    'value': float(token) if '.' in token else int(token)
-                })
-                equation_parts.append(token)
-            else:
-                resolved_tokens.append({
-                    'token': token,
-                    'kind': 'operator'
-                })
-                equation_parts.append(token)
-
-        return {
-            'expression': source_expression,
-            'resolved_expression': " ".join(equation_parts),
-            'resolved_tokens': resolved_tokens
-        }
-
     def get_status_type_preview(self, request, device_id):
         if device_id in [None, '', 'None', 'null', 'NULL']:
             return Response(
@@ -273,72 +191,32 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         latest_raw = RawData.objects.filter(device=device).order_by('-data_arrival_time').first()
         raw_data = (latest_raw.data if latest_raw is not None else {}) or {}
         existing_statuses = get_existing_status_data_for_today(dev_user, device, latest_raw)
+        raw_data = (
+            (existing_statuses.get('lastToday', {}) or {}).get('raw')
+            or raw_data
+            or {}
+        )
 
-        translated = translate_data_from_schema(
+        translated_preview = translate_data_from_schema(
             normalized_schema,
             raw_data,
             existing_statuses,
             data_cache,
+            include_debug=True,
         )
+        translated = translated_preview.get('translated_data', {})
 
         if not target_name and isinstance(normalized_schema, dict):
             target_name = normalized_schema.get('name')
 
         calculated_values = translated.get(target_name, {}) if target_name else translated
-
-        field_details = []
-        schema_items = normalized_schema if isinstance(normalized_schema, list) else [normalized_schema]
-        for schema_item in schema_items:
-            if not isinstance(schema_item, dict):
-                continue
-
-            item_target = schema_item.get('target') or schema_target
-            item_name = schema_item.get('name') or target_name
-            for field in schema_item.get('fields', []) or []:
-                if not isinstance(field, dict):
-                    continue
-
-                field_type = field.get('type', 'raw')
-                field_target = field.get('target')
-                source = field.get('source')
-                source = source if isinstance(source, str) else ''
-                item_target = item_target if isinstance(item_target, str) else ''
-                item_name = item_name if isinstance(item_name, str) else ''
-
-                input_detail = {
-                    'type': field_type,
-                    'source': source,
-                    'multiplier': field.get('multiplier', 1),
-                    'offset': field.get('offset', 0),
-                }
-
-                if field_type == 'raw':
-                    input_detail['resolved_input'] = extract_data(source, raw_data, 1, 0)
-                elif field_type == 'dataCache':
-                    input_detail['resolved_input'] = data_cache.get(source)
-                elif field_type == 'calculated':
-                    input_detail['calculation'] = self._resolve_calculated_expression(
-                        source,
-                        raw_data,
-                        existing_statuses,
-                        item_target,
-                        item_name,
-                    )
-
-                output_value = translate_field_value(
-                    item_target,
-                    item_name,
-                    field,
-                    raw_data,
-                    existing_statuses,
-                    data_cache,
-                )
-
-                field_details.append({
-                    'key': field_target,
-                    'input': input_detail,
-                    'output': output_value,
-                })
+        field_details = translated_preview.get('field_details', [])
+        if target_name:
+            field_details = [
+                field_detail
+                for field_detail in field_details
+                if field_detail.get('status_name') == target_name
+            ]
 
         return Response({
             'status_type': {
@@ -347,6 +225,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             },
             'calculated_values': calculated_values,
             'field_details': field_details,
+            'debug_context': translated_preview.get('debug_context', {}),
             'raw_data_sample': raw_data,
             'data_arrival_time': latest_raw.data_arrival_time if latest_raw is not None else None,
         })

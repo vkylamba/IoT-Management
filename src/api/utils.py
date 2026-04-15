@@ -145,6 +145,47 @@ def get_latest_raw_data(device):
 
 def get_existing_status_data_for_today(user, device, last_raw_data):
 
+    def _merge_raw_snapshot(base_snapshot, incoming_snapshot, overwrite=True):
+        base_snapshot = dict(base_snapshot or {})
+        incoming_snapshot = _normalize_raw_snapshot(incoming_snapshot) or {}
+
+        for key, value in incoming_snapshot.items():
+            existing_value = base_snapshot.get(key)
+            if isinstance(existing_value, dict) and isinstance(value, dict):
+                base_snapshot[key] = _merge_raw_snapshot(
+                    existing_value,
+                    value,
+                    overwrite=overwrite,
+                )
+            elif key not in base_snapshot or overwrite:
+                base_snapshot[key] = value
+
+        return base_snapshot
+
+    def _normalize_raw_snapshot(raw_snapshot):
+        if raw_snapshot is None:
+            return None
+        if hasattr(raw_snapshot, 'data'):
+            return raw_snapshot.data
+        if isinstance(raw_snapshot, dict):
+            wrapper_keys = {'data', 'data_arrival_time', 'data_type', 'channel'}
+            if 'data' in raw_snapshot and set(raw_snapshot.keys()).issubset(wrapper_keys):
+                return raw_snapshot.get('data')
+            return raw_snapshot
+        return None
+
+    def _get_local_day_start_utc():
+        local_now = device.get_local_time()
+        local_day_start = local_now.replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        if local_day_start.tzinfo is None:
+            return local_day_start
+        return local_day_start.astimezone(pytz.utc)
+
     if user is not None and user.is_authenticated:
         last_status = DeviceStatus.objects.filter(
             Q(user=user) | Q(device=device)
@@ -153,21 +194,36 @@ def get_existing_status_data_for_today(user, device, last_raw_data):
         last_status = DeviceStatus.objects.filter(
             device=device
         )
-    time_now = timezone.now()
-    date_now = time_now.date()
+    day_start_utc = _get_local_day_start_utc()
     statuses_today = last_status.filter(
-        created_at__gt=date_now
+        created_at__gte=day_start_utc
     ).order_by('created_at')
 
     raw_data_today = RawData.objects.filter(
         device=device,
-        data_arrival_time__gt=date_now
+        data_arrival_time__gte=day_start_utc
     ).order_by(
         'data_arrival_time'
     )
 
-    raw_data_first = raw_data_today.first()
-    raw_data_last = last_raw_data
+    raw_data_first = {}
+    raw_data_last = {}
+    for raw_data_point in raw_data_today:
+        raw_data_first = _merge_raw_snapshot(
+            raw_data_first,
+            raw_data_point,
+            overwrite=False,
+        )
+        raw_data_last = _merge_raw_snapshot(
+            raw_data_last,
+            raw_data_point,
+            overwrite=True,
+        )
+
+    raw_data_last = _merge_raw_snapshot(raw_data_last, last_raw_data, overwrite=True)
+
+    if not raw_data_first and raw_data_last:
+        raw_data_first = dict(raw_data_last)
 
     status_first = {}
     status_last = {}
@@ -178,9 +234,9 @@ def get_existing_status_data_for_today(user, device, last_raw_data):
         status_last[st_dt.name] = st_dt.status
 
     if raw_data_first:
-        status_first['raw'] = raw_data_first.data
+        status_first['raw'] = raw_data_first
     if raw_data_last:
-        status_last['raw'] = raw_data_last.data
+        status_last['raw'] = raw_data_last
     statuses = {
         'firstToday': status_first,
         'lastToday': status_last
@@ -354,6 +410,11 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weath
     existing_statuses = get_existing_status_data_for_today(user, device, last_raw_data)
     if isinstance(raw_data, RawData):
         raw_data = raw_data.data
+    current_raw_data = (
+        (existing_statuses.get('lastToday', {}) or {}).get('raw')
+        or raw_data
+        or {}
+    )
     for status_type in status_types:
         schema = status_type.translation_schema
         if schema is not None:
@@ -369,12 +430,12 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weath
 
             validated_data = translate_data_from_schema(
                 schema,
-                raw_data,
+                current_raw_data,
                 existing_statuses,
                 weather_and_loads_data or {},
             )
             if validated_data is None:
-                logger.warning(f"Invalid data! for status {status_type.name}. Data: {raw_data}")
+                logger.warning(f"Invalid data! for status {status_type.name}. Data: {current_raw_data}")
                 return "Invalid data! Data doesn't match the schema configured for the device/user."
 
             logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
