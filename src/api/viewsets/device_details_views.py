@@ -2,12 +2,13 @@ import os
 import csv
 import logging
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
+import pytz
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
-from api.utils import get_existing_status_data_for_today, get_or_create_user_device, merge_device_other_data, process_raw_data
+from api.utils import get_existing_status_data_for_today, get_or_create_user_device, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter, RawData, StatusType,
                            UserDeviceType, DeviceType)
@@ -25,7 +26,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from utils import DataReports
 from utils.weather import get_weather_data_cached
-from api.viewsets.common_utils import is_device_admin
+from api.viewsets.common_utils import device_admin, is_device_admin
 
 PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
@@ -143,6 +144,92 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
     ViewSet to return device info.
     """
     permission_classes = (IsAuthenticated, IsDeviceUser)
+
+    def _parse_reprocess_datetime(self, value):
+        if not value:
+            return None
+
+        normalized_value = str(value).replace('Z', '+00:00')
+        parsed_value = datetime.fromisoformat(normalized_value)
+        if timezone.is_naive(parsed_value):
+            parsed_value = timezone.make_aware(
+                parsed_value,
+                timezone.get_current_timezone(),
+            )
+        return parsed_value.astimezone(pytz.utc)
+
+    def _get_reprocess_window(self, device, payload):
+        mode = payload.get('mode', 'day')
+        if mode == 'range':
+            start_time = self._parse_reprocess_datetime(payload.get('start'))
+            end_time = self._parse_reprocess_datetime(payload.get('end'))
+            if start_time is None or end_time is None:
+                raise ValueError('Start and end are required for range reprocessing.')
+            if start_time >= end_time:
+                raise ValueError('End time must be later than start time.')
+            return start_time, end_time, mode
+
+        day_value = payload.get('day')
+        if not day_value:
+            raise ValueError('Day is required for day-based reprocessing.')
+
+        requested_day = datetime.strptime(day_value, '%Y-%m-%d').date()
+        device_timezone = device.get_timezone() or timezone.get_current_timezone()
+        start_local = timezone.make_aware(
+            datetime.combine(requested_day, time.min),
+            device_timezone,
+        )
+        end_local = start_local + timedelta(days=1)
+        return start_local.astimezone(pytz.utc), end_local.astimezone(pytz.utc), 'day'
+
+    @device_admin
+    def reprocess_statuses(self, request, device_id):
+        payload = request.data or {}
+        device, _ = is_device_admin(request.user, device_id)
+        if device is None:
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={'error': 'Device not found'}
+            )
+
+        try:
+            start_time, end_time, mode = self._get_reprocess_window(device, payload)
+        except ValueError as exc:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={'error': str(exc)}
+            )
+
+        replay_user = getattr(getattr(device, 'device_type', None), 'user', None) or request.user
+        keep_existing_statuses = bool(payload.get('keep_existing_statuses', False))
+
+        result = replay_stored_raw_data(
+            device=device,
+            start_time=start_time,
+            end_time=end_time,
+            user=replay_user,
+            clear_existing_statuses=not keep_existing_statuses,
+        )
+
+        for cache_key in {device_id, str(device.id), device.ip_address, device.alias}:
+            if cache_key:
+                cache.delete(f'device_static_data_{cache_key}')
+
+        return Response({
+            'message': f'Reprocessed statuses for {device.ip_address or device.id}.',
+            'device_id': str(device.id),
+            'device_identifier': device.ip_address or device.alias or str(device.id),
+            'mode': mode,
+            'keep_existing_statuses': keep_existing_statuses,
+            'user_id': str(replay_user.id) if replay_user is not None else None,
+            'processed_raw_count': result['processed_raw_count'],
+            'replayed_raw_count': result['replayed_raw_count'],
+            'skipped_status_raw_count': result['skipped_status_raw_count'],
+            'deleted_status_count': result['deleted_status_count'],
+            'replay_start_time': result['replay_start_time'].isoformat(),
+            'start_time': result['start_time'].isoformat(),
+            'end_time': result['end_time'].isoformat(),
+        })
 
     def get_status_type_preview(self, request, device_id):
         if device_id in [None, '', 'None', 'null', 'NULL']:

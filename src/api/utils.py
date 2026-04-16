@@ -143,7 +143,34 @@ def get_latest_raw_data(device):
         return None
 
 
-def get_existing_status_data_for_today(user, device, last_raw_data):
+def get_local_day_start_utc(device, reference_time=None):
+    if reference_time is None:
+        local_now = device.get_local_time()
+    else:
+        if timezone.is_naive(reference_time):
+            reference_time = timezone.make_aware(
+                reference_time,
+                timezone.get_current_timezone(),
+            )
+
+        device_timezone = device.get_timezone()
+        if device_timezone is not None and reference_time.tzinfo is not None:
+            local_now = reference_time.astimezone(device_timezone)
+        else:
+            local_now = reference_time
+
+    local_day_start = local_now.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if local_day_start.tzinfo is None:
+        return local_day_start
+    return local_day_start.astimezone(pytz.utc)
+
+
+def get_existing_status_data_for_today(user, device, last_raw_data, as_of_time=None):
 
     def _merge_raw_snapshot(base_snapshot, incoming_snapshot, overwrite=True):
         base_snapshot = dict(base_snapshot or {})
@@ -174,18 +201,6 @@ def get_existing_status_data_for_today(user, device, last_raw_data):
             return raw_snapshot
         return None
 
-    def _get_local_day_start_utc():
-        local_now = device.get_local_time()
-        local_day_start = local_now.replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
-        if local_day_start.tzinfo is None:
-            return local_day_start
-        return local_day_start.astimezone(pytz.utc)
-
     if user is not None and user.is_authenticated:
         last_status = DeviceStatus.objects.filter(
             Q(user=user) | Q(device=device)
@@ -194,17 +209,20 @@ def get_existing_status_data_for_today(user, device, last_raw_data):
         last_status = DeviceStatus.objects.filter(
             device=device
         )
-    day_start_utc = _get_local_day_start_utc()
-    statuses_today = last_status.filter(
-        created_at__gte=day_start_utc
-    ).order_by('created_at')
+    day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
 
+    statuses_today = last_status.filter(created_at__gte=day_start_utc)
     raw_data_today = RawData.objects.filter(
         device=device,
         data_arrival_time__gte=day_start_utc
-    ).order_by(
-        'data_arrival_time'
     )
+
+    if as_of_time is not None:
+        statuses_today = statuses_today.filter(created_at__lte=as_of_time)
+        raw_data_today = raw_data_today.filter(data_arrival_time__lte=as_of_time)
+
+    statuses_today = statuses_today.order_by('created_at')
+    raw_data_today = raw_data_today.order_by('data_arrival_time')
 
     raw_data_first = {}
     raw_data_last = {}
@@ -242,6 +260,20 @@ def get_existing_status_data_for_today(user, device, last_raw_data):
         'lastToday': status_last
     }
     return statuses
+
+
+def get_status_types_for_device(user, device):
+    if user is not None and user.is_authenticated:
+        return StatusType.objects.filter(
+            Q(user=user) | Q(device_type=device.type) | Q(device=device)
+        )
+    if device.type is not None:
+        return StatusType.objects.filter(
+            Q(device_type=device.type) | Q(device=device)
+        )
+    return StatusType.objects.filter(
+        device=device
+    )
 
 
 
@@ -387,27 +419,36 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     return ""
 
 
-def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data: dict = None):
+def update_user_and_device_statuses(
+    user,
+    device,
+    raw_data,
+    last_raw_data,
+    weather_and_loads_data=None,
+    status_created_at=None,
+):
+    set_device_for_logger(logger, device.ip_address or str(device.id))
 
     # get status types, which should be updated
-    status_types = None
-    if user is not None and user.is_authenticated:
-        status_types = StatusType.objects.filter(
-            Q(user=user) | Q(device_type=device.type) | Q(device=device)
-        )
-    elif device.type is not None:
-        status_types = StatusType.objects.filter(
-            Q(device_type=device.type) | Q(device=device)
-        )
-    else:
-        status_types = StatusType.objects.filter(
-            device=device
-        )
+    status_types = get_status_types_for_device(user, device)
     if status_types is None:
         logger.info(f"No status linked to device. {device}")
         return None
 
-    existing_statuses = get_existing_status_data_for_today(user, device, last_raw_data)
+    if status_created_at is None:
+        status_created_at = timezone.now()
+    elif timezone.is_naive(status_created_at):
+        status_created_at = timezone.make_aware(
+            status_created_at,
+            timezone.get_current_timezone(),
+        )
+
+    existing_statuses = get_existing_status_data_for_today(
+        user,
+        device,
+        last_raw_data,
+        as_of_time=status_created_at,
+    )
     if isinstance(raw_data, RawData):
         raw_data = raw_data.data
     current_raw_data = (
@@ -445,18 +486,22 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weath
                 last_status = existing_statuses.get('lastToday', {})
                 last_status = last_status.get(status_type.target_type)
                 create_new = True
-                time_now = timezone.now()
+                time_now = status_created_at
                 if last_status is not None:
                     last_status = DeviceStatus.objects.filter(
                         name=status_type.target_type,
-                        device=device
+                        device=device,
+                        created_at__lte=time_now,
                     ).order_by('-created_at').first()
-                    last_status_creation_time = last_status.created_at
-                    if (time_now - last_status_creation_time).seconds <= 600:
-                        create_new = False
+                    if last_status is not None:
+                        last_status_creation_time = last_status.created_at
+                        if (time_now - last_status_creation_time).seconds <= 600:
+                            create_new = False
+                    else:
+                        create_new = True
                 else:
                     create_new = True
-                if not create_new:
+                if not create_new and last_status is not None:
                     # Create copies of the dicts and remove energy field for comparison
                     last_validated_data = last_status.status.copy() if isinstance(last_status.status, dict) else {}
                     current_validated_data = validated_data.copy() if isinstance(validated_data, dict) else {}
@@ -479,6 +524,8 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weath
                     if data_changed:
                         create_new = True
                         logger.debug(f"Status data changed for {status_type.target_type}, creating new status entry")
+                elif not create_new:
+                    create_new = True
                         
                 if create_new:
                     status = DeviceStatus(
@@ -509,3 +556,59 @@ def update_user_and_device_statuses(user, device, raw_data, last_raw_data, weath
                 if status_type.target_type == StatusType.STATUS_TARGET_METER:
                     pass
                     # ToDo: Save meter data here
+
+
+def replay_stored_raw_data(
+    device,
+    start_time,
+    end_time,
+    user=None,
+    clear_existing_statuses=True,
+):
+    replay_start_time = get_local_day_start_utc(device, reference_time=start_time)
+    raw_data_queryset = RawData.objects.filter(
+        device=device,
+        data_arrival_time__gte=replay_start_time,
+        data_arrival_time__lt=end_time,
+    ).order_by('data_arrival_time', 'id')
+
+    deleted_status_count = 0
+    if clear_existing_statuses:
+        deleted_status_count, _ = DeviceStatus.objects.filter(
+            device=device,
+            created_at__gte=replay_start_time,
+            created_at__lt=end_time,
+        ).delete()
+
+    processed_raw_count = 0
+    replayed_raw_count = 0
+    skipped_status_raw_count = 0
+
+    for raw_entry in raw_data_queryset.iterator():
+        processed_raw_count += 1
+
+        if raw_entry.data_type == 'status':
+            skipped_status_raw_count += 1
+            continue
+
+        update_user_and_device_statuses(
+            user,
+            device,
+            raw_entry,
+            raw_entry.data,
+            {},
+            status_created_at=raw_entry.data_arrival_time,
+        )
+
+        if raw_entry.data_arrival_time >= start_time:
+            replayed_raw_count += 1
+
+    return {
+        'processed_raw_count': processed_raw_count,
+        'replayed_raw_count': replayed_raw_count,
+        'skipped_status_raw_count': skipped_status_raw_count,
+        'deleted_status_count': deleted_status_count,
+        'replay_start_time': replay_start_time,
+        'start_time': start_time,
+        'end_time': end_time,
+    }
