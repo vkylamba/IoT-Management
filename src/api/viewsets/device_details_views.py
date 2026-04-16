@@ -145,6 +145,18 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
     """
     permission_classes = (IsAuthenticated, IsDeviceUser)
 
+    def _get_reprocess_interval_minutes(self, payload):
+        interval_value = payload.get('status_interval_minutes', 10)
+        try:
+            interval_minutes = int(interval_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('Status interval must be an integer between 2 and 60 minutes.') from exc
+
+        if interval_minutes < 2 or interval_minutes > 60:
+            raise ValueError('Status interval must be between 2 and 60 minutes.')
+
+        return interval_minutes
+
     def _parse_reprocess_datetime(self, value):
         if not value:
             return None
@@ -194,6 +206,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         try:
             start_time, end_time, mode = self._get_reprocess_window(device, payload)
+            status_interval_minutes = self._get_reprocess_interval_minutes(payload)
         except ValueError as exc:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -209,6 +222,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             end_time=end_time,
             user=replay_user,
             clear_existing_statuses=not keep_existing_statuses,
+            replay_status_interval_minutes=status_interval_minutes,
         )
 
         for cache_key in {device_id, str(device.id), device.ip_address, device.alias}:
@@ -220,6 +234,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'device_id': str(device.id),
             'device_identifier': device.ip_address or device.alias or str(device.id),
             'mode': mode,
+            'status_interval_minutes': status_interval_minutes,
             'keep_existing_statuses': keep_existing_statuses,
             'user_id': str(replay_user.id) if replay_user is not None else None,
             'processed_raw_count': result['processed_raw_count'],

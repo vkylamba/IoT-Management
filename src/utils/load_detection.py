@@ -85,7 +85,10 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
     """
     all_equipments = device.get_all_equipments()
 
-    weather_data_now = get_weather_data_cached(device)
+    weather_data_now = get_weather_data_cached(
+        device,
+        reference_time=data_arrival_time,
+    )
     temperature = weather_data_now.get('main', {}).get('temp', 0) if weather_data_now is not None else 0
     humidity = weather_data_now.get('main', {}).get('humidity', 0) if weather_data_now is not None else 0
     wind_speed = weather_data_now.get('wind', {}).get('speed', 0) if weather_data_now is not None else 0

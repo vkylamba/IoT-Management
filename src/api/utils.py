@@ -1,6 +1,7 @@
 
 import logging
 import re
+from copy import deepcopy
 from datetime import datetime
 
 import pytz
@@ -17,6 +18,7 @@ from django.utils import timezone
 
 from utils import detect_and_save_meter_loads
 from device.log_handler import set_device_for_logger
+from utils.weather import get_weather_data_cached
 
 logger = logging.getLogger('device')
 
@@ -36,6 +38,39 @@ AVAILABLE_METER_DATA_FIELDS = {
 }
 
 EXTRA_METER_DATA_FIELD = "more_data"
+
+
+def create_device_status_with_timestamp(
+    *,
+    name,
+    device,
+    user,
+    status_data,
+    created_at,
+):
+    status = DeviceStatus(
+        name=name,
+        device=device,
+        user=user if user is not None and user.is_authenticated else None,
+        status=status_data,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+    created_at_field = status._meta.get_field('created_at')
+    updated_at_field = status._meta.get_field('updated_at')
+    original_created_auto_now_add = created_at_field.auto_now_add
+    original_updated_auto_now_add = updated_at_field.auto_now_add
+
+    try:
+        created_at_field.auto_now_add = False
+        updated_at_field.auto_now_add = False
+        status.save(force_insert=True)
+    finally:
+        created_at_field.auto_now_add = original_created_auto_now_add
+        updated_at_field.auto_now_add = original_updated_auto_now_add
+
+    return status
 
 
 def generate_device_alias(dev_identifier_field, dev_id):
@@ -170,58 +205,66 @@ def get_local_day_start_utc(device, reference_time=None):
     return local_day_start.astimezone(pytz.utc)
 
 
-def get_existing_status_data_for_today(user, device, last_raw_data, as_of_time=None):
-
-    def _merge_raw_snapshot(base_snapshot, incoming_snapshot, overwrite=True):
-        base_snapshot = dict(base_snapshot or {})
-        incoming_snapshot = _normalize_raw_snapshot(incoming_snapshot) or {}
-
-        for key, value in incoming_snapshot.items():
-            existing_value = base_snapshot.get(key)
-            if isinstance(existing_value, dict) and isinstance(value, dict):
-                base_snapshot[key] = _merge_raw_snapshot(
-                    existing_value,
-                    value,
-                    overwrite=overwrite,
-                )
-            elif key not in base_snapshot or overwrite:
-                base_snapshot[key] = value
-
-        return base_snapshot
-
-    def _normalize_raw_snapshot(raw_snapshot):
-        if raw_snapshot is None:
-            return None
-        if hasattr(raw_snapshot, 'data'):
-            return raw_snapshot.data
-        if isinstance(raw_snapshot, dict):
-            wrapper_keys = {'data', 'data_arrival_time', 'data_type', 'channel'}
-            if 'data' in raw_snapshot and set(raw_snapshot.keys()).issubset(wrapper_keys):
-                return raw_snapshot.get('data')
-            return raw_snapshot
+def _normalize_raw_snapshot(raw_snapshot):
+    if raw_snapshot is None:
         return None
+    if hasattr(raw_snapshot, 'data'):
+        return raw_snapshot.data
+    if isinstance(raw_snapshot, dict):
+        wrapper_keys = {'data', 'data_arrival_time', 'data_type', 'channel'}
+        if 'data' in raw_snapshot and set(raw_snapshot.keys()).issubset(wrapper_keys):
+            return raw_snapshot.get('data')
+        return raw_snapshot
+    return None
 
+
+def _merge_raw_snapshot(base_snapshot, incoming_snapshot, overwrite=True):
+    base_snapshot = dict(base_snapshot or {})
+    incoming_snapshot = _normalize_raw_snapshot(incoming_snapshot) or {}
+
+    for key, value in incoming_snapshot.items():
+        existing_value = base_snapshot.get(key)
+        if isinstance(existing_value, dict) and isinstance(value, dict):
+            base_snapshot[key] = _merge_raw_snapshot(
+                existing_value,
+                value,
+                overwrite=overwrite,
+            )
+        elif key not in base_snapshot or overwrite:
+            base_snapshot[key] = value
+
+    return base_snapshot
+
+
+def _get_status_queryset_for_day(user, device, day_start_utc, as_of_time=None):
     if user is not None and user.is_authenticated:
-        last_status = DeviceStatus.objects.filter(
+        statuses = DeviceStatus.objects.filter(
             Q(user=user) | Q(device=device)
         )
     else:
-        last_status = DeviceStatus.objects.filter(
-            device=device
-        )
+        statuses = DeviceStatus.objects.filter(device=device)
+
+    statuses = statuses.filter(created_at__gte=day_start_utc)
+    if as_of_time is not None:
+        statuses = statuses.filter(created_at__lte=as_of_time)
+    return statuses.order_by('created_at')
+
+
+def build_status_processing_context(user, device, last_raw_data, as_of_time=None):
     day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
 
-    statuses_today = last_status.filter(created_at__gte=day_start_utc)
+    statuses_today = _get_status_queryset_for_day(
+        user,
+        device,
+        day_start_utc,
+        as_of_time=as_of_time,
+    )
     raw_data_today = RawData.objects.filter(
         device=device,
         data_arrival_time__gte=day_start_utc
     )
-
     if as_of_time is not None:
-        statuses_today = statuses_today.filter(created_at__lte=as_of_time)
         raw_data_today = raw_data_today.filter(data_arrival_time__lte=as_of_time)
-
-    statuses_today = statuses_today.order_by('created_at')
     raw_data_today = raw_data_today.order_by('data_arrival_time')
 
     raw_data_first = {}
@@ -245,21 +288,85 @@ def get_existing_status_data_for_today(user, device, last_raw_data, as_of_time=N
 
     status_first = {}
     status_last = {}
+    last_status_models_by_target = {}
 
     for st_dt in statuses_today:
         if st_dt.name not in status_first:
             status_first[st_dt.name] = st_dt.status
         status_last[st_dt.name] = st_dt.status
+        last_status_models_by_target[st_dt.name] = st_dt
 
     if raw_data_first:
         status_first['raw'] = raw_data_first
     if raw_data_last:
         status_last['raw'] = raw_data_last
-    statuses = {
+
+    existing_statuses = {
         'firstToday': status_first,
         'lastToday': status_last
     }
-    return statuses
+    return {
+        'existing_statuses': existing_statuses,
+        'last_status_models_by_target': last_status_models_by_target,
+        'current_raw_data': dict(status_last.get('raw', {}) or {}),
+        'day_start_utc': day_start_utc,
+    }
+
+
+def merge_raw_into_status_context(status_processing_context, raw_snapshot):
+    if status_processing_context is None:
+        return None
+
+    normalized_snapshot = _normalize_raw_snapshot(raw_snapshot) or {}
+    existing_statuses = status_processing_context.setdefault(
+        'existing_statuses',
+        {'firstToday': {}, 'lastToday': {}},
+    )
+    first_today = existing_statuses.setdefault('firstToday', {})
+    last_today = existing_statuses.setdefault('lastToday', {})
+
+    first_today['raw'] = _merge_raw_snapshot(
+        first_today.get('raw'),
+        normalized_snapshot,
+        overwrite=False,
+    )
+    last_today['raw'] = _merge_raw_snapshot(
+        last_today.get('raw'),
+        normalized_snapshot,
+        overwrite=True,
+    )
+    status_processing_context['current_raw_data'] = dict(last_today.get('raw', {}) or {})
+    return status_processing_context['current_raw_data']
+
+
+def record_status_in_context(status_processing_context, target_type, status_model):
+    if status_processing_context is None or status_model is None:
+        return
+
+    existing_statuses = status_processing_context.setdefault(
+        'existing_statuses',
+        {'firstToday': {}, 'lastToday': {}},
+    )
+    first_today = existing_statuses.setdefault('firstToday', {})
+    last_today = existing_statuses.setdefault('lastToday', {})
+
+    if target_type not in first_today:
+        first_today[target_type] = deepcopy(status_model.status)
+    last_today[target_type] = deepcopy(status_model.status)
+    status_processing_context.setdefault('last_status_models_by_target', {})[
+        target_type
+    ] = status_model
+
+
+def get_existing_status_data_for_today(user, device, last_raw_data, as_of_time=None):
+
+    status_processing_context = build_status_processing_context(
+        user,
+        device,
+        last_raw_data,
+        as_of_time=as_of_time,
+    )
+    return status_processing_context['existing_statuses']
 
 
 def get_status_types_for_device(user, device):
@@ -426,11 +533,16 @@ def update_user_and_device_statuses(
     last_raw_data,
     weather_and_loads_data=None,
     status_created_at=None,
+    status_types=None,
+    status_processing_context=None,
+    min_status_interval_minutes=10,
+    enforce_min_status_interval=False,
 ):
     set_device_for_logger(logger, device.ip_address or str(device.id))
 
     # get status types, which should be updated
-    status_types = get_status_types_for_device(user, device)
+    if status_types is None:
+        status_types = get_status_types_for_device(user, device)
     if status_types is None:
         logger.info(f"No status linked to device. {device}")
         return None
@@ -443,19 +555,36 @@ def update_user_and_device_statuses(
             timezone.get_current_timezone(),
         )
 
-    existing_statuses = get_existing_status_data_for_today(
-        user,
-        device,
-        last_raw_data,
-        as_of_time=status_created_at,
-    )
+    if min_status_interval_minutes is None:
+        min_status_interval_minutes = 10
+    min_status_interval_seconds = max(0, int(min_status_interval_minutes)) * 60
+
     if isinstance(raw_data, RawData):
-        raw_data = raw_data.data
+        normalized_raw_data = raw_data.data
+    else:
+        normalized_raw_data = raw_data
+
+    if status_processing_context is None:
+        status_processing_context = build_status_processing_context(
+            user,
+            device,
+            last_raw_data,
+            as_of_time=status_created_at,
+        )
+    else:
+        merge_raw_into_status_context(status_processing_context, normalized_raw_data)
+
+    existing_statuses = status_processing_context.get('existing_statuses', {})
     current_raw_data = (
-        (existing_statuses.get('lastToday', {}) or {}).get('raw')
-        or raw_data
+        status_processing_context.get('current_raw_data')
+        or normalized_raw_data
         or {}
     )
+    last_status_models_by_target = status_processing_context.setdefault(
+        'last_status_models_by_target',
+        {},
+    )
+
     for status_type in status_types:
         schema = status_type.translation_schema
         if schema is not None:
@@ -483,25 +612,16 @@ def update_user_and_device_statuses(
             validated_status_data = validated_data.get(status_type.name, {})
             if any(validated_status_data):
                 # create a new status if last once was created at least 10 minutes ago
-                last_status = existing_statuses.get('lastToday', {})
-                last_status = last_status.get(status_type.target_type)
+                last_status = last_status_models_by_target.get(status_type.target_type)
                 create_new = True
                 time_now = status_created_at
                 if last_status is not None:
-                    last_status = DeviceStatus.objects.filter(
-                        name=status_type.target_type,
-                        device=device,
-                        created_at__lte=time_now,
-                    ).order_by('-created_at').first()
-                    if last_status is not None:
-                        last_status_creation_time = last_status.created_at
-                        if (time_now - last_status_creation_time).seconds <= 600:
-                            create_new = False
-                    else:
-                        create_new = True
+                    last_status_creation_time = last_status.created_at
+                    if (time_now - last_status_creation_time).total_seconds() <= min_status_interval_seconds:
+                        create_new = False
                 else:
                     create_new = True
-                if not create_new and last_status is not None:
+                if not create_new and last_status is not None and not enforce_min_status_interval:
                     # Create copies of the dicts and remove energy field for comparison
                     last_validated_data = last_status.status.copy() if isinstance(last_status.status, dict) else {}
                     current_validated_data = validated_data.copy() if isinstance(validated_data, dict) else {}
@@ -528,14 +648,18 @@ def update_user_and_device_statuses(
                     create_new = True
                         
                 if create_new:
-                    status = DeviceStatus(
+                    status = create_device_status_with_timestamp(
                         name=status_type.target_type,
                         device=device,
-                        user=user if user is not None and user.is_authenticated else None,
-                        status=validated_data,
-                        created_at=time_now
+                        user=user,
+                        status_data=validated_data,
+                        created_at=time_now,
                     )
-                    status.save()
+                    record_status_in_context(
+                        status_processing_context,
+                        status_type.target_type,
+                        status,
+                    )
                 if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
                     other_data = device.other_data
                     if other_data is None:
@@ -564,8 +688,16 @@ def replay_stored_raw_data(
     end_time,
     user=None,
     clear_existing_statuses=True,
+    replay_status_interval_minutes=10,
 ):
     replay_start_time = get_local_day_start_utc(device, reference_time=start_time)
+    status_types = list(get_status_types_for_device(user, device) or [])
+    status_processing_context = {
+        'existing_statuses': {'firstToday': {}, 'lastToday': {}},
+        'last_status_models_by_target': {},
+        'current_raw_data': {},
+        'day_start_utc': replay_start_time,
+    }
     raw_data_queryset = RawData.objects.filter(
         device=device,
         data_arrival_time__gte=replay_start_time,
@@ -591,13 +723,28 @@ def replay_stored_raw_data(
             skipped_status_raw_count += 1
             continue
 
+        stored_weather_data = get_weather_data_cached(
+            device,
+            use_cache=False,
+            reference_time=raw_entry.data_arrival_time,
+            allow_fetch=False,
+            store_in_raw_data=False,
+        )
+        replay_context_data = {}
+        if stored_weather_data:
+            replay_context_data['weather'] = stored_weather_data
+
         update_user_and_device_statuses(
             user,
             device,
             raw_entry,
             raw_entry.data,
-            {},
+            replay_context_data,
             status_created_at=raw_entry.data_arrival_time,
+            status_types=status_types,
+            status_processing_context=status_processing_context,
+            min_status_interval_minutes=replay_status_interval_minutes,
+            enforce_min_status_interval=True,
         )
 
         if raw_entry.data_arrival_time >= start_time:
@@ -608,6 +755,7 @@ def replay_stored_raw_data(
         'replayed_raw_count': replayed_raw_count,
         'skipped_status_raw_count': skipped_status_raw_count,
         'deleted_status_count': deleted_status_count,
+        'replay_status_interval_minutes': replay_status_interval_minutes,
         'replay_start_time': replay_start_time,
         'start_time': start_time,
         'end_time': end_time,
