@@ -690,6 +690,7 @@ def replay_stored_raw_data(
     clear_existing_statuses=True,
     replay_status_interval_minutes=10,
     replay_target_types=None,
+    progress_callback=None,
 ):
     replay_start_time = get_local_day_start_utc(device, reference_time=start_time)
     status_types = list(get_status_types_for_device(user, device) or [])
@@ -711,6 +712,7 @@ def replay_stored_raw_data(
         data_arrival_time__gte=replay_start_time,
         data_arrival_time__lt=end_time,
     ).order_by('data_arrival_time', 'id')
+    total_raw_count = raw_data_queryset.count()
 
     deleted_status_count = 0
     if clear_existing_statuses:
@@ -723,6 +725,35 @@ def replay_stored_raw_data(
     processed_raw_count = 0
     replayed_raw_count = 0
     skipped_status_raw_count = 0
+
+    def emit_progress(phase='replaying', force=False, raw_entry=None):
+        if not callable(progress_callback):
+            return
+
+        if not force and processed_raw_count > 0 and processed_raw_count % 25 != 0:
+            return
+
+        if total_raw_count > 0:
+            progress_percent = min(99, int((processed_raw_count / total_raw_count) * 100))
+        else:
+            progress_percent = 99
+
+        progress_callback({
+            'phase': phase,
+            'processed_raw_count': processed_raw_count,
+            'replayed_raw_count': replayed_raw_count,
+            'skipped_status_raw_count': skipped_status_raw_count,
+            'deleted_status_count': deleted_status_count,
+            'total_raw_count': total_raw_count,
+            'current_raw_time': (
+                raw_entry.data_arrival_time.isoformat()
+                if raw_entry is not None and raw_entry.data_arrival_time is not None
+                else None
+            ),
+            'progress_percent': progress_percent,
+        })
+
+    emit_progress(phase='starting', force=True)
 
     for raw_entry in raw_data_queryset.iterator():
         processed_raw_count += 1
@@ -758,11 +789,16 @@ def replay_stored_raw_data(
         if raw_entry.data_arrival_time >= start_time:
             replayed_raw_count += 1
 
+        emit_progress(raw_entry=raw_entry)
+
+    emit_progress(phase='completed', force=True)
+
     return {
         'processed_raw_count': processed_raw_count,
         'replayed_raw_count': replayed_raw_count,
         'skipped_status_raw_count': skipped_status_raw_count,
         'deleted_status_count': deleted_status_count,
+        'total_raw_count': total_raw_count,
         'replay_status_interval_minutes': replay_status_interval_minutes,
         'replay_target_types': list(replay_target_types or []),
         'replay_start_time': replay_start_time,

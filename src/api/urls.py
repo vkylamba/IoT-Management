@@ -76,6 +76,10 @@ urlpatterns = [
         r'^device/reprocess-statuses/(?P<device_id>[\w.-]+)$',
         DeviceDetailsViewSet.as_view({'post': 'reprocess_statuses'})
     ),
+    re_path(
+        r'^device/reprocess-statuses/(?P<device_id>[\w.-]+)/(?P<job_id>[\w-]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_reprocess_status'})
+    ),
     # Document views
     re_path(
         r'^documents/by-device/(?P<device_id>[\w.-]+)$',

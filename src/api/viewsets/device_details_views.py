@@ -1,6 +1,9 @@
 import os
 import csv
 import logging
+import tempfile
+import threading
+import uuid
 from collections.abc import Iterable
 from datetime import datetime, time, timedelta
 
@@ -14,8 +17,10 @@ from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter,
                            UserDeviceType, DeviceType)
 from device_schemas.schema import translate_data_from_schema
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
+from django.db import close_old_connections
 from django.db.models import Q
 from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
@@ -31,6 +36,195 @@ from api.viewsets.common_utils import device_admin, is_device_admin
 PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
 logger = logging.getLogger('django')
+
+REPROCESS_JOB_STATUS_DIR = os.path.join(
+    tempfile.gettempdir(),
+    'iot-management-reprocess-jobs',
+)
+REPROCESS_JOB_STATUS_TTL_SECONDS = 6 * 60 * 60
+
+
+def _serialize_reprocess_job_value(value):
+    if isinstance(value, dict):
+        return {
+            str(key): _serialize_reprocess_job_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_serialize_reprocess_job_value(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _ensure_reprocess_job_status_dir():
+    os.makedirs(REPROCESS_JOB_STATUS_DIR, exist_ok=True)
+
+
+def _get_reprocess_job_status_path(job_id):
+    _ensure_reprocess_job_status_dir()
+    return os.path.join(REPROCESS_JOB_STATUS_DIR, f'{job_id}.json')
+
+
+def _load_reprocess_job_status(job_id):
+    status_path = _get_reprocess_job_status_path(job_id)
+    if not os.path.exists(status_path):
+        return None
+
+    if timezone.now().timestamp() - os.path.getmtime(status_path) > REPROCESS_JOB_STATUS_TTL_SECONDS:
+        try:
+            os.remove(status_path)
+        except OSError:
+            logger.warning('Failed to remove expired reprocess job state: %s', status_path)
+        return None
+
+    with open(status_path, 'r', encoding='utf-8') as handle:
+        return json.load(handle)
+
+
+def _write_reprocess_job_status(job_id, data):
+    status_path = _get_reprocess_job_status_path(job_id)
+    serialized_data = _serialize_reprocess_job_value({
+        **data,
+        'updated_at': timezone.now().isoformat(),
+    })
+    temp_path = f'{status_path}.tmp'
+    with open(temp_path, 'w', encoding='utf-8') as handle:
+        json.dump(serialized_data, handle)
+    os.replace(temp_path, status_path)
+    return serialized_data
+
+
+def _update_reprocess_job_status(job_id, patch):
+    current_data = _load_reprocess_job_status(job_id) or {}
+    current_data.update(patch)
+    return _write_reprocess_job_status(job_id, current_data)
+
+
+def _invalidate_device_static_data_cache(device, requested_device_id):
+    for cache_key in {requested_device_id, str(device.id), device.ip_address, device.alias}:
+        if cache_key:
+            cache.delete(f'device_static_data_{cache_key}')
+
+
+def _build_reprocess_response(
+    device,
+    replay_user,
+    mode,
+    status_interval_minutes,
+    target_types,
+    keep_existing_statuses,
+    result,
+):
+    return {
+        'message': f'Reprocessed statuses for {device.ip_address or device.id}.',
+        'device_id': str(device.id),
+        'device_identifier': device.ip_address or device.alias or str(device.id),
+        'mode': mode,
+        'status_interval_minutes': status_interval_minutes,
+        'target_types': target_types,
+        'keep_existing_statuses': keep_existing_statuses,
+        'user_id': str(replay_user.id) if replay_user is not None else None,
+        'processed_raw_count': result['processed_raw_count'],
+        'replayed_raw_count': result['replayed_raw_count'],
+        'skipped_status_raw_count': result['skipped_status_raw_count'],
+        'deleted_status_count': result['deleted_status_count'],
+        'total_raw_count': result.get('total_raw_count', 0),
+        'replay_start_time': result['replay_start_time'].isoformat(),
+        'start_time': result['start_time'].isoformat(),
+        'end_time': result['end_time'].isoformat(),
+    }
+
+
+def _run_reprocess_job(
+    job_id,
+    requested_device_id,
+    device_pk,
+    replay_user_id,
+    start_time,
+    end_time,
+    mode,
+    status_interval_minutes,
+    target_types,
+    keep_existing_statuses,
+):
+    close_old_connections()
+    try:
+        device = Device.objects.filter(pk=device_pk).first()
+        if device is None:
+            raise ValueError('Device not found.')
+
+        replay_user = None
+        if replay_user_id is not None:
+            replay_user = get_user_model().objects.filter(pk=replay_user_id).first()
+
+        _update_reprocess_job_status(job_id, {
+            'status': 'running',
+            'started_at': timezone.now().isoformat(),
+            'message': 'Replay started.',
+            'progress_percent': 0,
+        })
+
+        def on_progress(progress):
+            total_raw_count = progress.get('total_raw_count') or 0
+            processed_raw_count = progress.get('processed_raw_count') or 0
+            progress_message = f'Processed {processed_raw_count} of {total_raw_count} raw entries.'
+            if progress.get('current_raw_time'):
+                progress_message = f"{progress_message} Current raw time: {progress['current_raw_time']}"
+
+            _update_reprocess_job_status(job_id, {
+                'status': 'running',
+                'message': progress_message,
+                'progress_percent': progress.get('progress_percent', 0),
+                'progress': progress,
+            })
+
+        result = replay_stored_raw_data(
+            device=device,
+            start_time=start_time,
+            end_time=end_time,
+            user=replay_user,
+            clear_existing_statuses=not keep_existing_statuses,
+            replay_status_interval_minutes=status_interval_minutes,
+            replay_target_types=target_types,
+            progress_callback=on_progress,
+        )
+
+        _invalidate_device_static_data_cache(device, requested_device_id)
+        response_data = _build_reprocess_response(
+            device=device,
+            replay_user=replay_user,
+            mode=mode,
+            status_interval_minutes=status_interval_minutes,
+            target_types=target_types,
+            keep_existing_statuses=keep_existing_statuses,
+            result=result,
+        )
+        _update_reprocess_job_status(job_id, {
+            'status': 'completed',
+            'message': response_data['message'],
+            'progress_percent': 100,
+            'progress': {
+                'phase': 'completed',
+                'processed_raw_count': response_data['processed_raw_count'],
+                'replayed_raw_count': response_data['replayed_raw_count'],
+                'skipped_status_raw_count': response_data['skipped_status_raw_count'],
+                'deleted_status_count': response_data['deleted_status_count'],
+                'total_raw_count': response_data['total_raw_count'],
+            },
+            'result': response_data,
+            'finished_at': timezone.now().isoformat(),
+        })
+    except Exception as exc:
+        logger.exception('Failed to complete replay job %s', job_id)
+        _update_reprocess_job_status(job_id, {
+            'status': 'failed',
+            'message': 'Replay failed.',
+            'error': str(exc),
+            'finished_at': timezone.now().isoformat(),
+        })
+    finally:
+        close_old_connections()
 
 class HeartbeatViewSet(viewsets.ViewSet):
     """
@@ -250,22 +444,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         replay_user = getattr(getattr(device, 'device_type', None), 'user', None) or request.user
         keep_existing_statuses = bool(payload.get('keep_existing_statuses', False))
 
-        result = replay_stored_raw_data(
-            device=device,
-            start_time=start_time,
-            end_time=end_time,
-            user=replay_user,
-            clear_existing_statuses=not keep_existing_statuses,
-            replay_status_interval_minutes=status_interval_minutes,
-            replay_target_types=target_types,
-        )
-
-        for cache_key in {device_id, str(device.id), device.ip_address, device.alias}:
-            if cache_key:
-                cache.delete(f'device_static_data_{cache_key}')
-
-        return Response({
-            'message': f'Reprocessed statuses for {device.ip_address or device.id}.',
+        job_id = uuid.uuid4().hex
+        queued_job = _write_reprocess_job_status(job_id, {
+            'job_id': job_id,
+            'status': 'queued',
+            'message': 'Replay queued.',
+            'progress_percent': 0,
             'device_id': str(device.id),
             'device_identifier': device.ip_address or device.alias or str(device.id),
             'mode': mode,
@@ -273,14 +457,50 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'target_types': target_types,
             'keep_existing_statuses': keep_existing_statuses,
             'user_id': str(replay_user.id) if replay_user is not None else None,
-            'processed_raw_count': result['processed_raw_count'],
-            'replayed_raw_count': result['replayed_raw_count'],
-            'skipped_status_raw_count': result['skipped_status_raw_count'],
-            'deleted_status_count': result['deleted_status_count'],
-            'replay_start_time': result['replay_start_time'].isoformat(),
-            'start_time': result['start_time'].isoformat(),
-            'end_time': result['end_time'].isoformat(),
+            'start_time': start_time.isoformat(),
+            'end_time': end_time.isoformat(),
+            'created_at': timezone.now().isoformat(),
+            'progress': {
+                'phase': 'queued',
+                'processed_raw_count': 0,
+                'replayed_raw_count': 0,
+                'skipped_status_raw_count': 0,
+                'deleted_status_count': 0,
+                'total_raw_count': 0,
+            },
         })
+
+        replay_thread = threading.Thread(
+            target=_run_reprocess_job,
+            kwargs={
+                'job_id': job_id,
+                'requested_device_id': device_id,
+                'device_pk': device.pk,
+                'replay_user_id': replay_user.id if replay_user is not None else None,
+                'start_time': start_time,
+                'end_time': end_time,
+                'mode': mode,
+                'status_interval_minutes': status_interval_minutes,
+                'target_types': target_types,
+                'keep_existing_statuses': keep_existing_statuses,
+            },
+            daemon=True,
+        )
+        replay_thread.start()
+
+        return Response(queued_job, status=status.HTTP_202_ACCEPTED)
+
+    @device_admin
+    def get_reprocess_status(self, request, device_id, job_id):
+        device, _ = is_device_admin(request.user, device_id)
+        job_data = _load_reprocess_job_status(job_id)
+        if job_data is None or device is None or job_data.get('device_id') != str(device.id):
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={'error': 'Replay job not found.'}
+            )
+
+        return Response(job_data)
 
     def get_status_type_preview(self, request, device_id):
         if device_id in [None, '', 'None', 'null', 'NULL']:
