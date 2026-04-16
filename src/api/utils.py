@@ -689,9 +689,17 @@ def replay_stored_raw_data(
     user=None,
     clear_existing_statuses=True,
     replay_status_interval_minutes=10,
+    replay_target_types=None,
 ):
     replay_start_time = get_local_day_start_utc(device, reference_time=start_time)
     status_types = list(get_status_types_for_device(user, device) or [])
+    if replay_target_types:
+        allowed_target_types = set(replay_target_types)
+        status_types = [
+            status_type
+            for status_type in status_types
+            if status_type.target_type in allowed_target_types
+        ]
     status_processing_context = {
         'existing_statuses': {'firstToday': {}, 'lastToday': {}},
         'last_status_models_by_target': {},
@@ -756,6 +764,7 @@ def replay_stored_raw_data(
         'skipped_status_raw_count': skipped_status_raw_count,
         'deleted_status_count': deleted_status_count,
         'replay_status_interval_minutes': replay_status_interval_minutes,
+        'replay_target_types': list(replay_target_types or []),
         'replay_start_time': replay_start_time,
         'start_time': start_time,
         'end_time': end_time,

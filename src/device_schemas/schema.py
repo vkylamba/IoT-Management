@@ -118,6 +118,7 @@ def translate_data_from_schema(
                     data,
                     existing_statuses,
                     data_cache,
+                    current_target_fields=data_fields,
                     include_debug=include_debug,
                 )
                 if include_debug:
@@ -173,6 +174,7 @@ def translate_field_value(
     data: Dict,
     existing_statuses: Dict = None,
     data_cache: Dict = None,
+    current_target_fields: Dict = None,
     include_debug: bool = False,
 ):
 
@@ -223,6 +225,7 @@ def translate_field_value(
                 multiplier,
                 offset,
                 existing_statuses,
+                current_target_fields=current_target_fields,
                 include_debug=include_debug,
             )
             if include_debug:
@@ -270,6 +273,7 @@ def extract_calculated_data(
     data: Dict,
     multiplier, offset,
     existing_statuses: Dict = None,
+    current_target_fields: Dict = None,
     include_debug: bool = False,
 ):
     def _normalize_snapshot(value):
@@ -301,6 +305,7 @@ def extract_calculated_data(
     first_status_data = _resolve_status_scope(first_status_root, target_name)
     first_raw_data = _normalize_snapshot(first_today.get("raw", {}))
     last_raw_data = _normalize_snapshot(last_today.get("raw", {}))
+    current_target_fields = _normalize_snapshot(current_target_fields)
     for field_or_operator in fields_and_operators:
         operator = None
         field_name = None
@@ -330,7 +335,11 @@ def extract_calculated_data(
                 })
         elif field_or_operator.startswith("changeToday__"):
             field_name = field_or_operator.replace("changeToday__", "")
+            value_now_source = "current_raw"
             value_now = extract_data(field_name, data, multiplier, offset)
+            if value_now is None:
+                value_now = extract_data(field_name, current_target_fields, multiplier, offset)
+                value_now_source = "current_status_fields"
             value_first = extract_data(field_name, first_raw_data, 1, 0)
             value_first_source = "first_raw"
             if value_first is None:
@@ -353,7 +362,7 @@ def extract_calculated_data(
                     "value_now": value_now,
                     "value_first": value_first,
                     "value": next_value,
-                    "value_now_source": "current_raw",
+                    "value_now_source": value_now_source,
                     "value_first_source": value_first_source,
                 })
         elif "." in field_or_operator:
@@ -362,7 +371,16 @@ def extract_calculated_data(
             operator = field_or_operator
 
         if field_name is not None and not value_already_fetched:
-            next_value = extract_data(field_name, data, multiplier, offset)
+            field_source = "current_raw"
+            if field_name.startswith("."):
+                current_field_name = field_name[1:]
+                next_value = extract_data(current_field_name, current_target_fields, multiplier, offset)
+                field_source = "current_status_fields"
+                if next_value is None:
+                    next_value = extract_data(field_name, data, multiplier, offset)
+                    field_source = "current_raw"
+            else:
+                next_value = extract_data(field_name, data, multiplier, offset)
             value_already_fetched = True
             if include_debug:
                 resolved_tokens.append({
@@ -370,6 +388,7 @@ def extract_calculated_data(
                     "kind": "rawField",
                     "field": field_name,
                     "value": next_value,
+                    "source": field_source,
                 })
 
         if value_already_fetched:
@@ -399,6 +418,7 @@ def extract_calculated_data(
                 "expression": original_expression,
                 "resolved_expression": equation,
                 "resolved_tokens": resolved_tokens,
+                "current_status_fields": current_target_fields,
                 "first_status_scope": first_status_data,
                 "last_status_scope": last_status_data,
             },

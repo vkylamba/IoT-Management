@@ -157,6 +157,39 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         return interval_minutes
 
+    def _get_reprocess_target_types(self, payload):
+        target_types = payload.get('target_types')
+        if target_types in [None, '', []]:
+            return [
+                StatusType.STATUS_TARGET_DEVICE,
+                StatusType.STATUS_TARGET_USER,
+                StatusType.STATUS_TARGET_METER,
+                StatusType.STATUS_TARGET_ALARM,
+                StatusType.STATUS_TARGET_REPORT,
+            ]
+
+        if not isinstance(target_types, list):
+            raise ValueError('Target types must be a list.')
+
+        allowed_target_types = {
+            StatusType.STATUS_TARGET_DEVICE,
+            StatusType.STATUS_TARGET_USER,
+            StatusType.STATUS_TARGET_METER,
+            StatusType.STATUS_TARGET_ALARM,
+            StatusType.STATUS_TARGET_REPORT,
+        }
+        normalized_target_types = []
+        for target_type in target_types:
+            if target_type not in allowed_target_types:
+                raise ValueError(f'Invalid target type: {target_type}')
+            if target_type not in normalized_target_types:
+                normalized_target_types.append(target_type)
+
+        if not normalized_target_types:
+            raise ValueError('Choose at least one target type to reprocess.')
+
+        return normalized_target_types
+
     def _parse_reprocess_datetime(self, value):
         if not value:
             return None
@@ -207,6 +240,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         try:
             start_time, end_time, mode = self._get_reprocess_window(device, payload)
             status_interval_minutes = self._get_reprocess_interval_minutes(payload)
+            target_types = self._get_reprocess_target_types(payload)
         except ValueError as exc:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -223,6 +257,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             user=replay_user,
             clear_existing_statuses=not keep_existing_statuses,
             replay_status_interval_minutes=status_interval_minutes,
+            replay_target_types=target_types,
         )
 
         for cache_key in {device_id, str(device.id), device.ip_address, device.alias}:
@@ -235,6 +270,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'device_identifier': device.ip_address or device.alias or str(device.id),
             'mode': mode,
             'status_interval_minutes': status_interval_minutes,
+            'target_types': target_types,
             'keep_existing_statuses': keep_existing_statuses,
             'user_id': str(replay_user.id) if replay_user is not None else None,
             'processed_raw_count': result['processed_raw_count'],
