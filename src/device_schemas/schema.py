@@ -105,33 +105,65 @@ def translate_data_from_schema(
         least_one_field_list = translator_config.get("least_one_field_list", [])
         required_fields_check = len(required_fields) > 0 or len(least_one_field_list) > 0
         data_fields = {}
+        resolved_field_details = {}
         data_valid = True
         all_required_fields_exist = len(required_fields) > 0
         at_least_one_required_field_exist = False
         if isinstance(target_fields, list):
+            target_field_configs = {
+                target_field.get("target"): target_field
+                for target_field in target_fields
+                if isinstance(target_field, dict) and target_field.get("target")
+            }
+            resolving_fields = set()
+
+            def resolve_target_field(target_field_name):
+                if target_field_name in data_fields:
+                    return data_fields.get(target_field_name)
+
+                target_field = target_field_configs.get(target_field_name)
+                if target_field is None or target_field_name in resolving_fields:
+                    return None
+
+                resolving_fields.add(target_field_name)
+                try:
+                    translated_field = translate_field_value(
+                        schema_target,
+                        target_name,
+                        target_field,
+                        data,
+                        existing_statuses,
+                        data_cache,
+                        current_target_fields=data_fields,
+                        target_field_configs=target_field_configs,
+                        field_resolver=resolve_target_field,
+                        include_debug=include_debug,
+                    )
+                    if include_debug:
+                        field_value = translated_field.get("value")
+                        data_fields[target_field_name] = field_value
+                        resolved_field_details[target_field_name] = {
+                            "status_name": target_name,
+                            "status_target": schema_target,
+                            "key": target_field_name,
+                            "input": translated_field.get("input", {}),
+                            "output": field_value,
+                        }
+                    else:
+                        data_fields[target_field_name] = translated_field
+                    return data_fields.get(target_field_name)
+                finally:
+                    resolving_fields.discard(target_field_name)
+
             for target_field in target_fields:
-                target_field_name = target_field.get("target")
-                translated_field = translate_field_value(
-                    schema_target,
-                    target_name,
-                    target_field,
-                    data,
-                    existing_statuses,
-                    data_cache,
-                    current_target_fields=data_fields,
-                    include_debug=include_debug,
-                )
-                if include_debug:
-                    data_fields[target_field_name] = translated_field.get("value")
-                    field_details.append({
-                        "status_name": target_name,
-                        "status_target": schema_target,
-                        "key": target_field_name,
-                        "input": translated_field.get("input", {}),
-                        "output": translated_field.get("value"),
-                    })
-                else:
-                    data_fields[target_field_name] = translated_field
+                resolve_target_field(target_field.get("target"))
+
+            if include_debug:
+                for target_field in target_fields:
+                    target_field_name = target_field.get("target")
+                    field_detail = resolved_field_details.get(target_field_name)
+                    if field_detail is not None:
+                        field_details.append(field_detail)
         if isinstance(least_one_field_list, list):
             for required_field in least_one_field_list:
                 if data_fields.get(required_field) is not None:
@@ -175,6 +207,8 @@ def translate_field_value(
     existing_statuses: Dict = None,
     data_cache: Dict = None,
     current_target_fields: Dict = None,
+    target_field_configs: Dict = None,
+    field_resolver=None,
     include_debug: bool = False,
 ):
 
@@ -226,6 +260,8 @@ def translate_field_value(
                 offset,
                 existing_statuses,
                 current_target_fields=current_target_fields,
+                target_field_configs=target_field_configs,
+                field_resolver=field_resolver,
                 include_debug=include_debug,
             )
             if include_debug:
@@ -274,6 +310,8 @@ def extract_calculated_data(
     multiplier, offset,
     existing_statuses: Dict = None,
     current_target_fields: Dict = None,
+    target_field_configs: Dict = None,
+    field_resolver=None,
     include_debug: bool = False,
 ):
     def _normalize_snapshot(value):
@@ -340,6 +378,15 @@ def extract_calculated_data(
             if value_now is None:
                 value_now = extract_data(field_name, current_target_fields, multiplier, offset)
                 value_now_source = "current_status_fields"
+            if (
+                value_now is None
+                and callable(field_resolver)
+                and field_name != target_field_name
+                and field_name in (target_field_configs or {})
+            ):
+                field_resolver(field_name)
+                value_now = extract_data(field_name, current_target_fields, multiplier, offset)
+                value_now_source = "current_status_fields"
             value_first = extract_data(field_name, first_raw_data, 1, 0)
             value_first_source = "first_raw"
             if value_first is None:
@@ -376,6 +423,15 @@ def extract_calculated_data(
                 current_field_name = field_name[1:]
                 next_value = extract_data(current_field_name, current_target_fields, multiplier, offset)
                 field_source = "current_status_fields"
+                if (
+                    next_value is None
+                    and callable(field_resolver)
+                    and current_field_name != target_field_name
+                    and current_field_name in (target_field_configs or {})
+                ):
+                    field_resolver(current_field_name)
+                    next_value = extract_data(current_field_name, current_target_fields, multiplier, offset)
+                    field_source = "current_status_fields"
                 if next_value is None:
                     next_value = extract_data(field_name, data, multiplier, offset)
                     field_source = "current_raw"
