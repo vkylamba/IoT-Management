@@ -261,6 +261,7 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
     )
     raw_data_today = RawData.objects.filter(
         device=device,
+        data_type='meters-data',
         data_arrival_time__gte=day_start_utc
     )
     if as_of_time is not None:
