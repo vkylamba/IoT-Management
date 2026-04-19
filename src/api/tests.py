@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase
 
-from device_schemas.schema import translate_data_from_schema
+from device_schemas.schema import (get_status_expression_helper_content,
+								   translate_data_from_schema)
 
 
 class SchemaTranslationTests(SimpleTestCase):
@@ -182,3 +183,17 @@ class SchemaTranslationTests(SimpleTestCase):
 			1 + 100 * 120 / 3600000,
 			places=6,
 		)
+
+	def test_status_expression_helper_content_lists_supported_sections(self):
+		helper_data = get_status_expression_helper_content({
+			"meter_0": {"power": 100, "powerFactor": 0.95},
+			"dht": {"temperature": 25},
+		})
+
+		self.assertEqual(helper_data["summary"]["title"], "Status Expression Helper")
+		self.assertTrue(any(item["value"] == "device" for item in helper_data["status_targets"]))
+		self.assertTrue(any(item["value"] == "calculated" for item in helper_data["field_types"]))
+		self.assertTrue(any(item["syntax"] == "lastValue__energy_generated" for item in helper_data["expression_sources"]))
+		self.assertTrue(any(item["name"] == "firstToday" for item in helper_data["history_context"]))
+		self.assertIn("meter_0.power", helper_data["available_raw_fields"])
+		self.assertIn("dht.temperature", helper_data["available_raw_fields"])

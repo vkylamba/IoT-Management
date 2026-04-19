@@ -15,7 +15,8 @@ from api.utils import get_existing_status_data_for_today, get_or_create_user_dev
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter, RawData, StatusType,
                            UserDeviceType, DeviceType)
-from device_schemas.schema import translate_data_from_schema
+from device_schemas.schema import (get_status_expression_helper_content,
+                                   translate_data_from_schema)
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -501,6 +502,31 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             )
 
         return Response(job_data)
+
+    def get_status_type_helper(self, request):
+        device_id = request.query_params.get('device_id')
+        latest_raw = None
+        raw_data_sample = {}
+
+        if device_id not in [None, '', 'None', 'null', 'NULL']:
+            device, _ = is_device_admin(request.user, device_id)
+            if device is None:
+                return Response(
+                    status=status.HTTP_404_NOT_FOUND,
+                    data={"error": "Device not found"}
+                )
+            latest_raw = RawData.objects.filter(device=device).order_by('-data_arrival_time').first()
+            raw_data_sample = (latest_raw.data if latest_raw is not None else {}) or {}
+
+        helper_content = get_status_expression_helper_content(raw_data_sample)
+        helper_content['device_context'] = {
+            'device_id': device_id,
+            'has_device_context': bool(device_id),
+            'latest_raw_time': latest_raw.data_arrival_time if latest_raw is not None else None,
+            'available_data_cache_keys': ['weather'],
+        }
+
+        return Response(helper_content)
 
     def get_status_type_preview(self, request, device_id):
         if device_id in [None, '', 'None', 'null', 'NULL']:

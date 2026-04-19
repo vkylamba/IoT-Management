@@ -33,6 +33,160 @@ for translator_file in translator_files:
     file_p.close()
 
 
+def collect_data_paths(data, prefix="", fields=None):
+    if fields is None:
+        fields = set()
+
+    if not isinstance(data, dict):
+        return [] if prefix == "" else sorted(fields)
+
+    for key, value in data.items():
+        full_path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            collect_data_paths(value, full_path, fields)
+        elif isinstance(value, (int, float, str, bool)) or value is None:
+            fields.add(full_path)
+
+    return sorted(fields)
+
+
+def get_status_expression_helper_content(raw_data_sample=None):
+    raw_field_paths = collect_data_paths(raw_data_sample or {})
+    return {
+        "summary": {
+            "title": "Status Expression Helper",
+            "description": "Translation schemas create calculated status payloads from current raw data, cached helper data, and previously stored status snapshots.",
+            "expression_rules": [
+                "Use space-separated expressions. Example: meter_1.power * 120 / 3600000",
+                "Calculated fields can reuse earlier or later fields in the same status with .field_name.",
+                "Expressions follow the token-based evaluator used by translate_data_from_schema.",
+            ],
+        },
+        "status_targets": [
+            {
+                "value": "device",
+                "label": "Device",
+                "description": "Stores device-wide derived values such as power, energy, state, or weather-linked status.",
+            },
+            {
+                "value": "user",
+                "label": "User",
+                "description": "Stores user-level summary values derived from the device stream.",
+            },
+            {
+                "value": "meter",
+                "label": "Meter",
+                "description": "Stores meter-specific derived output when the status represents a meter target.",
+            },
+            {
+                "value": "alarm",
+                "label": "Alarm",
+                "description": "Stores alarm-specific evaluation output and trigger state.",
+            },
+            {
+                "value": "report",
+                "label": "Report",
+                "description": "Stores report-style aggregate status values.",
+            },
+        ],
+        "field_types": [
+            {
+                "value": "raw",
+                "description": "Reads a field directly from the current raw payload.",
+                "example": {
+                    "target": "load_status",
+                    "type": "raw",
+                    "source": "meter_1.power",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+            },
+            {
+                "value": "calculated",
+                "description": "Evaluates an expression using raw fields, sibling fields, and history helpers.",
+                "example": {
+                    "target": "energy_consumed",
+                    "type": "calculated",
+                    "source": "lastValue__energy_consumed + meter_1.power * 120 / 3600000",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+            },
+            {
+                "value": "dataCache",
+                "description": "Reads helper data injected outside the raw payload, such as weather.",
+                "example": {
+                    "target": "weather",
+                    "type": "dataCache",
+                    "source": "weather",
+                    "multiplier": 1,
+                    "offset": 0,
+                },
+            },
+        ],
+        "expression_sources": [
+            {
+                "name": "Current raw field",
+                "syntax": "meter_1.power",
+                "description": "Reads from the raw payload currently being processed.",
+                "example": "meter_2.power - meter_1.power",
+            },
+            {
+                "name": "Current sibling field",
+                "syntax": ".energy_consumed",
+                "description": "Reuses another field from the same status payload. If needed, the field is resolved on demand.",
+                "example": ".energy_consumed + meter_0.power * 120 / 3600000",
+            },
+            {
+                "name": "Last value helper",
+                "syntax": "lastValue__energy_generated",
+                "description": "Reads the latest stored value from the last status snapshot for the same target, then falls back to last raw data when available.",
+                "example": "lastValue__energy_generated + meter_2.power * 120 / 3600000",
+            },
+            {
+                "name": "Daily delta helper",
+                "syntax": "changeToday__energy_consumed",
+                "description": "Uses the current value minus the first value from today. Current value can come from raw data or a sibling field; first value comes from the firstToday snapshot.",
+                "example": "changeToday__energy_revenue",
+            },
+            {
+                "name": "Data cache helper",
+                "syntax": "type=dataCache, source=weather",
+                "description": "Reads enriched helper data passed in separately from the raw payload.",
+                "example": "weather",
+            },
+        ],
+        "supported_operators": [
+            {"operator": "+", "description": "Addition"},
+            {"operator": "-", "description": "Subtraction or negative literals such as -1"},
+            {"operator": "*", "description": "Multiplication"},
+            {"operator": "/", "description": "Division"},
+            {"operator": ">, <, >=, <=, ==, !=", "description": "Comparisons"},
+            {"operator": "and, or", "description": "Boolean combinations"},
+            {"operator": "if ... else ...", "description": "Inline conditional expressions"},
+            {"operator": "quoted strings", "description": "String literals such as \"Exporting\""},
+        ],
+        "history_context": [
+            {
+                "name": "firstToday",
+                "description": "The first status/raw snapshot for the selected device-local day. Used internally by changeToday__ helpers and shown in preview debug context.",
+            },
+            {
+                "name": "lastToday",
+                "description": "The latest status/raw snapshot available before the current calculation. Used internally by lastValue__ helpers and preview debug context.",
+            },
+        ],
+        "notes": [
+            "If you want cumulative values across updates or replay, use lastValue__field_name instead of .field_name.",
+            "Use .field_name when you want to build one field from another field inside the same status payload.",
+            "changeToday__field_name is safest when the base field is also defined in the same status or already stored in previous snapshots.",
+            "dataCache fields are not expression operators; they are field definitions that read from helper data such as weather.",
+        ],
+        "available_raw_fields": raw_field_paths,
+        "raw_data_sample": raw_data_sample or {},
+    }
+
+
 def validate_data_schema(device_type: str, data: Dict, existing_statuses: Dict, data_cache: Dict = None) -> Dict:
 
     schema = DEVICE_SCHEMAS.get(device_type)
