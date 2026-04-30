@@ -11,7 +11,7 @@ import pytz
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
-from api.utils import get_existing_status_data_for_today, get_or_create_user_device, merge_device_other_data, process_raw_data, replay_stored_raw_data
+from api.utils import get_existing_status_data_for_today, get_or_create_user_device, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from device.clickhouse_models import DerivedData
 from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter, RawData, StatusType,
                            UserDeviceType, DeviceType)
@@ -22,11 +22,14 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
 from django.db import close_old_connections
+from django.db.utils import DatabaseError
 from django.db.models import Q
 from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from device.models.ota import DeviceConfig
+from event.models import DeviceEvent, EventHistory, EventType
+from notification.models import Notification
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -422,6 +425,347 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         end_local = start_local + timedelta(days=1)
         return start_local.astimezone(pytz.utc), end_local.astimezone(pytz.utc), 'day'
 
+    def _resolve_user_device(self, user, device_id):
+        device = user.device_list(return_objects=True, device_id=device_id)
+        if isinstance(device, list):
+            filtered_device = [x for x in device if x.ip_address == device_id]
+            if len(filtered_device) == 0:
+                return None
+            return filtered_device[0]
+        return device
+
+    def _get_alarm_type_ids(self):
+        try:
+            return list(
+                EventType.objects.filter(
+                    status_key__isnull=False,
+                    operator__isnull=False,
+                    target_value__isnull=False,
+                ).values_list('id', flat=True)
+            )
+        except DatabaseError:
+            try:
+                event_types = EventType.objects.all().only('id', 'status_key', 'operator', 'target_value')
+                return [
+                    event_type.id
+                    for event_type in event_types
+                    if event_type.status_key not in [None, '']
+                    and event_type.operator not in [None, '']
+                    and event_type.target_value not in [None, '']
+                ]
+            except Exception:
+                logger.exception('Failed to resolve alarm event type ids.')
+                return []
+
+    def _get_event_types_map(self, event_type_ids):
+        if len(event_type_ids) == 0:
+            return {}
+        try:
+            event_types = EventType.objects.filter(id__in=event_type_ids)
+            return {event_type.id: event_type for event_type in event_types}
+        except Exception:
+            logger.exception('Failed to resolve event type map with id__in; falling back to in-memory filtering.')
+            event_type_ids_set = set(event_type_ids)
+            try:
+                event_types = EventType.objects.all().only('id', 'name', 'status_key', 'operator', 'target_value')
+                return {
+                    event_type.id: event_type
+                    for event_type in event_types
+                    if event_type.id in event_type_ids_set
+                }
+            except Exception:
+                logger.exception('Failed to resolve event type map for alarms.')
+                return {}
+
+    def _get_alarm_events_for_device(self, device, active_only=None):
+        alarm_type_ids = self._get_alarm_type_ids()
+        if len(alarm_type_ids) == 0:
+            return [], {}
+
+        device_id = getattr(device, 'id', None)
+        if device_id is None:
+            return [], {}
+
+        try:
+            alarms = list(DeviceEvent.objects.all())
+        except Exception:
+            logger.exception('Failed to query device events for alarm resolution.')
+            return [], {}
+
+        alarm_type_ids_set = set(alarm_type_ids)
+        alarms = [
+            alarm
+            for alarm in alarms
+            if getattr(alarm, 'device_id', None) == device_id
+            and alarm.typ_id in alarm_type_ids_set
+            and (active_only is not True or alarm.active is True)
+        ]
+        alarms = sorted(
+            alarms,
+            key=lambda alarm: alarm.created_at or timezone.now(),
+            reverse=True,
+        )
+
+        event_type_ids = [alarm.typ_id for alarm in alarms if alarm.typ_id is not None]
+        event_types_map = self._get_event_types_map(event_type_ids)
+        return alarms, event_types_map
+
+    def _get_device_alarm_by_id(self, device, alarm_id):
+        device_id = getattr(device, 'id', None)
+        if device_id is None:
+            return None
+
+        normalized_alarm_id = str(alarm_id)
+
+        try:
+            alarms = DeviceEvent.objects.all()
+        except Exception:
+            logger.exception('Failed to query device events for alarm lookup.')
+            return None
+
+        for alarm in alarms:
+            if str(getattr(alarm, 'id', None)) == normalized_alarm_id and getattr(alarm, 'device_id', None) == device_id:
+                return alarm
+        return None
+
+    def _serialize_status_alarm(self, device_event, event_type=None):
+        event_type = event_type or EventType.objects.filter(id=device_event.typ_id).first()
+        if event_type is None:
+            return None
+
+        channels = [
+            action.get('channel')
+            for action in (device_event.actions_config or [])
+            if action.get('channel')
+        ]
+        channels = list(dict.fromkeys(channels))
+
+        return {
+            'id': str(device_event.id),
+            'name': event_type.name,
+            'status_key': event_type.status_key,
+            'operator': event_type.operator,
+            'target_value': event_type.target_value,
+            'channels': channels,
+            'active': device_event.active,
+            'last_trigger_time': (
+                device_event.last_trigger_time.strftime(settings.TIME_FORMAT_STRING)
+                if device_event.last_trigger_time is not None
+                else None
+            ),
+            'created_at': device_event.created_at.strftime(settings.TIME_FORMAT_STRING),
+        }
+
+    def _serialize_status_alarm_history(self, event_history, event_types_map=None):
+        result = event_history.result or {}
+        channels = result.get('channels') or []
+        event_types_map = event_types_map or {}
+
+        event_type = event_types_map.get(event_history.device_event.typ_id)
+        if event_type is None:
+            event_type = EventType.objects.filter(id=event_history.device_event.typ_id).first()
+
+        if event_type is None:
+            return None
+
+        return {
+            'id': str(event_history.id),
+            'alarm_id': str(event_history.device_event.id),
+            'alarm_name': event_type.name,
+            'status_key': event_type.status_key,
+            'operator': event_type.operator,
+            'target_value': event_type.target_value,
+            'status_value': result.get('status_value'),
+            'triggered_at': event_history.trigger_time.strftime(settings.TIME_FORMAT_STRING),
+            'channels': channels,
+            'message': result.get('message'),
+            'status_snapshot': result.get('status_snapshot'),
+        }
+
+    def _build_alarm_actions_config(self, payload, owner=None):
+        channels = payload.get('channels', [])
+        if not isinstance(channels, list):
+            channels = []
+
+        default_title = payload.get('template_title') or 'Device Alarm'
+        default_text = payload.get('template_text') or '{{device}}: {{status_key}} {{operator}} {{target_value}} ({{status_value}})'
+
+        actions = []
+        for channel in channels:
+            method = None
+            if channel == EventType.ALARM_CHANNEL_IN_APP:
+                method = Notification.PUSH_NOTIFICATION
+            elif channel == EventType.ALARM_CHANNEL_TELEGRAM:
+                method = Notification.TELEGRAM_BOT
+            elif channel == EventType.ALARM_CHANNEL_EMAIL:
+                method = Notification.EMAIL
+
+            if method is None:
+                continue
+
+            template = Notification.objects.create(
+                name=f'Alarm template: {channel}',
+                user=owner,
+                method=method,
+                title=default_title,
+                text=default_text,
+                emails=(payload.get('emails') or '').strip() or None,
+                data={
+                    'template': True,
+                    'channel': channel,
+                },
+            )
+
+            actions.append({
+                'channel': channel,
+                'method': method,
+                'template_id': str(template.id),
+                'emails': (payload.get('emails') or '').strip() or None,
+                'telegram_chat_ids': (payload.get('telegram_chat_ids') or '').strip() or None,
+            })
+
+        return actions
+
+    def get_device_alarms(self, request, device_id):
+        device = self._resolve_user_device(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        alarms, event_types_map = self._get_alarm_events_for_device(device)
+        serialized_alarms = []
+        for alarm in alarms:
+            serialized_alarm = self._serialize_status_alarm(
+                alarm,
+                event_type=event_types_map.get(alarm.typ_id),
+            )
+            if serialized_alarm is not None:
+                serialized_alarms.append(serialized_alarm)
+        return Response(serialized_alarms)
+
+    def create_device_alarm(self, request, device_id):
+        device = self._resolve_user_device(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        payload = request.data or {}
+        alarm_id = payload.get('id')
+        alarm_type_ids = set(self._get_alarm_type_ids())
+
+        alarm = None
+        if alarm_id:
+            alarm = self._get_device_alarm_by_id(device, alarm_id)
+            if alarm is not None and alarm.typ_id not in alarm_type_ids:
+                alarm = None
+            if alarm is None:
+                return Response({'error': 'Alarm not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            alarm = DeviceEvent(device=device, user=request.user)
+
+        status_key = (payload.get('status_key') or '').strip()
+        target_value = str(payload.get('target_value') or '').strip()
+        operator = (payload.get('operator') or EventType.ALARM_OPERATOR_EQ).strip()
+
+        if status_key == '' or target_value == '':
+            return Response(
+                {'error': 'status_key and target_value are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_operators = {x[0] for x in EventType.ALARM_OPERATOR_CHOICES}
+        if operator not in allowed_operators:
+            return Response({'error': 'Invalid operator.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if alarm.typ_id is None:
+            alarm_type = EventType(
+                name=(payload.get('name') or '').strip() or f'{status_key} {operator} {target_value}',
+                description='Device status alarm type',
+                trigger_type='Data',
+                equation='status expression',
+                is_alarm_type=True,
+            )
+        else:
+            alarm_type = alarm.typ
+
+        alarm_type.name = (payload.get('name') or '').strip() or f'{status_key} {operator} {target_value}'
+        alarm_type.status_key = status_key
+        alarm_type.operator = operator
+        alarm_type.target_value = target_value
+        alarm_type.is_alarm_type = True
+        alarm_type.trigger_type = 'Data'
+        alarm_type.description = 'Device status alarm type'
+        alarm_type.save()
+
+        alarm.typ = alarm_type
+        alarm.actions_config = self._build_alarm_actions_config(payload, owner=request.user)
+        alarm.active = bool(payload.get('active', True))
+        alarm.save()
+
+        invalidate_alarm_evaluation_cache([alarm_type.id])
+
+        return Response(self._serialize_status_alarm(alarm, event_type=alarm_type))
+
+    def delete_device_alarm(self, request, device_id, alarm_id):
+        device = self._resolve_user_device(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        alarm_type_ids = set(self._get_alarm_type_ids())
+        alarm = self._get_device_alarm_by_id(device, alarm_id)
+        if alarm is not None and alarm.typ_id not in alarm_type_ids:
+            alarm = None
+        if alarm is None:
+            return Response({'error': 'Alarm not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        alarm_type = alarm.typ
+        alarm.delete()
+
+        if alarm_type is not None:
+            try:
+                has_other_bindings = any(
+                    getattr(device_event, 'typ_id', None) == alarm_type.id
+                    for device_event in DeviceEvent.objects.all()
+                )
+            except Exception:
+                logger.exception('Failed to resolve remaining bindings for alarm type %s.', alarm_type.id)
+                has_other_bindings = True
+            if not has_other_bindings:
+                invalidate_alarm_evaluation_cache([alarm_type.id])
+                alarm_type.delete()
+            else:
+                invalidate_alarm_evaluation_cache([alarm_type.id])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def get_device_alarm_history(self, request, device_id):
+        device = self._resolve_user_device(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        limit = request.query_params.get('limit', 100)
+        try:
+            limit = max(1, min(500, int(limit)))
+        except (TypeError, ValueError):
+            limit = 100
+
+        alarms, event_types_map = self._get_alarm_events_for_device(device)
+        alarm_event_ids = [alarm.id for alarm in alarms]
+        if len(alarm_event_ids) == 0:
+            return Response([])
+
+        history = EventHistory.objects.filter(
+            device_event_id__in=alarm_event_ids,
+        ).order_by('-trigger_time')[:limit]
+
+        serialized_history = []
+        for item in history:
+            serialized_item = self._serialize_status_alarm_history(
+                item,
+                event_types_map=event_types_map,
+            )
+            if serialized_item is not None:
+                serialized_history.append(serialized_item)
+        return Response(serialized_history)
+
     @device_admin
     def reprocess_statuses(self, request, device_id):
         payload = request.data or {}
@@ -727,7 +1071,16 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         device_data['status_data_today'] = data_report.get_current_day_status_data()
         device_data['loads_today'] = data_report.get_appliances_current_day()
 
-        device_data['alarms'] = data_report.get_alarms()
+        configured_alarms, alarm_event_types = self._get_alarm_events_for_device(device)
+        serialized_alarms = []
+        for alarm in configured_alarms:
+            serialized_alarm = self._serialize_status_alarm(
+                alarm,
+                event_type=alarm_event_types.get(alarm.typ_id),
+            )
+            if serialized_alarm is not None:
+                serialized_alarms.append(serialized_alarm)
+        device_data['alarms'] = serialized_alarms
 
         device_data['available_meter_types'] = [x for x in Meter.__dict__ if '_METER' in x]
         device_data['meters'] = [{

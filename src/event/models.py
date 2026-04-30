@@ -19,16 +19,55 @@ event_triggering = (
     ('Time', 'Time triggered event.'),
 )
 
+ALARM_OPERATOR_EQ = 'eq'
+ALARM_OPERATOR_NEQ = 'neq'
+ALARM_OPERATOR_GT = 'gt'
+ALARM_OPERATOR_GTE = 'gte'
+ALARM_OPERATOR_LT = 'lt'
+ALARM_OPERATOR_LTE = 'lte'
+ALARM_OPERATOR_CONTAINS = 'contains'
+
+ALARM_OPERATOR_CHOICES = (
+    (ALARM_OPERATOR_EQ, 'Equals'),
+    (ALARM_OPERATOR_NEQ, 'Not Equals'),
+    (ALARM_OPERATOR_GT, 'Greater Than'),
+    (ALARM_OPERATOR_GTE, 'Greater Than or Equals'),
+    (ALARM_OPERATOR_LT, 'Less Than'),
+    (ALARM_OPERATOR_LTE, 'Less Than or Equals'),
+    (ALARM_OPERATOR_CONTAINS, 'Contains'),
+)
+
+ALARM_CHANNEL_IN_APP = 'in_app'
+ALARM_CHANNEL_TELEGRAM = 'telegram'
+ALARM_CHANNEL_EMAIL = 'email'
+
 
 class EventType(models.Model):
     """
         Event Type model.
     """
+    ALARM_OPERATOR_EQ = ALARM_OPERATOR_EQ
+    ALARM_OPERATOR_NEQ = ALARM_OPERATOR_NEQ
+    ALARM_OPERATOR_GT = ALARM_OPERATOR_GT
+    ALARM_OPERATOR_GTE = ALARM_OPERATOR_GTE
+    ALARM_OPERATOR_LT = ALARM_OPERATOR_LT
+    ALARM_OPERATOR_LTE = ALARM_OPERATOR_LTE
+    ALARM_OPERATOR_CONTAINS = ALARM_OPERATOR_CONTAINS
+    ALARM_OPERATOR_CHOICES = ALARM_OPERATOR_CHOICES
+
+    ALARM_CHANNEL_IN_APP = ALARM_CHANNEL_IN_APP
+    ALARM_CHANNEL_TELEGRAM = ALARM_CHANNEL_TELEGRAM
+    ALARM_CHANNEL_EMAIL = ALARM_CHANNEL_EMAIL
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, help_text="Event type name")
     description = models.TextField(help_text='Description')
     trigger_type = models.CharField(max_length=20, choices=event_triggering)
     equation = models.TextField(max_length=255, help_text='Trigger equation', null=True, blank=True)
+    is_alarm_type = models.BooleanField(default=False)
+    status_key = models.CharField(max_length=255, null=True, blank=True)
+    operator = models.CharField(max_length=16, choices=ALARM_OPERATOR_CHOICES, null=True, blank=True)
+    target_value = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
         verbose_name_plural = 'Event types'
@@ -48,6 +87,8 @@ class DeviceEvent(models.Model):
     equation_threshold = models.CharField(max_length=255, help_text='Threshold value for the event equations', null=True, blank=True)
     schedule = models.ForeignKey(CrontabSchedule, null=True, blank=True, on_delete=models.CASCADE)
     last_trigger_time = models.DateTimeField(null=True, blank=True)
+    last_evaluation_match = models.BooleanField(default=False)
+    actions_config = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     active = models.BooleanField(default=True)
     

@@ -125,6 +125,18 @@ urlpatterns = [
         r'^device/commands/(?P<device_id>[\w.]+)$',
         DeviceDetailsViewSet.as_view({'get': 'get_commands'})
     ),
+    re_path(
+        r'^device/alarms/(?P<device_id>[\w.-]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_device_alarms', 'post': 'create_device_alarm'})
+    ),
+    re_path(
+        r'^device/alarms/(?P<device_id>[\w.-]+)/(?P<alarm_id>[0-9a-fA-F-]{36})$',
+        DeviceDetailsViewSet.as_view({'delete': 'delete_device_alarm'})
+    ),
+    re_path(
+        r'^device/alarms/history/(?P<device_id>[\w.-]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_device_alarm_history'})
+    ),
 
     # Data views
     re_path(

@@ -13,8 +13,12 @@ from device_schemas.device_types import IOT_GW_DEVICES
 from device_schemas.schema import (extract_data, translate_data_from_schema,
                                    validate_data_schema, validate_schema)
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Q
+from django.db.utils import DatabaseError
 from django.utils import timezone
+from event.models import DeviceEvent, EventHistory, EventType
+from notification.models import Notification
 
 from utils import detect_and_save_meter_loads
 from device.log_handler import set_device_for_logger
@@ -38,6 +42,11 @@ AVAILABLE_METER_DATA_FIELDS = {
 }
 
 EXTRA_METER_DATA_FIELD = "more_data"
+
+ALARM_TYPE_IDS_CACHE_KEY = 'alarm_eval:type_ids:v1'
+ALARM_EVENT_TYPE_CACHE_KEY_PREFIX = 'alarm_eval:event_type:'
+ALARM_TYPE_IDS_CACHE_TIMEOUT_SECONDS = 120
+ALARM_EVENT_TYPE_CACHE_TIMEOUT_SECONDS = 300
 
 
 def create_device_status_with_timestamp(
@@ -407,6 +416,264 @@ def filter_meter_data(data, meter, data_arrival_time):
     return meter_data
 
 
+def _extract_alarm_status_value(status_dict, status_key):
+    if status_dict is None or not isinstance(status_dict, dict):
+        return None
+
+    current_value = status_dict
+    for key in str(status_key).split('.'):
+        if not isinstance(current_value, dict):
+            return None
+        current_value = current_value.get(key)
+
+    return current_value
+
+
+def _is_numeric_alarm_value(value):
+    if value is None:
+        return False, None
+    try:
+        return True, float(value)
+    except (TypeError, ValueError):
+        return False, None
+
+
+def _is_alarm_match(current_value, operator, target_value):
+    if current_value is None:
+        return False
+
+    operator = operator or EventType.ALARM_OPERATOR_EQ
+    current_is_number, current_numeric = _is_numeric_alarm_value(current_value)
+    target_is_number, target_numeric = _is_numeric_alarm_value(target_value)
+
+    if operator in {
+        EventType.ALARM_OPERATOR_GT,
+        EventType.ALARM_OPERATOR_GTE,
+        EventType.ALARM_OPERATOR_LT,
+        EventType.ALARM_OPERATOR_LTE,
+    }:
+        if not current_is_number or not target_is_number:
+            return False
+        if operator == EventType.ALARM_OPERATOR_GT:
+            return current_numeric > target_numeric
+        if operator == EventType.ALARM_OPERATOR_GTE:
+            return current_numeric >= target_numeric
+        if operator == EventType.ALARM_OPERATOR_LT:
+            return current_numeric < target_numeric
+        return current_numeric <= target_numeric
+
+    if operator == EventType.ALARM_OPERATOR_CONTAINS:
+        return str(target_value).lower() in str(current_value).lower()
+
+    if current_is_number and target_is_number:
+        if operator == EventType.ALARM_OPERATOR_NEQ:
+            return current_numeric != target_numeric
+        return current_numeric == target_numeric
+
+    if operator == EventType.ALARM_OPERATOR_NEQ:
+        return str(current_value) != str(target_value)
+    return str(current_value) == str(target_value)
+
+
+def _get_cached_alarm_type_ids():
+    alarm_type_ids = cache.get(ALARM_TYPE_IDS_CACHE_KEY)
+    if alarm_type_ids is not None:
+        return alarm_type_ids
+
+    try:
+        alarm_type_ids = list(
+            EventType.objects.filter(
+                status_key__isnull=False,
+                operator__isnull=False,
+                target_value__isnull=False,
+            ).values_list('id', flat=True)
+        )
+    except DatabaseError:
+        try:
+            event_types = EventType.objects.all().only('id', 'status_key', 'operator', 'target_value')
+            alarm_type_ids = [
+                event_type.id
+                for event_type in event_types
+                if event_type.status_key not in [None, '']
+                and event_type.operator not in [None, '']
+                and event_type.target_value not in [None, '']
+            ]
+        except Exception:
+            logger.exception('Failed to resolve cached alarm event type ids.')
+            alarm_type_ids = []
+
+    cache.set(
+        ALARM_TYPE_IDS_CACHE_KEY,
+        alarm_type_ids,
+        ALARM_TYPE_IDS_CACHE_TIMEOUT_SECONDS,
+    )
+    return alarm_type_ids
+
+
+def _get_cached_event_type_alarm_rules(event_type_ids):
+    if len(event_type_ids) == 0:
+        return {}
+
+    cache_keys = {
+        event_type_id: f'{ALARM_EVENT_TYPE_CACHE_KEY_PREFIX}{event_type_id}'
+        for event_type_id in event_type_ids
+    }
+    cached_items = cache.get_many(list(cache_keys.values()))
+
+    event_types_map = {}
+    missing_ids = []
+    for event_type_id in event_type_ids:
+        cached_value = cached_items.get(cache_keys[event_type_id])
+        if cached_value is None:
+            missing_ids.append(event_type_id)
+            continue
+        event_types_map[event_type_id] = cached_value
+
+    if len(missing_ids) > 0:
+        try:
+            fetched_event_types = EventType.objects.filter(id__in=missing_ids)
+        except DatabaseError:
+            missing_ids_set = set(missing_ids)
+            fetched_event_types = [
+                event_type
+                for event_type in EventType.objects.all().only('id', 'name', 'status_key', 'operator', 'target_value')
+                if event_type.id in missing_ids_set
+            ]
+        cache_updates = {}
+        for event_type in fetched_event_types:
+            serialized_alarm_type = {
+                'id': event_type.id,
+                'name': event_type.name,
+                'status_key': event_type.status_key,
+                'operator': event_type.operator,
+                'target_value': event_type.target_value,
+            }
+            event_types_map[event_type.id] = serialized_alarm_type
+            cache_updates[cache_keys[event_type.id]] = serialized_alarm_type
+
+        if cache_updates:
+            cache.set_many(cache_updates, ALARM_EVENT_TYPE_CACHE_TIMEOUT_SECONDS)
+
+    return event_types_map
+
+
+def invalidate_alarm_evaluation_cache(event_type_ids=None):
+    cache.delete(ALARM_TYPE_IDS_CACHE_KEY)
+    if not event_type_ids:
+        return
+
+    cache.delete_many([
+        f'{ALARM_EVENT_TYPE_CACHE_KEY_PREFIX}{event_type_id}'
+        for event_type_id in event_type_ids
+        if event_type_id is not None
+    ])
+
+
+def evaluate_device_status_alarms(device, status_snapshot, trigger_time=None):
+    if status_snapshot is None or not isinstance(status_snapshot, dict):
+        return
+
+    alarm_type_ids = _get_cached_alarm_type_ids()
+    if len(alarm_type_ids) == 0:
+        return
+
+    device_id = getattr(device, 'id', None)
+    if device_id is None:
+        return
+
+    try:
+        alarms = list(DeviceEvent.objects.all())
+    except Exception:
+        logger.exception('Failed to query device events for alarm evaluation.')
+        return
+
+    alarm_type_ids_set = set(alarm_type_ids)
+    alarms = [
+        alarm
+        for alarm in alarms
+        if getattr(alarm, 'device_id', None) == device_id
+        and alarm.active is True
+        and alarm.typ_id in alarm_type_ids_set
+    ]
+    alarms = sorted(
+        alarms,
+        key=lambda alarm: alarm.created_at or timezone.now(),
+        reverse=True,
+    )
+    if len(alarms) == 0:
+        return
+
+    event_type_ids = [alarm.typ_id for alarm in alarms if alarm.typ_id is not None]
+    event_types_map = _get_cached_event_type_alarm_rules(event_type_ids)
+    evaluated_at = trigger_time or timezone.now()
+
+    for alarm in alarms:
+        event_type = event_types_map.get(alarm.typ_id)
+        if event_type is None:
+            continue
+
+        status_key = event_type.get('status_key')
+        operator = event_type.get('operator')
+        target_value = event_type.get('target_value')
+
+        current_value = _extract_alarm_status_value(status_snapshot, status_key)
+        is_match = _is_alarm_match(current_value, operator, target_value)
+
+        if is_match and not alarm.last_evaluation_match:
+            message = f"{status_key} {operator} {target_value} (current: {current_value})"
+            channels = [
+                action.get('channel')
+                for action in (alarm.actions_config or [])
+                if action.get('channel')
+            ]
+
+            EventHistory.objects.create(
+                device_event=alarm,
+                result={
+                    'status_key': status_key,
+                    'operator': operator,
+                    'target_value': target_value,
+                    'status_value': str(current_value) if current_value is not None else None,
+                    'status_snapshot': status_snapshot,
+                    'message': message,
+                    'channels': channels,
+                }
+            )
+
+            for action in alarm.actions_config or []:
+                method = action.get('method')
+                if method is None:
+                    continue
+
+                template = None
+                template_id = action.get('template_id')
+                if template_id:
+                    template = Notification.objects.filter(id=template_id).first()
+
+                Notification.objects.create(
+                    name=f"Alarm: {event_type.get('name')}",
+                    user=alarm.user,
+                    method=method,
+                    title=(template.title if template else f"Device alarm for {device.ip_address}"),
+                    text=(template.text if template else message),
+                    emails=action.get('emails') or (template.emails if template else None),
+                    data={
+                        'device': device.ip_address,
+                        'event_id': str(alarm.id),
+                        'status_key': status_key,
+                        'operator': operator,
+                        'target_value': target_value,
+                        'status_value': str(current_value) if current_value is not None else None,
+                        'triggered_at': evaluated_at.strftime(settings.TIME_FORMAT_STRING),
+                    },
+                )
+
+            alarm.last_trigger_time = evaluated_at
+
+        alarm.last_evaluation_match = is_match
+        alarm.save(update_fields=['last_trigger_time', 'last_evaluation_match'])
+
+
 def process_raw_data(device, message_data, channel='unknown', data_type='unknown', user=None):
     config_data = message_data.get("config", {})
     dev_type_name = config_data.get("devType")
@@ -585,6 +852,7 @@ def update_user_and_device_statuses(
         'last_status_models_by_target',
         {},
     )
+    calculated_alarm_status_data = {}
 
     for status_type in status_types:
         schema = status_type.translation_schema
@@ -611,6 +879,8 @@ def update_user_and_device_statuses(
 
             logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
             validated_status_data = validated_data.get(status_type.name, {})
+            if isinstance(validated_status_data, dict):
+                calculated_alarm_status_data.update(validated_status_data)
             if any(validated_status_data):
                 # create a new status if last once was created at least 10 minutes ago
                 last_status = last_status_models_by_target.get(status_type.target_type)
@@ -681,6 +951,13 @@ def update_user_and_device_statuses(
                 if status_type.target_type == StatusType.STATUS_TARGET_METER:
                     pass
                     # ToDo: Save meter data here
+
+    if any(calculated_alarm_status_data):
+        evaluate_device_status_alarms(
+            device=device,
+            status_snapshot=calculated_alarm_status_data,
+            trigger_time=status_created_at,
+        )
 
 
 def replay_stored_raw_data(
