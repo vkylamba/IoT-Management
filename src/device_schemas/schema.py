@@ -150,6 +150,12 @@ def get_status_expression_helper_content(raw_data_sample=None):
                 "example": "changeToday__energy_revenue",
             },
             {
+                "name": "Monthly delta helper",
+                "syntax": "changeThisMonth__energy_consumed",
+                "description": "Uses the current value minus the first value recorded this calendar month. Current value can come from raw data or a sibling field; first value comes from the firstThisMonth snapshot.",
+                "example": "changeThisMonth__energy_consumed",
+            },
+            {
                 "name": "Data cache helper",
                 "syntax": "type=dataCache, source=weather",
                 "description": "Reads enriched helper data passed in separately from the raw payload.",
@@ -174,6 +180,10 @@ def get_status_expression_helper_content(raw_data_sample=None):
             {
                 "name": "lastToday",
                 "description": "The latest status/raw snapshot available before the current calculation. Used internally by lastValue__ helpers and preview debug context.",
+            },
+            {
+                "name": "firstThisMonth",
+                "description": "The first status/raw snapshot for the current calendar month (device-local timezone). Used internally by changeThisMonth__ helpers.",
             },
         ],
         "notes": [
@@ -559,6 +569,51 @@ def extract_calculated_data(
                 resolved_tokens.append({
                     "token": field_or_operator,
                     "kind": "changeToday",
+                    "field": field_name,
+                    "value_now": value_now,
+                    "value_first": value_first,
+                    "value": next_value,
+                    "value_now_source": value_now_source,
+                    "value_first_source": value_first_source,
+                })
+        elif field_or_operator.startswith("changeThisMonth__"):
+            field_name = field_or_operator.replace("changeThisMonth__", "")
+            first_this_month = _normalize_snapshot(existing_statuses.get("firstThisMonth", {}))
+            first_month_status_root = _normalize_snapshot(first_this_month.get(schema_target, {}))
+            first_month_status_data = _resolve_status_scope(first_month_status_root, target_name)
+            first_month_raw_data = _normalize_snapshot(first_this_month.get("raw", {}))
+            value_now_source = "current_raw"
+            value_now = extract_data(field_name, data, multiplier, offset)
+            if value_now is None:
+                value_now = extract_data(field_name, current_target_fields, multiplier, offset)
+                value_now_source = "current_status_fields"
+            if (
+                value_now is None
+                and callable(field_resolver)
+                and field_name != target_field_name
+                and field_name in (target_field_configs or {})
+            ):
+                field_resolver(field_name)
+                value_now = extract_data(field_name, current_target_fields, multiplier, offset)
+                value_now_source = "current_status_fields"
+            value_first = extract_data(field_name, first_month_raw_data, 1, 0)
+            value_first_source = "first_month_raw"
+            if value_first is None:
+                value_first_source = "first_month_status_scope"
+                value_first = extract_data(field_name, first_month_status_data, 1, 0)
+            if value_first is None:
+                value_first_source = "first_month_status_root"
+                value_first = extract_data(field_name, first_month_status_root, 1, 0)
+            value_already_fetched = True
+            try:
+                next_value = _as_number(value_now) - _as_number(value_first)
+            except Exception as ex:
+                logger.warning(ex)
+                next_value = value_now
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "changeThisMonth",
                     "field": field_name,
                     "value_now": value_now,
                     "value_first": value_first,

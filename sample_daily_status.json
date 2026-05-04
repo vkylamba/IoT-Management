@@ -1,0 +1,88 @@
+{
+    "fields": [
+        {
+            "target": "load_status",
+            "type": "raw",
+            "source": "meter_0.power",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "solar_status",
+            "type": "raw",
+            "source": "meter_2.power",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "energy_generated_this_day",
+            "type": "calculated",
+            "source": "changeToday__meter_2.energy",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "energy_consumed_this_day",
+            "type": "calculated",
+            "source": "changeToday__meter_1.energy",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "energy_revenue_this_day",
+            "type": "raw",
+            "source": "changeToday__meter_0.energy",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "weather",
+            "type": "dataCache",
+            "source": "weather",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "net_meter_power_factor",
+            "type": "raw",
+            "source": "meter_0.powerFactor",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "system_temperature",
+            "type": "raw",
+            "source": "dht.temperature",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "system_humidity",
+            "type": "raw",
+            "source": "dht.humidity",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "battery_charging_status",
+            "type": "calculated",
+            "source": "int(meter_2.power - meter_1.power) if meter_2.power > meter_1.power + meter_0.power else int(meter_0.power - meter_1.power)",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "power_exported",
+            "type": "calculated",
+            "source": "meter_0.power if meter_2.power > meter_1.power + meter_0.power else -meter_0.power",
+            "multiplier": 1,
+            "offset": 0
+        },
+        {
+            "target": "system_status",
+            "type": "calculated",
+            "source": "\"Exporting\" if meter_2.power > meter_1.power + meter_0.power else \"Importing\"",
+            "multiplier": 1,
+            "offset": 0
+        }
+    ]
+}

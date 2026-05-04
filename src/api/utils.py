@@ -187,6 +187,33 @@ def get_latest_raw_data(device):
         return None
 
 
+def get_local_month_start_utc(device, reference_time=None):
+    if reference_time is None:
+        local_now = device.get_local_time()
+    else:
+        if timezone.is_naive(reference_time):
+            reference_time = timezone.make_aware(
+                reference_time,
+                timezone.get_current_timezone(),
+            )
+        device_timezone = device.get_timezone()
+        if device_timezone is not None and reference_time.tzinfo is not None:
+            local_now = reference_time.astimezone(device_timezone)
+        else:
+            local_now = reference_time
+
+    local_month_start = local_now.replace(
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if local_month_start.tzinfo is None:
+        return local_month_start
+    return local_month_start.astimezone(pytz.utc)
+
+
 def get_local_day_start_utc(device, reference_time=None):
     if reference_time is None:
         local_now = device.get_local_time()
@@ -261,6 +288,7 @@ def _get_status_queryset_for_day(user, device, day_start_utc, as_of_time=None):
 
 def build_status_processing_context(user, device, last_raw_data, as_of_time=None):
     day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
+    month_start_utc = get_local_month_start_utc(device, reference_time=as_of_time)
 
     statuses_today = _get_status_queryset_for_day(
         user,
@@ -276,6 +304,16 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
     if as_of_time is not None:
         raw_data_today = raw_data_today.filter(data_arrival_time__lte=as_of_time)
     raw_data_today = raw_data_today.order_by('data_arrival_time')
+
+    raw_data_month = RawData.objects.filter(
+        device=device,
+        data_type='meters-data',
+        data_arrival_time__gte=month_start_utc,
+        data_arrival_time__lt=day_start_utc,
+    )
+    if as_of_time is not None:
+        raw_data_month = raw_data_month.filter(data_arrival_time__lte=as_of_time)
+    raw_data_month = raw_data_month.order_by('data_arrival_time')
 
     raw_data_first = {}
     raw_data_last = {}
@@ -293,12 +331,35 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
 
     raw_data_last = _merge_raw_snapshot(raw_data_last, last_raw_data, overwrite=True)
 
+    raw_data_month_first = {}
+    for raw_data_point in raw_data_month:
+        raw_data_month_first = _merge_raw_snapshot(
+            raw_data_month_first,
+            raw_data_point,
+            overwrite=False,
+        )
+
     if not raw_data_first and raw_data_last:
         raw_data_first = dict(raw_data_last)
 
+    # If no data found before today this month, fall back to today's first snapshot
+    if not raw_data_month_first:
+        raw_data_month_first = dict(raw_data_first)
+
     status_first = {}
     status_last = {}
+    status_month_first = {}
     last_status_models_by_target = {}
+
+    statuses_this_month = _get_status_queryset_for_day(
+        user,
+        device,
+        month_start_utc,
+        as_of_time=day_start_utc,
+    )
+    for st_dt in statuses_this_month:
+        if st_dt.name not in status_month_first:
+            status_month_first[st_dt.name] = st_dt.status
 
     for st_dt in statuses_today:
         if st_dt.name not in status_first:
@@ -310,16 +371,22 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
         status_first['raw'] = raw_data_first
     if raw_data_last:
         status_last['raw'] = raw_data_last
+    if raw_data_month_first:
+        status_month_first['raw'] = raw_data_month_first
+    elif raw_data_first:
+        status_month_first.setdefault('raw', raw_data_first)
 
     existing_statuses = {
         'firstToday': status_first,
-        'lastToday': status_last
+        'lastToday': status_last,
+        'firstThisMonth': status_month_first,
     }
     return {
         'existing_statuses': existing_statuses,
         'last_status_models_by_target': last_status_models_by_target,
         'current_raw_data': dict(status_last.get('raw', {}) or {}),
         'day_start_utc': day_start_utc,
+        'month_start_utc': month_start_utc,
     }
 
 
@@ -330,10 +397,11 @@ def merge_raw_into_status_context(status_processing_context, raw_snapshot):
     normalized_snapshot = _normalize_raw_snapshot(raw_snapshot) or {}
     existing_statuses = status_processing_context.setdefault(
         'existing_statuses',
-        {'firstToday': {}, 'lastToday': {}},
+        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
     )
     first_today = existing_statuses.setdefault('firstToday', {})
     last_today = existing_statuses.setdefault('lastToday', {})
+    first_this_month = existing_statuses.setdefault('firstThisMonth', {})
 
     first_today['raw'] = _merge_raw_snapshot(
         first_today.get('raw'),
@@ -345,6 +413,11 @@ def merge_raw_into_status_context(status_processing_context, raw_snapshot):
         normalized_snapshot,
         overwrite=True,
     )
+    first_this_month['raw'] = _merge_raw_snapshot(
+        first_this_month.get('raw'),
+        normalized_snapshot,
+        overwrite=False,
+    )
     status_processing_context['current_raw_data'] = dict(last_today.get('raw', {}) or {})
     return status_processing_context['current_raw_data']
 
@@ -355,14 +428,17 @@ def record_status_in_context(status_processing_context, target_type, status_mode
 
     existing_statuses = status_processing_context.setdefault(
         'existing_statuses',
-        {'firstToday': {}, 'lastToday': {}},
+        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
     )
     first_today = existing_statuses.setdefault('firstToday', {})
     last_today = existing_statuses.setdefault('lastToday', {})
+    first_this_month = existing_statuses.setdefault('firstThisMonth', {})
 
     if target_type not in first_today:
         first_today[target_type] = deepcopy(status_model.status)
     last_today[target_type] = deepcopy(status_model.status)
+    if target_type not in first_this_month:
+        first_this_month[target_type] = deepcopy(status_model.status)
     status_processing_context.setdefault('last_status_models_by_target', {})[
         target_type
     ] = status_model
