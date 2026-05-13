@@ -1065,6 +1065,8 @@ def replay_stored_raw_data(
         device=device,
         data_arrival_time__gte=replay_start_time,
         data_arrival_time__lt=end_time,
+    ).exclude(
+        data_type='status'
     ).order_by('data_arrival_time', 'id')
     total_raw_count = raw_data_queryset.count()
 

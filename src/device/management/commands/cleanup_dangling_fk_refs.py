@@ -5,7 +5,7 @@ from django.db.models.deletion import DO_NOTHING
 
 
 class Command(BaseCommand):
-    help = "Find and optionally clear dangling nullable DO_NOTHING foreign key references."
+    help = "Find and optionally clear dangling nullable foreign key references (on_delete=DO_NOTHING) across all models."
 
     def add_arguments(self, parser):
         parser.add_argument(
