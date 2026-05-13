@@ -978,7 +978,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 data={"error": "Device not found"}
             )
 
-        cached_data = cache.get("device_static_data_{}".format(device_id))
+        requested_device_id = str(device_id)
+        cached_data = cache.get("device_static_data_{}".format(requested_device_id))
 
         if cached_data is not None:
             return Response(json.loads(cached_data))
@@ -1088,7 +1089,10 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             "name": device_meter.name,
             "meter_type": device_meter.meter_type,
         } for device_meter in device.get_meters()]
-        cache.set("device_static_data_{}".format(device_id), json.dumps(device_data), 120)
+        serialized_device_data = json.dumps(device_data)
+        for cache_key in {requested_device_id, str(device.id), device.ip_address, device.alias}:
+            if cache_key:
+                cache.set(f"device_static_data_{cache_key}", serialized_device_data, 120)
 
         return Response(device_data)
 
@@ -1152,8 +1156,22 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         device.save()
 
-        cache.delete("device_static_data_{}".format(original_device_id))
-        cache.delete("device_static_data_{}".format(device.ip_address))
+        # Guard against dangling device_type foreign keys (on_delete=DO_NOTHING).
+        resolved_device_type = None
+        if device.device_type_id is not None:
+            resolved_device_type = UserDeviceType.objects.filter(id=device.device_type_id).first()
+            if resolved_device_type is None:
+                logger.warning(
+                    "Device %s has dangling device_type_id=%s; clearing relation.",
+                    device.ip_address or device.id,
+                    device.device_type_id,
+                )
+                device.device_type = None
+                device.save(update_fields=['device_type'])
+
+        _invalidate_device_static_data_cache(device, device_id)
+        if original_device_id and original_device_id != device.ip_address:
+            cache.delete(f"device_static_data_{original_device_id}")
 
         device_meters = device.get_meters()
 
@@ -1165,9 +1183,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # Update status types for the device
         errors = []
         if request.user.has_permission(PERMISSIONS_ADMIN):
-            if device.device_type is not None:
+            if resolved_device_type is not None:
                 device_status_types = StatusType.objects.filter(
-                    Q(device=device) | Q(device_type=device.device_type)
+                    Q(device=device) | Q(device_type=resolved_device_type)
                 ).all()
             else:
                 device_status_types = StatusType.objects.filter(
@@ -1210,9 +1228,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         for dev_type in available_device_types:
             dev_types.append({'value': dev_type.code, 'text': dev_type.name})
     
-        if device.device_type is not None:
+        if resolved_device_type is not None:
             available_status_types = StatusType.objects.filter(
-                Q(device=device) | Q(device_type=device.device_type)
+                Q(device=device) | Q(device_type=resolved_device_type)
             ).all()
         else:
             available_status_types = StatusType.objects.filter(
@@ -1228,7 +1246,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'ip_address': device.ip_address,
             'name': device.name,
             'alias': device.alias,
-            'type': device.device_type.name if device.device_type is not None else None,
+            'type': resolved_device_type.name if resolved_device_type is not None else None,
             'available_status_types': status_types,
             'available_device_types': dev_types,
             'installation_date': device.installation_date.strftime("%d-%b-%Y") if device.installation_date else None,
