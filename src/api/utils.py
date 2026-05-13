@@ -390,6 +390,35 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
     }
 
 
+def refresh_status_processing_context_boundaries(
+    status_processing_context,
+    device,
+    reference_time,
+):
+    if status_processing_context is None or reference_time is None:
+        return status_processing_context
+
+    target_day_start = get_local_day_start_utc(device, reference_time=reference_time)
+    target_month_start = get_local_month_start_utc(device, reference_time=reference_time)
+
+    existing_statuses = status_processing_context.setdefault(
+        'existing_statuses',
+        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
+    )
+
+    current_day_start = status_processing_context.get('day_start_utc')
+    if current_day_start != target_day_start:
+        existing_statuses['firstToday'] = {}
+        status_processing_context['day_start_utc'] = target_day_start
+
+    current_month_start = status_processing_context.get('month_start_utc')
+    if current_month_start != target_month_start:
+        existing_statuses['firstThisMonth'] = {}
+        status_processing_context['month_start_utc'] = target_month_start
+
+    return status_processing_context
+
+
 def merge_raw_into_status_context(status_processing_context, raw_snapshot):
     if status_processing_context is None:
         return None
@@ -916,6 +945,11 @@ def update_user_and_device_statuses(
             as_of_time=status_created_at,
         )
     else:
+        refresh_status_processing_context_boundaries(
+            status_processing_context,
+            device,
+            status_created_at,
+        )
         merge_raw_into_status_context(status_processing_context, normalized_raw_data)
 
     existing_statuses = status_processing_context.get('existing_statuses', {})
@@ -1047,6 +1081,7 @@ def replay_stored_raw_data(
     progress_callback=None,
 ):
     replay_start_time = get_local_day_start_utc(device, reference_time=start_time)
+    replay_month_start_time = get_local_month_start_utc(device, reference_time=start_time)
     status_types = list(get_status_types_for_device(user, device) or [])
     if replay_target_types:
         allowed_target_types = set(replay_target_types)
@@ -1056,10 +1091,11 @@ def replay_stored_raw_data(
             if status_type.target_type in allowed_target_types
         ]
     status_processing_context = {
-        'existing_statuses': {'firstToday': {}, 'lastToday': {}},
+        'existing_statuses': {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
         'last_status_models_by_target': {},
         'current_raw_data': {},
         'day_start_utc': replay_start_time,
+        'month_start_utc': replay_month_start_time,
     }
     raw_data_queryset = RawData.objects.filter(
         device=device,

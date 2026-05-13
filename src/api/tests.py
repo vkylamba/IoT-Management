@@ -1,5 +1,10 @@
+from datetime import datetime
+from unittest.mock import Mock
+
+import pytz
 from django.test import SimpleTestCase
 
+from api.utils import refresh_status_processing_context_boundaries
 from device_schemas.schema import (get_status_expression_helper_content,
 								   translate_data_from_schema)
 
@@ -92,6 +97,82 @@ class SchemaTranslationTests(SimpleTestCase):
 			places=6,
 		)
 
+	def test_change_today_seeds_missing_first_today_baseline(self):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_consumed",
+						"type": "calculated",
+						"source": "lastValue__energy_consumed + 400",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_consumed_today",
+						"type": "calculated",
+						"source": "changeToday__energy_consumed",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+		existing_statuses = {
+			"firstToday": {},
+			"lastToday": {},
+			"firstThisMonth": {},
+		}
+
+		translated_data = translate_data_from_schema(schema, {}, existing_statuses)
+
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed"], 400)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed_today"], 0)
+		self.assertEqual(
+			existing_statuses["firstToday"]["device"]["DAILY_STATUS"]["energy_consumed"],
+			400,
+		)
+
+	def test_change_this_month_seeds_missing_first_month_baseline(self):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_consumed",
+						"type": "calculated",
+						"source": "lastValue__energy_consumed + 400",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_consumed_this_month",
+						"type": "calculated",
+						"source": "changeThisMonth__energy_consumed",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+		existing_statuses = {
+			"firstToday": {},
+			"lastToday": {},
+			"firstThisMonth": {},
+		}
+
+		translated_data = translate_data_from_schema(schema, {}, existing_statuses)
+
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed"], 400)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed_this_month"], 0)
+		self.assertEqual(
+			existing_statuses["firstThisMonth"]["device"]["DAILY_STATUS"]["energy_consumed"],
+			400,
+		)
+
 	def test_full_status_schema_can_resolve_fields_needed_during_replay(self):
 		schema = [
 			{
@@ -182,6 +263,65 @@ class SchemaTranslationTests(SimpleTestCase):
 			status_data["energy_revenue_this_day"],
 			1 + 100 * 120 / 3600000,
 			places=6,
+		)
+
+
+class StatusProcessingContextTests(SimpleTestCase):
+	def test_refresh_context_resets_first_today_on_new_day(self):
+		device = Mock()
+		device.get_timezone.return_value = pytz.utc
+
+		status_processing_context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy": 10}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy": 20}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy": 5}}},
+			},
+			"day_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+			"month_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+		}
+
+		refresh_status_processing_context_boundaries(
+			status_processing_context,
+			device,
+			datetime(2026, 5, 2, 10, 30, tzinfo=pytz.utc),
+		)
+
+		self.assertEqual(status_processing_context["existing_statuses"]["firstToday"], {})
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy"],
+			20,
+		)
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["firstThisMonth"]["device"]["DAILY_STATUS"]["energy"],
+			5,
+		)
+
+	def test_refresh_context_resets_first_this_month_on_new_month(self):
+		device = Mock()
+		device.get_timezone.return_value = pytz.utc
+
+		status_processing_context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy": 10}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy": 20}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy": 5}}},
+			},
+			"day_start_utc": datetime(2026, 5, 31, 0, 0, tzinfo=pytz.utc),
+			"month_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+		}
+
+		refresh_status_processing_context_boundaries(
+			status_processing_context,
+			device,
+			datetime(2026, 6, 1, 0, 5, tzinfo=pytz.utc),
+		)
+
+		self.assertEqual(status_processing_context["existing_statuses"]["firstToday"], {})
+		self.assertEqual(status_processing_context["existing_statuses"]["firstThisMonth"], {})
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy"],
+			20,
 		)
 
 	def test_status_expression_helper_content_lists_supported_sections(self):
