@@ -483,6 +483,50 @@ def extract_calculated_data(
             return value
         return {}
 
+    def _set_nested_value(target_dict, dotted_path, value):
+        if not isinstance(target_dict, dict) or not dotted_path:
+            return
+
+        path_parts = [part for part in str(dotted_path).split(".") if part]
+        if not path_parts:
+            return
+
+        current_dict = target_dict
+        for path_part in path_parts[:-1]:
+            next_dict = current_dict.get(path_part)
+            if not isinstance(next_dict, dict):
+                next_dict = {}
+                current_dict[path_part] = next_dict
+            current_dict = next_dict
+        current_dict[path_parts[-1]] = value
+
+    def _get_or_create_status_scope(snapshot_name):
+        snapshot = existing_statuses.setdefault(snapshot_name, {})
+        target_root = snapshot.get(schema_target)
+        if not isinstance(target_root, dict):
+            target_root = {}
+            snapshot[schema_target] = target_root
+
+        status_scope = target_root.get(target_name)
+        if not isinstance(status_scope, dict):
+            status_scope = {}
+            target_root[target_name] = status_scope
+
+        return status_scope
+
+    def _remember_default(snapshot_name, source_kind, field_path, value):
+        snapshot = existing_statuses.setdefault(snapshot_name, {})
+        if source_kind == "raw":
+            raw_snapshot = snapshot.get("raw")
+            if not isinstance(raw_snapshot, dict):
+                raw_snapshot = {}
+                snapshot["raw"] = raw_snapshot
+            _set_nested_value(raw_snapshot, field_path, value)
+            return
+
+        status_scope = _get_or_create_status_scope(snapshot_name)
+        _set_nested_value(status_scope, field_path, value)
+
     def _resolve_status_scope(status_snapshot, status_name):
         status_snapshot = _normalize_snapshot(status_snapshot)
         nested_status = status_snapshot.get(status_name)
@@ -527,6 +571,7 @@ def extract_calculated_data(
             if next_value is None:
                 next_value = 0
                 value_source = "default_zero"
+                _remember_default("lastToday", "status", field_name, next_value)
             if include_debug:
                 resolved_tokens.append({
                     "token": field_or_operator,
@@ -559,6 +604,14 @@ def extract_calculated_data(
             if value_first is None:
                 value_first_source = "first_status_root"
                 value_first = extract_data(field_name, first_status_root, 1, 0)
+            if value_first is None:
+                remembered_value = _as_number(value_now)
+                value_first = remembered_value
+                value_first_source = f"seeded_from_{value_now_source}"
+                remember_source_kind = (
+                    "raw" if value_now_source == "current_raw" else "status"
+                )
+                _remember_default("firstToday", remember_source_kind, field_name, remembered_value)
             value_already_fetched = True
             try:
                 next_value = _as_number(value_now) - _as_number(value_first)
@@ -604,6 +657,14 @@ def extract_calculated_data(
             if value_first is None:
                 value_first_source = "first_month_status_root"
                 value_first = extract_data(field_name, first_month_status_root, 1, 0)
+            if value_first is None:
+                remembered_value = _as_number(value_now)
+                value_first = remembered_value
+                value_first_source = f"seeded_from_{value_now_source}"
+                remember_source_kind = (
+                    "raw" if value_now_source == "current_raw" else "status"
+                )
+                _remember_default("firstThisMonth", remember_source_kind, field_name, remembered_value)
             value_already_fetched = True
             try:
                 next_value = _as_number(value_now) - _as_number(value_first)

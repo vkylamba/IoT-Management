@@ -587,6 +587,7 @@ class Command(BaseCommand):
         """
         try:
             command_text = message_data.get('command', '')
+            command_id = message_data.get('request_id', '')
             response = message_data.get('response', '')
             response_type = message_data.get('resp_type', '')
 
@@ -598,7 +599,7 @@ class Command(BaseCommand):
                 logger.warning("Missing command or device in command response")
                 return
 
-            command = self.find_command_for_response(device, command_text)
+            command = self.find_command_for_response(device, command_id, command_text)
 
             if command is None:
                 logger.warning(f"No matching command found for response: {command_text} on device {device.alias}")
@@ -617,7 +618,7 @@ class Command(BaseCommand):
             command.response_time = timezone.now()
             if is_complete:
                 command.status = 'C'
-                self.clear_command_response_cache(command)
+                self.clear_command_response_state(command)
 
             command.save()
             logger.info(
@@ -630,35 +631,38 @@ class Command(BaseCommand):
         except Exception as ex:
             logger.exception(f"Error processing command response: {ex}")
 
-    def get_command_response_cache_key(self, command):
-        return f"command_response_binding_{command.device_id}_{command.command}_{command.param}"
-
     def get_command_chunk_cache_key(self, command):
         return f"command_response_chunks_{command.id}"
 
-    def find_command_for_response(self, device, command_text):
-        temp = command_text.split()
-        cmd_name = temp[0] if temp else ''
-        cmd_param = ' '.join(temp[1:]) if len(temp) > 1 else ''
-        binding_cache_key = f"command_response_binding_{device.id}_{cmd_name}_{cmd_param}"
-        cached_command_id = cache.get(binding_cache_key)
+    def find_command_for_response(self, device, command_id, command_text):
+        normalized_command_id = str(command_id or '').strip().lower()
+        if not normalized_command_id:
+            logger.warning("Missing request_id in command response for device %s", device.alias)
+            return None
 
-        if cached_command_id is not None:
-            command = CommandsModal.objects.filter(id=cached_command_id).first()
-            if command is not None:
-                return command
+        compact_command_id = normalized_command_id.replace('-', '')
 
-        command = CommandsModal.objects.filter(
+        sent_commands = CommandsModal.objects.filter(
             device=device,
-            command__icontains=cmd_name if cmd_name else '',
-            param__icontains=cmd_param if cmd_param else '',
             status__in=['S']
-        ).order_by('-command_in_time').first()
+        ).order_by('-command_in_time')[:200]
 
-        if command is not None:
-            cache.set(binding_cache_key, str(command.id), COMMAND_RESPONSE_CACHE_TTL)
+        for command in sent_commands:
+            if command.id:
+                command_uuid = str(command.id).lower()
+                command_uuid_compact = command_uuid.replace('-', '')
+                command_short_id = command.id.hex[-10:].lower()
+                if normalized_command_id in [command_short_id, command_uuid, command_uuid_compact]:
+                    return command
+                if compact_command_id in [command_short_id, command_uuid_compact]:
+                    return command
 
-        return command
+        logger.warning(
+            "No sent command matched request_id=%s for device %s",
+            normalized_command_id,
+            device.alias,
+        )
+        return None
 
     def build_command_response_payload(self, command, message_data, response, response_type):
         if response_type == 'result':
@@ -713,9 +717,7 @@ class Command(BaseCommand):
             return response
         return json.dumps(message_data)
 
-    def clear_command_response_cache(self, command):
-        binding_cache_key = f"command_response_binding_{command.device_id}_{command.command}_{command.param}"
-        cache.delete(binding_cache_key)
+    def clear_command_response_state(self, command):
         cache.delete(self.get_command_chunk_cache_key(command))
 
     def check_and_send_commands(self, client):
