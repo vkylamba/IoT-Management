@@ -3,13 +3,14 @@ from django.utils import timezone
 import json
 import logging
 import time
+import os
+import hashlib
 
 from device.models.ota import DeviceConfig
 import paho.mqtt.client as mqtt
 from api.utils import process_raw_data
 from device.models import Command as CommandsModal
-from device.models import Device, DeviceType
-from device_schemas.device_types import IOT_GW_DEVICES
+from device.models import Device
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
@@ -59,7 +60,19 @@ class Command(BaseCommand):
 
     help = 'Starts the mqtt service.'
 
+    def _write_health(self, state, **extra):
+        os.makedirs(settings.MQTT_HEALTH_DIR, exist_ok=True)
+        payload = {
+            "component": "mqtt-listener",
+            "state": state,
+            "updated_at": timezone.now().isoformat(),
+        }
+        payload.update(extra)
+        with open(settings.MQTT_HEALTH_FILE, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+
     def handle(self, *args, **options):
+        self._write_health("starting")
         client = mqtt.Client()
         client.on_connect = self.on_connect
         client.on_disconnect = self.on_disconnect
@@ -69,38 +82,64 @@ class Command(BaseCommand):
         
         client.username_pw_set(settings.MQTT_USER, settings.MQTT_PASSWORD)
         
-        if getattr(settings, "MQTT_USE_SSL", False):
-            client.tls_set(ROOT_CA_FILE_PATH)
-            client.tls_insecure_set(False)
+        use_ssl = getattr(settings, "MQTT_USE_SSL", False)
 
-        client.connect(
-            host=settings.MQTT_BROKER,
-            port=int(settings.MQTT_PORT),
-            keepalive=settings.MQTT_KEEPALIVE
-        )
+        if use_ssl:
+            cert_exists = os.path.exists(ROOT_CA_FILE_PATH) and os.path.getsize(ROOT_CA_FILE_PATH) > 0
+            if cert_exists:
+                try:
+                    client.tls_set(ROOT_CA_FILE_PATH)
+                    client.tls_insecure_set(False)
+                except Exception as ex:
+                    logger.warning(
+                        "MQTT TLS setup failed for cert %s (%s). Falling back to non-TLS connection.",
+                        ROOT_CA_FILE_PATH,
+                        ex,
+                    )
+            else:
+                logger.warning(
+                    "MQTT_USE_SSL is enabled but CA certificate %s is missing/empty. Falling back to non-TLS connection.",
+                    ROOT_CA_FILE_PATH,
+                )
+
+        try:
+            client.connect(
+                host=settings.MQTT_BROKER,
+                port=int(settings.MQTT_PORT),
+                keepalive=int(settings.MQTT_KEEPALIVE)
+            )
+        except Exception as ex:
+            self._write_health("failed", error=str(ex))
+            raise
 
         client.loop_start()
         self.loop_running = True
+        self._write_health("running")
         self.check_and_send_commands(client)
 
     def on_connect(self, mqtt_client, user_data, flags, rc):
         if rc == 0:
             logger.info('MQTT connected successful')
+            self._write_health("running", rc=rc)
             self.subscribe_all_topics(mqtt_client)
             # self.subscribe_active_clients_topic(mqtt_client)
         else:
             logger.info('MQTT, Bad connection. Code:', rc)
+            self._write_health("failed", rc=rc)
 
     def on_disconnect(self, mqtt_client, userdata, rc=0):
         logging.info("MQTT disconnected result code " + str(rc))
+        self._write_health("disconnected", rc=rc)
         mqtt_client.loop_stop()
 
     def on_message(self, mqtt_client, user_data, msg):
+        self._write_health("running")
         logger.info(f'Received message on topic: {msg.topic} with payload: {msg.payload}')
         try:
             self.process_message(msg, mqtt_client)
         except Exception as ex:
             logger.exception(f'Exception ocurred while processing MQTT message: {ex}')
+            self._write_health("failed", error=str(ex))
             mqtt_client.loop_stop()
             self.loop_running = False
             sys.exit(500)
@@ -323,22 +362,22 @@ class Command(BaseCommand):
         dev_identifier = f"devices_list_cached_{group_name}_{device_name}"
         device_id = cache.get(dev_identifier)
         device = None
+        logger.info(f"Finding device for group: {group_name}, device: {device_name}, topic: {topic_type}")
         if device_id is None:
             device = Device.objects.filter(
-                alias=device_name,
-                # types__name__in=group_name
+                alias=device_name
             ).first()
             if device is None:
-                dev_type, created = DeviceType.objects.get_or_create(
-                    name=group_name
-                )
-                if created:
-                    dev_type.save()
-                device = Device(
-                    alias=device_name
-                )
-                device.save()
-                device.types.add(dev_type)
+                device = Device(alias=device_name)
+                # Mongo unique index treats null as a value; avoid null ip_address collisions.
+                for attempt in range(0, 10):
+                    device.ip_address = self._build_synthetic_ip(group_name, device_name, attempt)
+                    try:
+                        device.save()
+                        break
+                    except Exception:
+                        if attempt == 9:
+                            raise
         else:
             device = Device.objects.filter(
                 id=device_id
@@ -346,9 +385,20 @@ class Command(BaseCommand):
 
         if device_id is None and device:
             device_id = str(device.id)
-            cache.set(dev_identifier, device_id, settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES)
+            cache.set(dev_identifier, device_id, settings.DEVICE_CACHE_TTL_MINUTES)
 
         return device
+
+    def _build_synthetic_ip(self, group_name, device_name, attempt=0):
+        """Build a deterministic RFC1918 IP-like identifier for devices without a real IP."""
+        seed = f"{group_name}:{device_name}:{attempt}".encode("utf-8")
+        digest = hashlib.sha1(seed).digest()
+
+        # Use 10.x.y.z private range and keep host octets non-zero.
+        oct2 = digest[0]
+        oct3 = digest[1]
+        oct4 = (digest[2] % 254) + 1
+        return f"10.{oct2}.{oct3}.{oct4}"
 
     def publish_homeassistant_discovery(self, client, device, group_name):
         """
@@ -762,4 +812,5 @@ class Command(BaseCommand):
                 command.status = 'S' # Sent
                 command.command_read_time = timezone.now()
                 command.save()
+            self._write_health("running", pending_commands=commands.count())
             time.sleep(10)

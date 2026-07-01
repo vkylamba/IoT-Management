@@ -1,4 +1,9 @@
-from device.clickhouse_models import MeterData
+from django.conf import settings
+
+if getattr(settings, 'CLICKHOUSE_ENABLED', False):
+    from device.clickhouse_models import MeterData
+else:
+    MeterData = None
 from device.models import Meter
 from django.conf import settings
 from rest_framework import serializers
@@ -12,7 +17,7 @@ class MeterSerializer(serializers.ModelSerializer):
 
 class MeterDataSerializer(serializers.ModelSerializer):
     class Meta:
-        model = MeterData
+        model = MeterData if MeterData is not None else Meter
         fields = '__all__'
 
     def to_representation(self, instance):

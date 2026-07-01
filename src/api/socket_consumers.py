@@ -6,7 +6,6 @@ from datetime import datetime
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from device.models import Device
-from device_schemas.device_types import IOT_GW_DEVICES
 from django.conf import settings
 from api.utils import merge_device_other_data, process_raw_data
 

@@ -5,11 +5,10 @@ from api.viewsets import (AuthViewSet, DataViewSet, DeviceDetailsViewSet,
                           DeviceViewSet, EventViewSet, HeartbeatViewSet,
                           UserViewSet, VerifyAuthViewSet, WidgetViewSet,
                           DeviceOTAViewSet, ViewViewSet, DocumentViewSet,
-                          SentNotificationViewSet)
+                          AssetViewSet, HealthViewSet)
 
 router = routers.DefaultRouter()
 router.register(r'user/details', UserViewSet)
-router.register(r'notifications', SentNotificationViewSet, basename='notifications')
 
 # Wire up our API using automatic URL routing.
 # Additionally, we include login URLs for the browse-able API.
@@ -37,6 +36,14 @@ urlpatterns = [
     re_path(
         r'^verifyauth',
         VerifyAuthViewSet.as_view({'get': 'verify_auth'})
+    ),
+    re_path(
+        r'^health$',
+        HealthViewSet.as_view({'get': 'get_health'})
+    ),
+    re_path(
+        r'^health/(?P<component>[\w-]+)$',
+        HealthViewSet.as_view({'get': 'get_component_health'})
     ),
 
     # Dashboard views
@@ -172,6 +179,23 @@ urlpatterns = [
         EventViewSet.as_view({'post': 'create_event'})),
     re_path(r'^events/delete/(?P<dev_event_id>[\w.]+)$',
         EventViewSet.as_view({'delete': 'delete_event'})),
+
+    # Asset type views
+    re_path(r'^assets/types$', AssetViewSet.as_view({'get': 'get_asset_types', 'post': 'create_asset_type'})),
+    re_path(r'^assets/types/(?P<asset_type_id>[0-9a-fA-F-]{36})$', AssetViewSet.as_view({'patch': 'update_asset_type', 'put': 'update_asset_type', 'delete': 'delete_asset_type'})),
+
+    # Asset views
+    re_path(r'^assets$', AssetViewSet.as_view({'get': 'get_assets', 'post': 'create_asset'})),
+    re_path(r'^assets/(?P<asset_id>[0-9a-fA-F-]{36})$', AssetViewSet.as_view({'get': 'get_asset', 'patch': 'update_asset', 'put': 'update_asset', 'delete': 'delete_asset'})),
+
+    # Asset attributes
+    re_path(r'^assets/(?P<asset_id>[0-9a-fA-F-]{36})/attributes$', AssetViewSet.as_view({'post': 'create_asset_attribute'})),
+    re_path(r'^assets/attributes/(?P<attribute_id>[0-9a-fA-F-]{36})$', AssetViewSet.as_view({'patch': 'update_asset_attribute', 'put': 'update_asset_attribute', 'delete': 'delete_asset_attribute'})),
+
+    # Asset binding agents
+    re_path(r'^assets/agents$', AssetViewSet.as_view({'get': 'get_asset_agents', 'post': 'create_asset_agent'})),
+    re_path(r'^assets/(?P<asset_id>[0-9a-fA-F-]{36})/agents$', AssetViewSet.as_view({'get': 'get_asset_agents'})),
+    re_path(r'^assets/agents/(?P<agent_id>[0-9a-fA-F-]{36})$', AssetViewSet.as_view({'patch': 'update_asset_agent', 'put': 'update_asset_agent', 'delete': 'delete_asset_agent'})),
 
     # OTA update download for device
     re_path(r'^ota/device/download/(?P<device>[\w-]+)',

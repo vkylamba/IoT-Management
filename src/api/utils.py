@@ -6,10 +6,8 @@ from datetime import datetime
 
 import pytz
 import simplejson as json
-from device.clickhouse_models import MeterData, create_model_instance
-from device.models import (Device, DeviceStatus, Meter, RawData, StatusType,
+from device.models import (Device, AssetStatus, Meter, RawData, StatusType,
                            User, UserDeviceType)
-from device_schemas.device_types import IOT_GW_DEVICES
 from device_schemas.schema import (extract_data, translate_data_from_schema,
                                    validate_data_schema, validate_schema)
 from django.conf import settings
@@ -18,13 +16,22 @@ from django.db.models import Q
 from django.db.utils import DatabaseError
 from django.utils import timezone
 from event.models import DeviceEvent, EventHistory, EventType
-from notification.models import Notification
 
 from utils import detect_and_save_meter_loads
 from device.log_handler import set_device_for_logger
 from utils.weather import get_weather_data_cached
 
 logger = logging.getLogger('device')
+
+CLICKHOUSE_ENABLED = getattr(settings, 'CLICKHOUSE_ENABLED', False)
+
+if CLICKHOUSE_ENABLED:
+    from device.clickhouse_models import MeterData, create_model_instance
+else:
+    MeterData = None
+
+    def create_model_instance(*args, **kwargs):
+        return None
 
 AVAILABLE_METER_DATA_FIELDS = {
         "voltage": float,
@@ -57,7 +64,7 @@ def create_device_status_with_timestamp(
     status_data,
     created_at,
 ):
-    status = DeviceStatus(
+    status = AssetStatus(
         name=name,
         device=device,
         user=user if user is not None and user.is_authenticated else None,
@@ -274,11 +281,11 @@ def _merge_raw_snapshot(base_snapshot, incoming_snapshot, overwrite=True):
 
 def _get_status_queryset_for_day(user, device, day_start_utc, as_of_time=None):
     if user is not None and user.is_authenticated:
-        statuses = DeviceStatus.objects.filter(
+        statuses = AssetStatus.objects.filter(
             Q(user=user) | Q(device=device)
         )
     else:
-        statuses = DeviceStatus.objects.filter(device=device)
+        statuses = AssetStatus.objects.filter(device=device)
 
     statuses = statuses.filter(created_at__gte=day_start_utc)
     if as_of_time is not None:
@@ -745,34 +752,6 @@ def evaluate_device_status_alarms(device, status_snapshot, trigger_time=None):
                 }
             )
 
-            for action in alarm.actions_config or []:
-                method = action.get('method')
-                if method is None:
-                    continue
-
-                template = None
-                template_id = action.get('template_id')
-                if template_id:
-                    template = Notification.objects.filter(id=template_id).first()
-
-                Notification.objects.create(
-                    name=f"Alarm: {event_type.get('name')}",
-                    user=alarm.user,
-                    method=method,
-                    title=(template.title if template else f"Device alarm for {device.ip_address}"),
-                    text=(template.text if template else message),
-                    emails=action.get('emails') or (template.emails if template else None),
-                    data={
-                        'device': device.ip_address,
-                        'event_id': str(alarm.id),
-                        'status_key': status_key,
-                        'operator': operator,
-                        'target_value': target_value,
-                        'status_value': str(current_value) if current_value is not None else None,
-                        'triggered_at': evaluated_at.strftime(settings.TIME_FORMAT_STRING),
-                    },
-                )
-
             alarm.last_trigger_time = evaluated_at
 
         alarm.last_evaluation_match = is_match
@@ -782,18 +761,13 @@ def evaluate_device_status_alarms(device, status_snapshot, trigger_time=None):
 def process_raw_data(device, message_data, channel='unknown', data_type='unknown', user=None):
     config_data = message_data.get("config", {})
     dev_type_name = config_data.get("devType")
-    dev_type = None
     set_device_for_logger(logger, device.ip_address)
     if dev_type_name is None:
         try:
-            dev_type = device.device_type
             dev_type_name = device.device_type.code if device.device_type is not None else None
         except Exception as ex:
             logger.warning(ex)
 
-    if dev_type is None:
-        dev_types = [x.name for x in device.types.all()]
-        dev_type_name = dev_types[-1] if len(dev_types) > 0 else None
     logger.info(f"Data from device type {dev_type_name}: {message_data}")
 
     # Save the raw data
@@ -866,14 +840,15 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
             meter = dev_meters[meter_name]
         try:
             meter_data = filter_meter_data(message_data, meter, data_arrival_time)
-            create_model_instance(
-                MeterData,
-                meter_data
-            )
-            meters_and_data.append({
-                "meter": meter,
-                "data": meter_data
-            })
+            if CLICKHOUSE_ENABLED:
+                create_model_instance(
+                    MeterData,
+                    meter_data
+                )
+                meters_and_data.append({
+                    "meter": meter,
+                    "data": meter_data
+                })
         except TypeError as e:
             logger.exception(e)
 
@@ -1108,7 +1083,7 @@ def replay_stored_raw_data(
 
     deleted_status_count = 0
     if clear_existing_statuses:
-        deleted_status_count, _ = DeviceStatus.objects.filter(
+        deleted_status_count, _ = AssetStatus.objects.filter(
             device=device,
             created_at__gte=replay_start_time,
             created_at__lt=end_time,
