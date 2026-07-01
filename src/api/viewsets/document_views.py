@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from device.models import Document
+from device.models import AssetDocument
 from api.serializers import DocumentSerializer
 from django.conf import settings
 from api.viewsets.common_utils import is_device_admin
@@ -14,7 +14,7 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet to provide documents linked to a device or user.
     Checks if the requesting user is a device admin before providing device documents.
     """
-    queryset = Document.objects.all()
+    queryset = AssetDocument.objects.all()
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated]
 
@@ -24,7 +24,7 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
         if device is None or not is_admin:
             return Response({'detail': 'Not authorized to view these documents.'}, status=status.HTTP_403_FORBIDDEN)
         # Fetch documents for the device
-        documents = Document.objects.filter(device=device)
+        documents = AssetDocument.objects.filter(device=device)
         serializer = self.get_serializer(documents, many=True)
         return Response(serializer.data)
 
@@ -33,7 +33,7 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
         # Only allow users to access their own documents or if they are staff
         if str(request.user.id) != str(user_id) and not request.user.is_staff:
             return Response({'detail': 'Not authorized to view these documents.'}, status=status.HTTP_403_FORBIDDEN)
-        documents = Document.objects.filter(user_id=user_id)
+        documents = AssetDocument.objects.filter(user_id=user_id)
         serializer = self.get_serializer(documents, many=True)
         return Response(serializer.data)
 
@@ -70,7 +70,7 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
             device, is_admin = is_device_admin(request.user, device_ip_address)
             if device is None or not is_admin:
                 return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
-            document = Document.objects.create(
+            document = AssetDocument.objects.create(
                 device=device, doc_name=doc_name, doc_type=doc_type,
                 document=file, updated_by=request.user
             )
@@ -78,7 +78,7 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
             # Only allow users to upload for themselves or staff
             if str(request.user.id) != str(user_id) and not request.user.has_permission(settings.PERMISSIONS_ADMIN):
                 return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
-            document = Document.objects.create(
+            document = AssetDocument.objects.create(
                 user=request.user, doc_name=doc_name, doc_type=doc_type,
                 document=file, updated_by=request.user
             )
@@ -93,8 +93,8 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
         Only the owner, device admin, or staff can delete.
         """
         try:
-            document = Document.objects.get(pk=pk)
-        except Document.DoesNotExist:
+            document = AssetDocument.objects.get(pk=pk)
+        except AssetDocument.DoesNotExist:
             return Response({'detail': 'Document not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         # Check permissions

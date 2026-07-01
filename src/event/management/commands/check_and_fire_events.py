@@ -1,7 +1,7 @@
 import importlib
 from decimal import Decimal
 
-from device.models import DevCommand, Device, DeviceType, Operator
+from device.models import Device
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone

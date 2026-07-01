@@ -1,4 +1,9 @@
-from device.clickhouse_models import MeterData
+from django.conf import settings
+
+if getattr(settings, 'CLICKHOUSE_ENABLED', False):
+    from device.clickhouse_models import MeterData
+else:
+    MeterData = None
 from django import forms
 from django.urls import path, re_path
 from django.contrib import admin
@@ -63,7 +68,7 @@ class DeviceEventAdmin(DjongoSafeModelAdmin):
         device = device_event.device
         event_type = device_event.typ.trigger_type
         device_data = None
-        if event_type == 'Data':
+        if event_type == 'Data' and MeterData is not None:
             last_data = device.get_last_data_point()
 
             # Create a data object

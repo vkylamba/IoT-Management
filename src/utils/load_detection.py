@@ -2,15 +2,26 @@ import json
 import logging
 
 from datascience.train_machine import Train
-from device.clickhouse_models import (MeterLoad, WeatherData,
-                                      create_model_instance)
 from device.models import Device, Meter
+from django.conf import settings
 from django.utils import timezone
 
 from .weather import get_weather_data_cached
 
 logger = logging.getLogger('django')
 load_model = Train()
+
+CLICKHOUSE_ENABLED = getattr(settings, 'CLICKHOUSE_ENABLED', False)
+
+if CLICKHOUSE_ENABLED:
+    from device.clickhouse_models import (MeterLoad, WeatherData,
+                                          create_model_instance)
+else:
+    MeterLoad = None
+    WeatherData = None
+
+    def create_model_instance(*args, **kwargs):
+        return None
 
 
 def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidity, wind_speed):
@@ -83,6 +94,9 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
     """
     Method to find the loads connected to a meter and store in the MeterLoad table.
     """
+    if not CLICKHOUSE_ENABLED:
+        return {}
+
     all_equipments = device.get_all_equipments()
 
     weather_data_now = get_weather_data_cached(

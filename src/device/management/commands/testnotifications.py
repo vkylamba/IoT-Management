@@ -4,10 +4,8 @@ from decimal import Decimal
 from django.utils import timezone
 
 from device.models.device import (
-    DeviceType,
     Operator,
     Device,
-    DevCommand,
     Data
 )
 from django.contrib.auth.models import User

@@ -12,12 +12,16 @@ import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
 from api.utils import get_existing_status_data_for_today, get_or_create_user_device, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
-from device.clickhouse_models import DerivedData
-from device.models import (Command, Device, DeviceStatus, DeviceProperty, Meter, RawData, StatusType,
-                           UserDeviceType, DeviceType)
+from django.conf import settings
+
+if getattr(settings, 'CLICKHOUSE_ENABLED', False):
+    from device.clickhouse_models import DerivedData
+else:
+    DerivedData = None
+from device.models import (Command, Device, AssetStatus, DeviceProperty, Meter, RawData, StatusType,
+                           UserDeviceType)
 from device_schemas.schema import (get_status_expression_helper_content,
                                    translate_data_from_schema)
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
@@ -29,10 +33,10 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from device.models.ota import DeviceConfig
 from event.models import DeviceEvent, EventHistory, EventType
-from notification.models import Notification
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from api.throttling import CompositeDataIngestionThrottle
 from utils import DataReports
 from utils.weather import get_weather_data_cached
 from api.viewsets.common_utils import device_admin, is_device_admin
@@ -306,6 +310,7 @@ class DataViewSet(viewsets.ViewSet):
     """
     permission_classes = (IsDevice,)
     authentication_classes = ()
+    throttle_classes = (CompositeDataIngestionThrottle,)
 
     def create(self, request, format=None):
         """
@@ -583,6 +588,10 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         }
 
     def _build_alarm_actions_config(self, payload, owner=None):
+        """
+        Build alarm actions configuration.
+        Note: Notification app has been removed. This stores channel configuration only.
+        """
         channels = payload.get('channels', [])
         if not isinstance(channels, list):
             channels = []
@@ -592,34 +601,10 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         actions = []
         for channel in channels:
-            method = None
-            if channel == EventType.ALARM_CHANNEL_IN_APP:
-                method = Notification.PUSH_NOTIFICATION
-            elif channel == EventType.ALARM_CHANNEL_TELEGRAM:
-                method = Notification.TELEGRAM_BOT
-            elif channel == EventType.ALARM_CHANNEL_EMAIL:
-                method = Notification.EMAIL
-
-            if method is None:
-                continue
-
-            template = Notification.objects.create(
-                name=f'Alarm template: {channel}',
-                user=owner,
-                method=method,
-                title=default_title,
-                text=default_text,
-                emails=(payload.get('emails') or '').strip() or None,
-                data={
-                    'template': True,
-                    'channel': channel,
-                },
-            )
-
             actions.append({
                 'channel': channel,
-                'method': method,
-                'template_id': str(template.id),
+                'template_title': default_title,
+                'template_text': default_text,
                 'emails': (payload.get('emails') or '').strip() or None,
                 'telegram_chat_ids': (payload.get('telegram_chat_ids') or '').strip() or None,
             })
@@ -984,9 +969,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if cached_data is not None:
             return Response(json.loads(cached_data))
 
-        latest_status = DeviceStatus.objects.filter(
+        latest_status = AssetStatus.objects.filter(
             device=device,
-            name=DeviceStatus.DAILY_STATUS
+            name=AssetStatus.DAILY_STATUS
         ).order_by('-created_at').first()
         
         data_report = DataReports(device)
@@ -1029,7 +1014,6 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 'latitude': device.position.get("latitude") if device.position else None,
                 'longitude': device.position.get("longitude") if device.position else None
             },
-            'commands': [c.command_name for c in device.commands.all()],
             'properties': {
                 **((device.other_data or {}).get('device_properties', {})),
                 **{p.name: p.get_value() for p in DeviceProperty.objects.filter(device=device)},
@@ -1040,27 +1024,12 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             'token': device.access_token
         }
 
-        if device.operator:
-            operator_data = {
-                '_id': str(device.operator.id),
-                'name': device.operator.name,
-                'address': device.operator.address,
-                'pincode': device.operator.pin_code,
-                'contact': device.operator.contact_number,
-                'avatar': device.operator.avatar.url if device.operator.avatar else None
-            }
-            device_data['operator'] = operator_data
-
         available_parameters = [
             "voltage", "current", "power",
             "frequency", "temperature",
             "energy", "state", "runtime",
             "latitude", "longitude",
         ]
-
-        derived_data = DerivedData.objects.filter(device=str(device.id))
-        for derived_dt in derived_data:
-            available_parameters.append(derived_dt.name)
 
         device_data["data_parameters"] = available_parameters
 
@@ -1216,9 +1185,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
                         status_type.save()
 
-        latest_status = DeviceStatus.objects.filter(
+        latest_status = AssetStatus.objects.filter(
             device=device,
-            name=DeviceStatus.DAILY_STATUS
+            name=AssetStatus.DAILY_STATUS
         ).order_by('-created_at').first()
 
         available_device_types = UserDeviceType.objects.filter(
@@ -1447,12 +1416,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         if command != "":
             # Save the command into command model
-            dev_command = device.commands.filter(command_name=command).first()
             cmd = Command(
                 device=device,
                 status='P',
                 command_in_time=timezone.now(),
-                command=dev_command.command_code if dev_command else command,
+                command=command,
                 param=command_param
             )
             cmd.save()
@@ -1481,16 +1449,16 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         report_name = None
 
         if report_type == 'yesterday':
-            report_name = DeviceStatus.LAST_DAY_REPORT
+            report_name = AssetStatus.LAST_DAY_REPORT
 
         elif report_type == 'month':
-            report_name = DeviceStatus.LAST_MONTH_REPORT
+            report_name = AssetStatus.LAST_MONTH_REPORT
 
         elif report_type == 'week':
-            report_name = DeviceStatus.LAST_WEEK_REPORT
+            report_name = AssetStatus.LAST_WEEK_REPORT
             
         if report_name is not None:
-            report_status = DeviceStatus.objects.filter(
+            report_status = AssetStatus.objects.filter(
                 device=device,
                 name=report_name
             ).order_by('-created_at').first()

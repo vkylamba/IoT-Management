@@ -3,7 +3,7 @@ import uuid
 
 from django.db import models
 
-from .device import DeviceType, Device
+from .device import Device
 
 
 def get_firmware_path(instance, filename):
@@ -15,7 +15,7 @@ class DeviceFirmware(models.Model):
         model to store device firmware.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    device_type = models.ForeignKey(DeviceType, blank=True, null=True, on_delete=models.CASCADE)
+    device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.CASCADE)
     document = models.FileField(
         upload_to=get_firmware_path,
         blank=True,

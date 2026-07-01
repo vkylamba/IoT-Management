@@ -16,7 +16,10 @@ from django.utils import timezone
 # from geopy import geocoders
 from timezonefinder import TimezoneFinder
 
-from device.clickhouse_models import MeterData
+if os.getenv("CLICKHOUSE_DATABASE_HOST") and os.getenv("CLICKHOUSE_DATABASE_PORT") and os.getenv("CLICKHOUSE_DATABASE_NAME") and os.getenv("CLICKHOUSE_DATABASE_USERNAME") and os.getenv("CLICKHOUSE_DATABASE_PASSWORD"):
+    from device.clickhouse_models import MeterData
+else:
+    MeterData = None
 
 # ctx = ssl.create_default_context(cafile=certifi.where())
 # geocoders.options.default_ssl_context = ctx
@@ -86,71 +89,6 @@ class Subnet(models.Model):
         return f"{self.subnet_a}.{self.subnet_b}.{self.subnet_c}.{self.subnet_d}"
 
 
-class Operator(models.Model):
-    """
-    Model to store static information of the operator.
-
-    """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(
-        max_length=100,
-        help_text='Name of the branch'
-    )
-    address = models.CharField(
-        max_length=500,
-        help_text='Address of the branch'
-    )
-    pin_code = models.IntegerField(help_text='PIN code')
-    contact_number = models.CharField(
-        max_length=20,
-        help_text='Contact number'
-    )
-    avatar = models.ImageField(
-        upload_to=get_image_path,
-        blank=True,
-        null=True,
-        help_text='Avatar of the operator'
-    )
-    
-    class Meta:
-        app_label = "device"
-        verbose_name = "Device Operator"
-        verbose_name_plural = "Device Operator"
-
-    def __str__(self):
-        return str(self.name) + ": " + str(self.contact_number)
-
-class DeviceType(models.Model):
-
-    """
-    Stores type information of the devices.
-    """
-    HOME = 'Home'
-    CHARGE_CONTROLLER = 'Charge Controller'
-    DELTA_RPI_INVERTER = 'DELTA-RPI Inverter'
-    SOLAR_HYBRID_INVERTER = 'SOLAR HYBRID INVERTER'
-    WEATHER_STATION = 'WEATHER STATION'
-    IOT_GATEWAY = 'IOT_GATEWAY'
-    SOLAR_PUMP = 'SOLAR PUMP'
-    OTHER = 'OTHER'
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(
-        max_length=50,
-        help_text='Type name'
-    )
-    details = models.TextField(blank=True, null=True)
-    other_data = models.JSONField(blank=True, null=True)
-    
-    class Meta:
-        app_label = "device"
-        verbose_name = "Device Type"
-        verbose_name_plural = "Device Types"
-
-    def __str__(self):
-        return self.name if self.name is not None else self.id
-
-
 class Device(models.Model):
     """
         Stores static information about the device.
@@ -182,19 +120,11 @@ class Device(models.Model):
         blank=True,
         null=True
     )
-    types = models.ManyToManyField(DeviceType, blank=True)
     device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
     installation_date = models.DateField(
         blank=True,
         null=True,
         help_text='Device\'s installation date'
-    )
-    operator = models.ForeignKey(
-        Operator,
-        blank=True,
-        null=True,
-        help_text='Operator of the device',
-        on_delete=models.CASCADE
     )
     device_contact_number = models.CharField(
         max_length=20,
@@ -215,7 +145,6 @@ class Device(models.Model):
     address = models.TextField(
         blank=True, null=True
     )
-    commands = models.ManyToManyField('DevCommand', blank=True)
 
     # Access token for the device to push data
     access_token = models.CharField(max_length=40, blank=True, null=True)
@@ -227,7 +156,6 @@ class Device(models.Model):
     active = models.BooleanField(default=True, blank=True, null=True)
 
     class Meta:
-        unique_together = ('ip_address', )
         app_label = "device"
         verbose_name = "Device"
         verbose_name_plural = "Devices"
@@ -307,6 +235,10 @@ class Device(models.Model):
     def get_last_data_point(self, meter_type=None, split_by_meters=False):
         logger.debug("Fetching latest data point for device {}.".format(self.ip_address))
 
+        if MeterData is None:
+            logger.info("ClickHouse disabled: skipping meter data lookup for device %s", self.ip_address)
+            return {} if split_by_meters else None
+
         if isinstance(meter_type, Iterable):
             cache_key = "{}-{}-{}-last_data_point".format(self.ip_address, '-'.join(meter_type), split_by_meters)
         else:
@@ -382,7 +314,7 @@ class Device(models.Model):
             equipments = equipments.order_by('-equipment__max_power')
 
             equipments = equipments.select_related('equipment')
-            cache.set("{}-equipments".format(self.ip_address), equipments, settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES * 60)
+            cache.set("{}-equipments".format(self.ip_address), equipments, settings.DEVICE_CACHE_TTL_MINUTES * 60)
         return equipments
 
     def get_timezone(self):
@@ -491,24 +423,6 @@ class Equipment(models.Model):
 
     def __str__(self):
         return "{}".format(self.name)
-
-
-class DevCommand(models.Model):
-    """
-        Model to store possible commands for device.
-    """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    command_name = models.CharField(
-        max_length=255, help_text="Name of command.")
-    command_code = models.CharField(max_length=20, help_text="Command code.")
-    
-    class Meta:
-        app_label = "device"
-        verbose_name = "Device Command"
-        verbose_name_plural = "Device Commands"
-
-    def __str__(self):
-        return self.command_name
 
 
 class Command(models.Model):
@@ -682,12 +596,13 @@ class Permission(models.Model):
     def __str__(self):
         return f"{self.name}"
 
-class Document(models.Model):
+class AssetDocument(models.Model):
     """
-        model to store device documents.
+        Model to store documents linked to a device, asset, or user.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.CASCADE)
+    asset = models.ForeignKey('asset.Asset', blank=True, null=True, on_delete=models.CASCADE)
     user = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
     doc_type = models.CharField(
         max_length=255,
@@ -730,13 +645,16 @@ class Document(models.Model):
     
     class Meta:
         app_label = "device"
-        verbose_name = "Device Document"
-        verbose_name_plural = "Device Documents"
+        verbose_name = "Asset/Device Document"
+        verbose_name_plural = "Asset/Device Documents"
+        db_table = 'device_document'
 
     def __str__(self):
         owner = ''
         if self.device is not None:
             owner += self.device.ip_address
+        if self.asset is not None:
+            owner += (' - ' if owner else '') + self.asset.name
         if self.user is not None:
             owner += ' - ' + self.user.username
         return f"{owner} - {self.description}"
@@ -749,9 +667,9 @@ DEVICE_STATUS_NAMES = (
     ('LAST_MONTH_REPORT', 'LAST_MONTH_REPORT'),
 )
 
-class DeviceStatus(models.Model):
+class AssetStatus(models.Model):
     """
-    Model to store device status.
+    Model to store status for devices and assets.
     
     This model is backed by a MongoDB time series collection for optimized
     time-based queries and efficient storage of device status data.
@@ -770,6 +688,7 @@ class DeviceStatus(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, blank=True, null=True, db_index=True)
     device = models.ForeignKey(Device, blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
+    asset = models.ForeignKey('asset.Asset', blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
     user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now_add=True)
@@ -778,17 +697,28 @@ class DeviceStatus(models.Model):
 
     class Meta:
         app_label = "device"
-        verbose_name = "Device Status"
-        verbose_name_plural = "Devices Status"
+        verbose_name = "Asset/Device Status"
+        verbose_name_plural = "Asset/Device Statuses"
+        db_table = 'device_devicestatus'
         indexes = [
             models.Index(fields=['-created_at']),
             models.Index(fields=['name', '-created_at']),
             models.Index(fields=['device', '-created_at']),
+            models.Index(fields=['asset', '-created_at']),
             models.Index(fields=['user', '-created_at']),
         ]
 
     def __str__(self):
-        return f"{self.name} - {self.device.ip_address} - {self.created_at}"
+        target = None
+        if self.device is not None:
+            target = self.device.ip_address
+        elif self.asset is not None:
+            target = self.asset.name
+        elif self.user is not None:
+            target = self.user.username
+        else:
+            target = 'unbound'
+        return f"{self.name} - {target} - {self.created_at}"
 
 
 METER_TYPE_CHOICES = (

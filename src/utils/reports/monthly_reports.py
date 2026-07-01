@@ -1,7 +1,7 @@
 import datetime
 
 import pytz
-from device.models import DeviceProperty, DeviceStatus
+from device.models import DeviceProperty, AssetStatus
 from django.conf import settings
 from django.utils import timezone
 from pipe import select, where
@@ -101,9 +101,9 @@ def get_monthly_report(device):
         "total_recovery_amount": total_recovery_amount,
     }
    
-    dev_status = DeviceStatus(
+    dev_status = AssetStatus(
         device=device,
-        name=DeviceStatus.LAST_MONTH_REPORT,
+        name=AssetStatus.LAST_MONTH_REPORT,
         status=monthly_report
     )
     dev_status.save()

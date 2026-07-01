@@ -5,15 +5,11 @@ from posixpath import split
 
 import pytz
 from api.serializers import MeterDataSerializer, meter_data
-from device.clickhouse_models import (DerivedData, MeterData, MeterLoad,
-                                      WeatherData)
-from device.models import (DeviceEquipment, DeviceProperty, DeviceStatus,
-                           DeviceType, Meter, RawData, StatusType, device)
+from device.models import (DeviceEquipment, DeviceProperty, AssetStatus,
+                           Meter, RawData, StatusType, device)
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
-from django_clickhouse.configuration import config
-from django_clickhouse.database import connections
 
 from .weather import get_weather_data_cached
 
@@ -21,6 +17,20 @@ from .weather import get_weather_data_cached
 
 
 logger = logging.getLogger('django')
+CLICKHOUSE_ENABLED = getattr(settings, 'CLICKHOUSE_ENABLED', False)
+
+if CLICKHOUSE_ENABLED:
+    from device.clickhouse_models import (DerivedData, MeterData, MeterLoad,
+                                          WeatherData)
+    from django_clickhouse.configuration import config
+    from django_clickhouse.database import connections
+else:
+    DerivedData = None
+    MeterData = None
+    MeterLoad = None
+    WeatherData = None
+    config = None
+    connections = None
 LIGHT_EQUIPMENTS = ['CFL', 'Tubelight', 'Bulb']
 SUMMER_EQUIPMENTS = ['Fan', 'Cooler', 'AC']
 OTHER_EQUIPMENTS = ['TV', 'Water Pump']
@@ -35,8 +45,7 @@ class DataReports(object):
         self.device = device
         self.multiple = multiple
         if not multiple and self.device is not None:
-            non_null_device_types = [x for x in self.device.types.all() if x is not None]
-            self.device_types = [x.name for x in non_null_device_types]
+            self.device_types = [self.device.device_type.name] if self.device.device_type else []
             self.rate = DeviceProperty.objects.filter(device=self.device, name='pay_per_unit').first()
             self.meters = Meter.objects.filter(
                 device=self.device
@@ -93,10 +102,12 @@ class DataReports(object):
                 aggregation_period=datetime.timedelta(days=1)
             )
             results = [x for x in results]
-            cache.set(cache_name, results, settings.DEVICE_PROPERTY_UPDATE_DELAY_MINUTES)
+            cache.set(cache_name, results, settings.DEVICE_CACHE_TTL_MINUTES)
         return results
 
     def get_statistics_by_time(self, params='all', from_time=None, to_time=None, aggregation_period=None):
+        if not CLICKHOUSE_ENABLED:
+            return []
 
         time_now = self.get_device_local_time()
         time_now = time_now.astimezone(pytz.utc)
@@ -272,6 +283,8 @@ class DataReports(object):
         return data
 
     def get_all_data(self, start_time, end_time, meter_type=None):
+        if not CLICKHOUSE_ENABLED:
+            return []
         meters = Meter.objects.filter(
             device=self.device
         )
@@ -293,6 +306,8 @@ class DataReports(object):
         return []
 
     def get_power_and_energy_data(self, start_time, end_time, meter_type=None):
+        if not CLICKHOUSE_ENABLED:
+            return []
 
         meter_names = {}
         for meter in self.meters:
@@ -352,6 +367,8 @@ class DataReports(object):
         )
 
     def get_historic_weather_data(self, start_time, end_time):
+        if not CLICKHOUSE_ENABLED:
+            return []
         from_time_string = start_time.strftime("%Y-%m-%dT%H:%M:%S")
         to_time_string = end_time.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -399,7 +416,7 @@ class DataReports(object):
         return data_list
 
     def get_status_data(self, status_types, start_time, end_time):
-        data_list = DeviceStatus.objects.filter(
+        data_list = AssetStatus.objects.filter(
             device=self.device,
             name__in=status_types,
             created_at__gte=start_time,
@@ -432,7 +449,7 @@ class DataReports(object):
             date_tomorrow = date_today + timezone.timedelta(days=1)
 
         status_types = [
-            DeviceStatus.DAILY_STATUS,
+            AssetStatus.DAILY_STATUS,
             StatusType.STATUS_TARGET_METER,
             StatusType.STATUS_TARGET_USER,
             StatusType.STATUS_TARGET_ALARM,
@@ -457,9 +474,6 @@ class DataReports(object):
             Meter.LOAD_AC_METER,
             Meter.LOAD_DC_METER
         ]
-
-        if DeviceType.SOLAR_HYBRID_INVERTER in self.device_types or DeviceType.CHARGE_CONTROLLER in self.device_types:
-            meter_types.append(Meter.DC_METER)
         
         data_list = self.get_power_and_energy_data(
             date_today,

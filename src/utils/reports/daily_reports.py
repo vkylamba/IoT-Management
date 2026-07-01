@@ -1,7 +1,7 @@
 import datetime
 
 import pytz
-from device.models import (Device, DeviceProperty, DeviceStatus, DeviceType,
+from device.models import (Device, DeviceProperty, AssetStatus,
                            Meter, RawData)
 from django.conf import settings
 from django.utils import timezone
@@ -43,9 +43,6 @@ def get_yesterdays_power_data(dr, from_time, to_time):
     meter_types = [
         Meter.LOAD_AC_METER
     ]
-
-    if DeviceType.SOLAR_HYBRID_INVERTER in dr.device_types:
-        meter_types.extend([Meter.DC_METER, Meter.AC_METER])
 
     return dr.get_power_and_energy_data(
         from_time,
@@ -190,9 +187,9 @@ def get_daily_report(device):
         daily_report["net_bill"] = net_bill
         daily_report["savings"] = savings
 
-    dev_status = DeviceStatus(
+    dev_status = AssetStatus(
         device=device,
-        name=DeviceStatus.LAST_DAY_REPORT,
+        name=AssetStatus.LAST_DAY_REPORT,
         status=daily_report
     )
     dev_status.save()

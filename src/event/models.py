@@ -1,7 +1,10 @@
+import ast
 import logging
+import operator
 import uuid
+from functools import reduce
 
-from device.models import Command, DevCommand, Device
+from device.models import Command, Device
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models
@@ -98,6 +101,81 @@ class DeviceEvent(models.Model):
     def __str__(self):
         return "{dev} - {typ}".format(dev=self.device.ip_address if self.device else self.user.user.username, typ=self.typ.name)
 
+    def _safe_evaluate_expression(self, expression, context_variables):
+        """
+        Safely evaluate a mathematical/comparison expression without using eval().
+        Supports: +, -, *, /, >, <, >=, <=, ==, !=, and, or parentheses
+        """
+        try:
+            # Parse expression into AST
+            node = ast.parse(expression, mode='eval')
+            
+            # Define allowed operations
+            allowed_ops = {
+                ast.Add: operator.add,
+                ast.Sub: operator.sub,
+                ast.Mult: operator.mul,
+                ast.Div: operator.truediv,
+                ast.Gt: operator.gt,
+                ast.Lt: operator.lt,
+                ast.GtE: operator.ge,
+                ast.LtE: operator.le,
+                ast.Eq: operator.eq,
+                ast.NotEq: operator.ne,
+                ast.And: operator.and_,
+                ast.Or: operator.or_,
+            }
+            
+            def _eval_node(node):
+                if isinstance(node, ast.Expression):
+                    return _eval_node(node.body)
+                elif isinstance(node, ast.Constant):
+                    return node.value
+                elif isinstance(node, ast.Num):  # Python 3.7 compatibility
+                    return node.n
+                elif isinstance(node, ast.Name):
+                    if node.id in context_variables:
+                        return context_variables[node.id]
+                    raise ValueError(f"Undefined variable: {node.id}")
+                elif isinstance(node, ast.BinOp):
+                    left = _eval_node(node.left)
+                    right = _eval_node(node.right)
+                    op = allowed_ops.get(type(node.op))
+                    if op is None:
+                        raise ValueError(f"Operation not allowed: {type(node.op).__name__}")
+                    return op(left, right)
+                elif isinstance(node, ast.UnaryOp):
+                    if isinstance(node.op, (ast.UAdd, ast.USub)):
+                        val = _eval_node(node.operand)
+                        return -val if isinstance(node.op, ast.USub) else val
+                    raise ValueError(f"Operation not allowed: {type(node.op).__name__}")
+                elif isinstance(node, ast.Compare):
+                    left = _eval_node(node.left)
+                    for op, comparator in zip(node.ops, node.comparators):
+                        right = _eval_node(comparator)
+                        op_func = allowed_ops.get(type(op))
+                        if op_func is None:
+                            raise ValueError(f"Operation not allowed: {type(op).__name__}")
+                        if not op_func(left, right):
+                            return False
+                        left = right
+                    return True
+                elif isinstance(node, ast.BoolOp):
+                    op = allowed_ops.get(type(node.op))
+                    if op is None:
+                        raise ValueError(f"Operation not allowed: {type(node.op).__name__}")
+                    if isinstance(node.op, ast.And):
+                        return all(_eval_node(value) for value in node.values)
+                    elif isinstance(node.op, ast.Or):
+                        return any(_eval_node(value) for value in node.values)
+                else:
+                    raise ValueError(f"Expression type not allowed: {type(node).__name__}")
+            
+            return _eval_node(node.body)
+        except Exception as e:
+            logger.error(f"Error evaluating expression '{expression}': {str(e)}")
+            raise ValueError(f"Invalid expression: {str(e)}")
+
     def eval_equation(self, data=None):
         event_typ = self.typ
         equation = event_typ.equation
@@ -110,13 +188,21 @@ class DeviceEvent(models.Model):
             "time_now": time_now
         }
         for data_member in data_members:
-            data_member_val = eval('data.{attr}'.format(attr=data_member))
-            context_variables[data_member] = data_member_val
-            if f"{data_member}_val" in equation:
-                equation = equation.replace("{}_val".format(data_member), str(data_member_val))
+            try:
+                data_member_val = getattr(data, data_member, None)
+                context_variables[data_member] = data_member_val
+                if f"{data_member}_val" in equation:
+                    equation = equation.replace("{}_val".format(data_member), str(data_member_val))
+            except Exception as e:
+                logger.warning(f"Could not access data member {data_member}: {str(e)}")
 
         logger.info("Transformed Equation is {}".format(equation))
-        result = eval(equation, context_variables)
+        try:
+            result = self._safe_evaluate_expression(equation, context_variables)
+        except Exception as e:
+            logger.error(f"Failed to evaluate equation '{equation}': {str(e)}")
+            return False
+        
         logger.info("Result of the equation is {}".format(result))
 
         result_is_number, result = is_number(result)
@@ -142,7 +228,7 @@ class Action(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     device_event = models.ForeignKey(DeviceEvent, on_delete=models.CASCADE)
-    device_command = models.ForeignKey(DevCommand, blank=True, null=True, on_delete=models.CASCADE)
+    device_command = models.CharField(max_length=255, blank=True, null=True)
 
     task = models.CharField(
         max_length=200,
@@ -175,6 +261,7 @@ class Action(models.Model):
 
     def __str__(self):
         return "{name} - {dev_event}".format(name=self.name, dev_event=self.device_event)
+
 
 class EventHistory(models.Model):
     """

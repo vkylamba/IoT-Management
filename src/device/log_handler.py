@@ -12,15 +12,44 @@ def set_device_for_logger(logger, device):
 class DeviceLogHandler(TimedRotatingFileHandler):
 
     def __init__(self, *args, **kwargs) -> None:
-        self.filename = kwargs.get("filename") or (args[0] if args else None)
-        if self.filename is None:
+        init_args = list(args)
+        self.filename = kwargs.get("filename") or (init_args[0] if init_args else None)
+        if not self.filename:
             raise ValueError("DeviceLogHandler requires a filename")
-        self.logdir = "/".join(self.filename.split("/")[:-1])
+        self.logdir = os.path.dirname(self.filename)
         self.device = "unknown-device"
-        if not os.path.exists(self.logdir):
-            os.makedirs(self.logdir)
+
+        def apply_filename(target_filename: str) -> None:
+            if "filename" in kwargs:
+                kwargs["filename"] = target_filename
+            elif init_args:
+                init_args[0] = target_filename
+            else:
+                kwargs["filename"] = target_filename
+
+        def fallback_to_tmp() -> None:
+            fallback_dir = "/tmp/device-logs"
+            os.makedirs(fallback_dir, exist_ok=True)
+            self.logdir = fallback_dir
+            self.filename = os.path.join(fallback_dir, os.path.basename(self.filename))
+
+        try:
+            if not os.path.exists(self.logdir):
+                os.makedirs(self.logdir)
+        except PermissionError:
+            # Docker named volumes may be owned by root; fall back to writable tmp.
+            fallback_to_tmp()
+
+        apply_filename(self.filename)
+
         self.backupCountDays = kwargs.get("backupCount") or 0
-        super().__init__(*args, **kwargs)
+        try:
+            super().__init__(*init_args, **kwargs)
+        except PermissionError:
+            # File creation may still fail even if directory exists.
+            fallback_to_tmp()
+            apply_filename(self.filename)
+            super().__init__(*init_args, **kwargs)
         
     def set_device(self, device):
         self.device = device

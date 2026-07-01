@@ -43,7 +43,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third party apps
-    'django_clickhouse',
     'django_celery_beat',
     'rest_framework',
     'rest_framework.authtoken',
@@ -56,9 +55,20 @@ INSTALLED_APPS = [
     'device',
     'dashboard',
     'event',
-    'notification',
+    'asset',
     'api',
 ]
+
+CLICKHOUSE_ENABLED = all([
+    os.getenv("CLICKHOUSE_DATABASE_HOST"),
+    os.getenv("CLICKHOUSE_DATABASE_PORT"),
+    os.getenv("CLICKHOUSE_DATABASE_NAME"),
+    os.getenv("CLICKHOUSE_DATABASE_USERNAME"),
+    os.getenv("CLICKHOUSE_DATABASE_PASSWORD"),
+])
+
+if CLICKHOUSE_ENABLED:
+    INSTALLED_APPS.append('django_clickhouse')
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -117,15 +127,17 @@ DATABASES = {
 }
 
 # django-clickhouse library setup
-CLICKHOUSE_DATABASES = {
-    'default': {
-        'db_url': f'http://{os.getenv("CLICKHOUSE_DATABASE_HOST")}:{os.getenv("CLICKHOUSE_DATABASE_PORT")}',
-        'db_name': os.getenv("CLICKHOUSE_DATABASE_NAME"),
-        'username': os.getenv("CLICKHOUSE_DATABASE_USERNAME"),
-        'password': os.getenv("CLICKHOUSE_DATABASE_PASSWORD"),
-        'migrate': True
+CLICKHOUSE_DATABASES = {}
+if CLICKHOUSE_ENABLED:
+    CLICKHOUSE_DATABASES = {
+        'default': {
+            'db_url': f'http://{os.getenv("CLICKHOUSE_DATABASE_HOST")}:{os.getenv("CLICKHOUSE_DATABASE_PORT")}',
+            'db_name': os.getenv("CLICKHOUSE_DATABASE_NAME"),
+            'username': os.getenv("CLICKHOUSE_DATABASE_USERNAME"),
+            'password': os.getenv("CLICKHOUSE_DATABASE_PASSWORD"),
+            'migrate': True
+        }
     }
-}
 
 # Password validation
 # https://docs.djangoproject.com/en/4.1/ref/settings/#auth-password-validators
@@ -175,7 +187,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'device.User'
 DATE_FORMAT_STRING = "%Y-%m-%d"
 TIME_FORMAT_STRING = "%Y-%m-%dT%H:%M:%SZ"
-DEVICE_PROPERTY_UPDATE_DELAY_MINUTES = os.getenv("DEVICE_PROPERTY_UPDATE_DELAY_MINUTES", 10)
+DEVICE_CACHE_TTL_MINUTES = int(os.getenv("DEVICE_CACHE_TTL_MINUTES", os.getenv("DEVICE_PROPERTY_UPDATE_DELAY_MINUTES", 10)))
 WEATHER_DATA_CACHE_MINUTES = os.getenv("WEATHER_DATA_CACHE_MINUTES", 30)
 DEFAULT_SYNC_FREQUENCY_MINUTES = os.getenv("DEFAULT_SYNC_FREQUENCY_MINUTES", 10)
 
@@ -269,6 +281,21 @@ MQTT_USE_SSL = os.getenv("MQTT_USE_SSL", False)
 # ROOT CA
 ROOT_CA = os.getenv("ROOT_CA")
 
+# MQTT Health Monitoring Settings
+MQTT_HEALTH_DIR = os.getenv("MQTT_HEALTH_DIR", "/tmp/iot-health")
+MQTT_HEALTH_FILE = os.path.join(MQTT_HEALTH_DIR, "mqtt-listener.json")
+MQTT_HEALTH_STALE_SECONDS = int(os.getenv("MQTT_HEALTH_STALE_SECONDS", 120))
+CLICKHOUSE_SYNC_STALE_SECONDS = int(os.getenv("CLICKHOUSE_SYNC_STALE_SECONDS", 900))
+
+# Rate Limiting Settings for Data Ingestion API
+# User-level rate limiting: max requests per time window per authenticated user
+RATE_LIMIT_USER_REQUESTS = int(os.getenv("RATE_LIMIT_USER_REQUESTS", 10))
+RATE_LIMIT_USER_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_USER_WINDOW_SECONDS", 60))
+
+# Device-level rate limiting: max requests per time window per device
+RATE_LIMIT_DEVICE_REQUESTS = int(os.getenv("RATE_LIMIT_DEVICE_REQUESTS", 1))
+RATE_LIMIT_DEVICE_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_DEVICE_WINDOW_SECONDS", 60))
+
 
 # Configure logging
 
@@ -297,5 +324,9 @@ LOGGING = {
             "level": "DEBUG",
             "handlers": ["device"],
         },
+        # 'django.db.backends': {
+        #     'level': 'DEBUG',
+        #     'handlers': ['console'],
+        # }
     },
 }

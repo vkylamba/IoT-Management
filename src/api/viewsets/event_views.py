@@ -1,11 +1,10 @@
 from api.permissions import IsDeviceUser
-from device.models import DevCommand, Device
+from device.models import Device
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django_celery_beat.models import CrontabSchedule
 from event.models import Action, DeviceEvent, EventHistory, EventType
-from notification.models import Notification, TemplateContext
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -92,23 +91,7 @@ class EventViewSet(viewsets.ViewSet):
                 'name': action.name,
                 'device_command': action.device_command.command_name if action.device_command else None,
                 'command_parameter': action.command_param,
-                'notifications': []
             }
-            notifications = action.notifications.all().select_related('context')
-
-            for notification in notifications:
-                notification_data = {
-                    'id': notification.id,
-                    'name': notification.name,
-                    'method': notification.method,
-                    'emails': notification.emails.split(','),
-                    'mobiles': notification.emails.split(','),
-                    'title': notification.title,
-                    'text': notification.text,
-                    'context_id': notification.context.id if notification.context else None,
-                    'context': notification.context.name if notification.context else None
-                }
-                action_data['notifications'].append(notification_data)
 
             if key not in events_data:
                 events_data[key] = {
@@ -133,19 +116,9 @@ class EventViewSet(viewsets.ViewSet):
             }
             data.append(event_data)
 
-        notifications = Notification.objects.all()
-        notifications_data = []
-        for notification in notifications:
-            notification_data = {
-                'name': notification.name,
-                'id': notification.id
-            }
-            notifications_data.append(notification_data)
-
         resp_data = {
             'events': events_data,
-            'event_types': data,
-            'notifications': notifications_data
+            'event_types': data
         }
         return Response(resp_data)
 
@@ -172,30 +145,14 @@ class EventViewSet(viewsets.ViewSet):
             # 'available_event_types': [{'name': etpe.name, 'id': etpe.id} for etpe in EventType.objects.all()]
         }
 
-        event_actions = Action.objects.filter(device_event=dev_event).prefetch_related('notifications__context')
+        event_actions = Action.objects.filter(device_event=dev_event)
         for event_action in event_actions:
             action_data = {
                 'id': event_action.id,
                 'name': event_action.name,
                 'device_command': event_action.device_command,
                 'command_parameter': event_action.command_param,
-                'notifications': []
             }
-            notifications = event_action.notifications.all().select_related('context')
-
-            for notification in notifications:
-                notification_data = {
-                    'id': notification.id,
-                    'name': notification.name,
-                    'method': notification.method,
-                    'emails': notification.emails.split(','),
-                    'mobiles': notification.emails.split(','),
-                    'title': notification.title,
-                    'text': notification.text,
-                    'context_id': notification.context.id if notification.context else None,
-                    'context': notification.context.name if notification.context else None
-                }
-                action_data['notifications'].append(notification_data)
 
             event_data['actions'].append(action_data)
         return Response(event_data)
@@ -263,29 +220,11 @@ class EventViewSet(viewsets.ViewSet):
                 if not action.name:
                     action.name = "{}-{}-Action".format(event.name, device_ip_address)
                 if action_data.get('command'):
-                    command = DevCommand.objects.get(device=device, command_name=action_data.get('command'))
-                    action.device_command = command
+                    action.device_command = action_data.get('command')
                     action.command_param = action_data.get('commandValue')
                 action.device_event = dev_event
                 action.save()
 
-                notifications = action_data.get('notifications')
-                for notification_data in notifications:
-                    if notification_data.get('notificationId'):
-                        notification = Notification.objects.get(pk=notification_data.get('notificationId'))
-                    else:
-                        notification = Notification()
-                        notification.name = notification_data.get('name')
-                        notification.title = notification_data.get('title')
-                        notification.emails = ','.join(notification_data.get('emails', []))
-                        notification.mobiles = ','.join(notification_data.get('mobiles', []))
-                        notification.text = notification_data.get('text')
-
-                        if notification_data.get('contextId'):
-                            notification.context = TemplateContext.objects.get(pk=notification_data.get('contextId'))
-                        notification.save()
-                    action.notifications.add(notification)
-                    action.save()
 
             data = {
                 'success': True

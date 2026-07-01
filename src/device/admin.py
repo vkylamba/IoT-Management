@@ -27,13 +27,6 @@ class DisableAdminLogMixin:
 class SafeDeviceAdminMixin(DisableAdminLogMixin, DjongoSafeModelAdmin):
     pass
 
-
-class OperatorAdmin(SafeDeviceAdminMixin):
-    ordering = ('name',)
-    list_display = ('name', 'contact_number', 'avatar')
-    list_filter = ('name',)
-
-
 def delete_devices(modeladmin, request, queryset):
 
     db_config = settings.DATABASES['default']
@@ -57,30 +50,8 @@ def delete_devices(modeladmin, request, queryset):
     return None
 
 
-def delete_device_types(modeladmin, request, queryset):
-
-    db_config = settings.DATABASES['default']
-    
-    if db_config.get('ENGINE') != 'djongo':
-        raise Exception('Not mongodb!')
-    
-    db_name = db_config.get('NAME')
-    db_host = db_config.get('CLIENT', {}).get('host')
-
-    deleted = 0
-    if db_name and db_host:
-        client = MongoClient(db_host)
-        db = client[db_name]
-        db_table_name = queryset.model._meta.db_table
-        db_table = db[db_table_name]
-        for obj in queryset:
-            result = db_table.delete_many({'id': obj.id})
-            deleted += result.deleted_count
-    modeladmin.message_user(request, f'Deleted {deleted} device type records.')
-    return None
-
 class DocumentInline(admin.TabularInline):
-    model = Document
+    model = AssetDocument
     extra = 0
     can_delete = False
 
@@ -106,23 +77,11 @@ class DeviceConfigInline(admin.TabularInline):
 
 class DeviceAdmin(SafeDeviceAdminMixin):
     ordering = ('ip_address',)
-    list_display = ('id', 'ip_address', 'alias', 'mac', 'Type', 'operator', 'active', 'created_at')
+    list_display = ('id', 'ip_address', 'alias', 'mac', 'device_type', 'active', 'created_at')
     list_filter = ('ip_address', 'alias', 'id', 'mac', 'active', 'created_at')
     search_fields = ('ip_address', 'alias', 'mac')
     actions = [delete_devices]
     inlines = [DocumentInline, MeterInline, DeviceEquipmentInline, DevicePropertyInline, DeviceConfigInline]
-    filter_horizontal = ('types', 'commands')
-
-    def Type(self, obj):
-
-        return ", ".join(tpe.name for tpe in obj.types.all())
-
-class DeviceTypeAdmin(SafeDeviceAdminMixin):
-    ordering = ('name',)
-    list_display = ('id', 'name')
-    list_filter = ('name', )
-    actions = [delete_device_types]
-
 
 class RawDataAdmin(SafeDeviceAdminMixin):
     ordering = ('-data_arrival_time',)
@@ -139,10 +98,10 @@ class CommandAdmin(SafeDeviceAdminMixin):
 
         return obj.device
 
-class DeviceStatusAdmin(SafeDeviceAdminMixin):
+class AssetStatusAdmin(SafeDeviceAdminMixin):
     ordering = ('-created_at',)
-    list_display = ('id', 'name', 'device', 'created_at')
-    list_filter = ('device__ip_address', 'name')
+    list_display = ('id', 'name', 'device', 'asset', 'created_at')
+    list_filter = ('device__ip_address', 'asset__name', 'name')
 
 
 class MeterAdmin(SafeDeviceAdminMixin):
@@ -194,8 +153,6 @@ class DeviceConfigAdmin(SafeDeviceAdminMixin):
     list_filter = ('device', 'group_name', 'active')
 
 
-admin.site.register(DeviceType, DeviceTypeAdmin)
-admin.site.register(Operator, OperatorAdmin)
 admin.site.register(Device, DeviceAdmin)
 admin.site.register(RawData, RawDataAdmin)
 admin.site.register(Equipment, DjongoSafeModelAdmin)
@@ -211,11 +168,10 @@ class UserAdmin(SafeDeviceAdminMixin):
 
 
 admin.site.register(User, UserAdmin)
-admin.site.register(DeviceStatus, DeviceStatusAdmin)
-admin.site.register(Document, DjongoSafeModelAdmin)
+admin.site.register(AssetStatus, AssetStatusAdmin)
+admin.site.register(AssetDocument, DjongoSafeModelAdmin)
 admin.site.register(Meter, MeterAdmin)
 admin.site.register(Command, CommandAdmin)
-admin.site.register(DevCommand, DjongoSafeModelAdmin)
 admin.site.register(Permission, DjongoSafeModelAdmin)
 admin.site.register(DeviceFirmware, DjongoSafeModelAdmin)
 admin.site.register(Subnet, DjongoSafeModelAdmin)

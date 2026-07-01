@@ -405,8 +405,4 @@ class Migration(migrations.Migration):
             model_name='devicestatus',
             index=models.Index(fields=['user', '-created_at'], name='device_devi_user_id_ae8fb7_idx'),
         ),
-        migrations.AlterUniqueTogether(
-            name='device',
-            unique_together={('ip_address',)},
-        ),
     ]

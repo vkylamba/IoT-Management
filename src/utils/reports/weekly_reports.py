@@ -1,7 +1,7 @@
 import datetime
 
 import pytz
-from device.models import DeviceProperty, DeviceStatus
+from device.models import DeviceProperty, AssetStatus
 from django.conf import settings
 from django.utils import timezone
 from pipe import select, where
@@ -110,9 +110,9 @@ def get_weekly_report(device):
         "per_day_energy_statistics": get_statistics_for_each_day_in_last_week(dr, from_time, to_time)
     }
    
-    dev_status = DeviceStatus(
+    dev_status = AssetStatus(
         device=device,
-        name=DeviceStatus.LAST_WEEK_REPORT,
+        name=AssetStatus.LAST_WEEK_REPORT,
         status=weekly_report
     )
     dev_status.save()

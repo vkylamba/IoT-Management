@@ -2,7 +2,7 @@ import datetime
 import logging
 
 from api.permissions import IsDeviceUser
-from device.models import Device, DeviceType
+from device.models import Device, UserDeviceType
 from dashboard.models import Widget, UserWidget
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
@@ -95,10 +95,12 @@ class DeviceViewSet(viewsets.ViewSet):
 
     def get_device_types(self, request):
         """
-            View to return device types.
+            View to return device types for the user.
         """
+        user = request.user
         data = []
-        for dev_type in DeviceType.objects.all():
+        user_device_types = UserDeviceType.objects.filter(user=user)
+        for dev_type in user_device_types:
             data.append({'value': dev_type.name, 'label': dev_type.name})
         return Response(data)
 
@@ -117,8 +119,9 @@ class DeviceViewSet(viewsets.ViewSet):
             }
             return Response(status=resp_status, data=data)
 
-        dev_type, created = DeviceType.objects.get_or_create(
-            name=device_type
+        dev_type, created = UserDeviceType.objects.get_or_create(
+            name=device_type,
+            user=request.user
         )
         if created:
             dev_type.save()

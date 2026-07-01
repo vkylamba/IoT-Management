@@ -4,10 +4,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from device.models import (
-    DeviceType,
-    Operator,
     Device,
-    DevCommand,
 )
 
 from django_celery_beat.models import CrontabSchedule
@@ -19,11 +16,6 @@ from event.models import (
     Action,
     DeviceEvent,
     EventType
-)
-
-from notification.models import (
-    TemplateContext,
-    Notification,
 )
 
 DeviceCommands = (
@@ -60,14 +52,6 @@ class Command(BaseCommand):
 
         device_ip = kwargs.get('device_ip')[0]
 
-        for each_command in DeviceCommands:
-            command, created = DevCommand.objects.get_or_create(
-                command_name=each_command[1]
-            )
-            if created:
-                command.command_code = each_command[0]
-                command.save()
-
         device = self.create_sample_device(device_ip)
         self.create_event_types()
         self.attach_events_to_device(device)
@@ -84,31 +68,8 @@ class Command(BaseCommand):
         device, created = Device.objects.get_or_create(ip_address=device_ip)
         if created:
             device.save()
-            # Create a device type
-            device_type = DeviceType(
-                name='Sample Device Type',
-                details="Sample Device"
-            )
-            device_type.save()
-            device.types.add(device_type)
             device.installation_date = timezone.now().date()
-
-            # Create an operator
-            operator = Operator(
-                name=device_ip + " operator",
-                address="Address",
-                pin_code="00000",
-                contact_number="0000000000"
-            )
-            operator.save()
-            device.operator = operator
-
             print("Created device {}".format(device.ip_address))
-            device.save()
-            
-
-            for each_command in DevCommand.objects.all():
-                device.commands.add(each_command)
 
         return device
 
