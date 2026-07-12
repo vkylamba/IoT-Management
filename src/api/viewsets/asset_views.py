@@ -2,7 +2,6 @@ from asset.models import Asset, AssetAttribute, AssetBindingAgent, AssetType
 from api.permissions import IsDeviceUser
 from api.serializers.asset import (AssetAttributeSerializer, AssetBindingAgentSerializer,
                                    AssetSerializer, AssetTypeSerializer)
-from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -45,9 +44,11 @@ class AssetViewSet(viewsets.ViewSet):
     )
 
     def _ensure_default_asset_types(self):
-        existing_system_slugs = set(
-            AssetType.objects.filter(is_system=True).values_list('slug', flat=True)
-        )
+        existing_system_slugs = {
+            asset_type.slug
+            for asset_type in AssetType.objects.all()
+            if asset_type.is_system
+        }
         missing_types = [
             asset_type for asset_type in self.DEFAULT_ASSET_TYPES
             if asset_type['slug'] not in existing_system_slugs
@@ -66,7 +67,13 @@ class AssetViewSet(viewsets.ViewSet):
 
     def get_asset_types(self, request):
         self._ensure_default_asset_types()
-        types = AssetType.objects.filter(Q(is_system=True) | Q(owner=request.user), active=True)
+        types = [
+            asset_type
+            for asset_type in AssetType.objects.all()
+            if asset_type.active and (
+                asset_type.is_system or asset_type.owner_id == request.user.id
+            )
+        ]
         serializer = AssetTypeSerializer(types, many=True)
         return Response(serializer.data)
 
