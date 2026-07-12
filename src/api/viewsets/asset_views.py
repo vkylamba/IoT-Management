@@ -11,7 +11,61 @@ from rest_framework.response import Response
 class AssetViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated, IsDeviceUser)
 
+    DEFAULT_ASSET_TYPES = (
+        {
+            'name': 'Site',
+            'slug': 'site',
+            'category': AssetType.CATEGORY_INFRA,
+            'description': 'Generic top-level site, campus, farm, building, or facility.'
+        },
+        {
+            'name': 'Area',
+            'slug': 'area',
+            'category': AssetType.CATEGORY_ZONE,
+            'description': 'Generic sub-area such as field, floor, room, or zone.'
+        },
+        {
+            'name': 'Equipment',
+            'slug': 'equipment',
+            'category': AssetType.CATEGORY_INFRA,
+            'description': 'Physical equipment or machine asset.'
+        },
+        {
+            'name': 'Storage',
+            'slug': 'storage',
+            'category': AssetType.CATEGORY_STORAGE,
+            'description': 'Tank, cooler, warehouse, shelf, or other storage asset.'
+        },
+        {
+            'name': 'Sensor Group',
+            'slug': 'sensor-group',
+            'category': AssetType.CATEGORY_SENSOR_GROUP,
+            'description': 'Logical grouping for one or more sensors or telemetry sources.'
+        },
+    )
+
+    def _ensure_default_asset_types(self):
+        existing_system_slugs = set(
+            AssetType.objects.filter(is_system=True).values_list('slug', flat=True)
+        )
+        missing_types = [
+            asset_type for asset_type in self.DEFAULT_ASSET_TYPES
+            if asset_type['slug'] not in existing_system_slugs
+        ]
+
+        for asset_type in missing_types:
+            AssetType.objects.create(
+                owner=None,
+                name=asset_type['name'],
+                slug=asset_type['slug'],
+                category=asset_type['category'],
+                description=asset_type['description'],
+                is_system=True,
+                active=True,
+            )
+
     def get_asset_types(self, request):
+        self._ensure_default_asset_types()
         types = AssetType.objects.filter(Q(is_system=True) | Q(owner=request.user), active=True)
         serializer = AssetTypeSerializer(types, many=True)
         return Response(serializer.data)
