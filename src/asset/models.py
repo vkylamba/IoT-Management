@@ -182,9 +182,21 @@ class AssetAttribute(models.Model):
 
 class AssetBindingAgent(models.Model):
     """
-    Defines how devices are bound to an asset and how attributes pull from data sources.
+    Defines how a source (device status or another asset's attributes) is bound to target
+    attributes on a destination asset. When the source is updated the bound target
+    attributes are synced according to the configured mappings and sync_mode.
     """
 
+    # --- source type ---
+    SOURCE_DEVICE_STATUS = 'device_status'
+    SOURCE_ASSET_ATTRIBUTE = 'asset_attribute'
+
+    SOURCE_TYPES = (
+        (SOURCE_DEVICE_STATUS, 'Device Status'),
+        (SOURCE_ASSET_ATTRIBUTE, 'Asset Attribute'),
+    )
+
+    # --- sync mode ---
     SYNC_ON_READ = 'on_read'
     SYNC_PERIODIC = 'periodic'
     SYNC_MANUAL = 'manual'
@@ -197,18 +209,59 @@ class AssetBindingAgent(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='asset_agents')
+
+    # Destination asset whose attributes will be updated.
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='agents')
     name = models.CharField(max_length=150)
 
-    devices = models.ManyToManyField('device.Device', related_name='asset_binding_agents', blank=True)
+    # --- source definition ---
+    source_type = models.CharField(
+        max_length=30,
+        choices=SOURCE_TYPES,
+        default=SOURCE_DEVICE_STATUS,
+        help_text="Whether the binding reads from a device status or another asset's attributes."
+    )
 
-    sync_mode = models.CharField(max_length=20, choices=SYNC_MODES, default=SYNC_ON_READ)
+    # Used when source_type == SOURCE_DEVICE_STATUS.
+    devices = models.ManyToManyField(
+        'device.Device',
+        related_name='asset_binding_agents',
+        blank=True,
+        help_text='One or more source devices (used when source_type is device_status).'
+    )
+
+    # Used when source_type == SOURCE_ASSET_ATTRIBUTE.
+    source_asset = models.ForeignKey(
+        Asset,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='outbound_binding_agents',
+        help_text='Source asset whose attributes drive this binding (used when source_type is asset_attribute).'
+    )
+
+    # --- attribute mapping ---
+    # Each entry: {"source_key": "<device_status_key or source_asset_attribute_key>",
+    #              "target_key": "<destination_asset_attribute_key>",
+    #              "transform": "<optional expression string or null>"}
+    attribute_mappings = models.JSONField(
+        blank=True,
+        null=True,
+        help_text=(
+            'List of mapping rules: [{"source_key": "voltage", "target_key": "supply_voltage", '
+            '"transform": null}, ...]. Each rule copies/transforms source_key from the source '
+            'into target_key on the destination asset.'
+        )
+    )
+
+    # Kept for backwards compatibility; new code should use attribute_mappings.
     attribute_mapping_template = models.JSONField(
         blank=True,
         null=True,
-        help_text='Optional mapping config linking attribute keys to device status/raw/meter paths.'
+        help_text='Deprecated. Use attribute_mappings instead.'
     )
 
+    sync_mode = models.CharField(max_length=20, choices=SYNC_MODES, default=SYNC_ON_READ)
     active = models.BooleanField(default=True)
     last_synced_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
