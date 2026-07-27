@@ -111,7 +111,7 @@ class DataIngestionUserThrottle(BaseThrottle):
         """Called when throttle is triggered."""
         return False
     
-    def allow_request(self, request):
+    def allow_request(self, request, view=None):
         """Determine if the request should be throttled."""
         ident = self.get_ident(request)
         allowed, count, reset_in = self.limiter.is_allowed(ident)
@@ -150,7 +150,7 @@ class DataIngestionDeviceThrottle(BaseThrottle):
         self.limiter = MovingWindowRateLimiter(window_seconds, max_requests)
         self.throttle_message = f"Device rate limit exceeded: {max_requests} request per {window_seconds}s"
     
-    def allow_request(self, request):
+    def allow_request(self, request, view=None):
         """Determine if the request should be throttled."""
         # Get device from request
         device = getattr(request, 'device', None)
@@ -179,16 +179,16 @@ class CompositeDataIngestionThrottle(BaseThrottle):
         self.device_throttle = DataIngestionDeviceThrottle()
         self.throttle_message = None
     
-    def allow_request(self, request):
+    def allow_request(self, request, view=None):
         """Check both user and device limits."""
         # Check user limit
-        if not self.user_throttle.allow_request(request):
+        if not self.user_throttle.allow_request(request, view):
             self.throttle_message = self.user_throttle.throttle_message
             self.wait_seconds = getattr(self.user_throttle, 'wait_seconds', 60)
             return False
         
         # Check device limit
-        if not self.device_throttle.allow_request(request):
+        if not self.device_throttle.allow_request(request, view):
             self.throttle_message = self.device_throttle.throttle_message
             self.wait_seconds = getattr(self.device_throttle, 'wait_seconds', 60)
             return False
