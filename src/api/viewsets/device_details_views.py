@@ -1211,6 +1211,15 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             if not status_type.active: continue
             status_types.append(StatusTypeSerializer(status_type).data)
 
+        # Support both historical and current reverse relation/field names.
+        command_manager = getattr(device, 'commands', None) or getattr(device, 'command_set', None)
+        commands = []
+        if command_manager is not None and hasattr(command_manager, 'all'):
+            for command in command_manager.all():
+                command_name = getattr(command, 'command_name', None) or getattr(command, 'command', None)
+                if command_name is not None:
+                    commands.append(command_name)
+
         device_data = {
             'ip_address': device.ip_address,
             'name': device.name,
@@ -1225,7 +1234,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 'latitude': device.position.get("latitude") if device.position else None,
                 'longitude': device.position.get("longitude") if device.position else None
             },
-            'commands': [c.command_name for c in device.commands.all()],
+            'commands': commands,
             'properties': {
                 **((device.other_data or {}).get('device_properties', {})),
                 **{p.name: p.get_value() for p in DeviceProperty.objects.filter(device=device)},
