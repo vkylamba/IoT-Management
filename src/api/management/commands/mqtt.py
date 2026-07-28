@@ -290,10 +290,15 @@ class Command(BaseCommand):
                 logger.debug("MQTT data, group: %s, device: %s, topic: %s", group_name, device_name, topic_type)
                 try:
                     message_data = json.loads(message_payload)
+                    if source_device_type == SOURCE_TYPE_MONA and "dev" in message_data:
+                        device_name1 = message_data.get("dev")
+                        if device_name1 and device_name1 != device_name:
+                            logger.info("Data for device %s has been received in gateway mode", device_name1)
+                            device_name = device_name1
                 except Exception:
                     logger.warning(f"Invalid json data: {message_payload}")
                     return
-                
+
                 device = self.find_device(group_name, device_name, topic_type)
 
                 if source_device_type == SOURCE_TYPE_MONA and device is not None:
