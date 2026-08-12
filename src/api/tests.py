@@ -345,6 +345,11 @@ class MqttCommandConfigSyncTests(SimpleTestCase):
 	def setUp(self):
 		self.mqtt_command = MqttCommand()
 
+	def test_is_config_update_command_avoids_generic_update_commands(self):
+		self.assertFalse(self.mqtt_command.is_config_update_command("update-firmware"))
+		self.assertFalse(self.mqtt_command.is_config_update_command("enable-alert"))
+		self.assertTrue(self.mqtt_command.is_config_update_command("enable-sensor"))
+
 	def test_sync_device_config_merges_updated_config_for_successful_config_command(self):
 		device = Mock()
 		command = Mock(command="update-config", device=device)
@@ -403,3 +408,30 @@ class MqttCommandConfigSyncTests(SimpleTestCase):
 			self.assertEqual(existing_cfg.data["sensor_1"], True)
 			existing_cfg.save.assert_not_called()
 			latest_qs.exclude.return_value.update.assert_not_called()
+
+	def test_success_evaluation_prefers_explicit_success_status(self):
+		self.assertTrue(
+			self.mqtt_command.is_successful_command_response(
+				message_data={"status": "SUCCESS"},
+			)
+		)
+
+	def test_sync_device_config_creates_new_config_when_none_exists(self):
+		device = Mock()
+		command = Mock(command="update-config", device=device)
+		message_data = {"status": "SUCCESS"}
+
+		with patch("api.management.commands.mqtt.DeviceConfig.objects.filter") as filter_mock, \
+			 patch("api.management.commands.mqtt.DeviceConfig.objects.create") as create_mock:
+			latest_qs = Mock()
+			latest_qs.order_by.return_value.first.return_value = None
+			filter_mock.return_value = latest_qs
+
+			self.mqtt_command.sync_device_config_after_command_success(
+				command=command,
+				topic_type=CLIENT_CMD_RESP_TOPIC_TYPE,
+				message_data=message_data,
+				response_payload="{\"config\": {\"sensor_1\": false}}",
+			)
+
+			create_mock.assert_called_once()
