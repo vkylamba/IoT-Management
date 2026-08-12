@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from django.utils import timezone
@@ -16,6 +17,7 @@ class DeviceLogHandler(TimedRotatingFileHandler):
         self.filename = kwargs.get("filename") or (init_args[0] if init_args else None)
         if not self.filename:
             raise ValueError("DeviceLogHandler requires a filename")
+        self.filename = os.path.abspath(self.filename)
         self.logdir = os.path.dirname(self.filename)
         self.device = "unknown-device"
 
@@ -52,9 +54,6 @@ class DeviceLogHandler(TimedRotatingFileHandler):
             super().__init__(*init_args, **kwargs)
         self.baseFilename = os.path.abspath(self.filename)
 
-    def get_default_filename(self) -> str:
-        return os.path.abspath(self.filename)
-
     def get_device_filename(self) -> str:
         date_str = timezone.now().strftime("%Y-%m-%d")
         name, _ = os.path.splitext(self.filename)
@@ -63,20 +62,20 @@ class DeviceLogHandler(TimedRotatingFileHandler):
     def set_device(self, device):
         self.device = device
         self.baseFilename = self.get_device_filename()
+        log_dir = os.path.dirname(self.baseFilename)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
         self.clean_old_files()
 
     def emit(self, record):
-        log_filename = getattr(self, "baseFilename", self.get_default_filename())
         try:
             message = self.format(record)
             device = getattr(self, 'device', 'unknown-device')
-            os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-            with open(log_filename, 'a', encoding=self.encoding or 'utf-8') as f:
+            with open(self.baseFilename, 'a', encoding=self.encoding or 'utf-8') as f:
                 f.write(f"{device} -> {message}\n")
         except Exception:
-            logging.getLogger(__name__).exception(
-                "Failed to write device log record to %s",
-                log_filename,
+            sys.stderr.write(
+                f"Failed to write device log record to {self.baseFilename}\n"
             )
             self.handleError(record)
             

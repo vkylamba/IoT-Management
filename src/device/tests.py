@@ -64,15 +64,11 @@ class DeviceLogHandlerTests(TestCase):
 
     def test_emit_logs_write_failures_and_handles_error(self):
         handler = self.create_handler()
+        self.addCleanup(handler.close)
         handler.handleError = mock.Mock()
-        mock_logger = mock.Mock()
 
-        try:
-            with mock.patch("device.log_handler.open", side_effect=OSError("disk full")):
-                with mock.patch("device.log_handler.logging.getLogger", return_value=mock_logger):
-                    handler.emit(self.create_record("will fail"))
-        finally:
-            handler.close()
-
-        mock_logger.exception.assert_called_once()
-        handler.handleError.assert_called_once()
+        with mock.patch("builtins.open", side_effect=OSError("disk full")):
+            with mock.patch("device.log_handler.sys.stderr") as mock_stderr:
+                handler.emit(self.create_record("will fail"))
+                mock_stderr.write.assert_called_once()
+                handler.handleError.assert_called_once()
