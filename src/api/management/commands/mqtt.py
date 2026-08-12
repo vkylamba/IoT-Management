@@ -5,6 +5,7 @@ import logging
 import time
 import os
 import hashlib
+import re
 
 from device.models.ota import DeviceConfig
 import paho.mqtt.client as mqtt
@@ -50,6 +51,17 @@ MQTT_ENABLED_DEVICE_COMMANDS = {
 }
 
 COMMAND_RESPONSE_CACHE_TTL = 60 * 60
+COMMAND_RESPONSE_METADATA_FIELDS = {
+    'command',
+    'request_id',
+    'response',
+    'resp_type',
+    'status',
+    'status_message',
+    'part',
+    'parts_total',
+    'response_complete',
+}
 
 
 class Command(BaseCommand):
@@ -676,6 +688,13 @@ class Command(BaseCommand):
                 self.clear_command_response_state(command)
 
             command.save()
+            if is_complete:
+                self.sync_device_config_after_command_success(
+                    command,
+                    topic_type,
+                    message_data,
+                    command.response,
+                )
             logger.info(
                 "Updated command %s with response for device %s%s",
                 command.id,
@@ -774,6 +793,174 @@ class Command(BaseCommand):
 
     def clear_command_response_state(self, command):
         cache.delete(self.get_command_chunk_cache_key(command))
+
+    def is_config_update_command(self, command_name):
+        command_name = str(command_name or '').strip().lower()
+        if not command_name:
+            return False
+
+        command_tokens = set(token for token in re.split(r'[^a-z0-9]+', command_name) if token)
+        if {'config', 'cfg', 'calib', 'calibration', 'settings', 'params'} & command_tokens:
+            return True
+
+        config_targets = {'sensor', 'sensors', 'meter', 'meters'}
+        config_actions = {'enable', 'disable', 'set', 'update', 'calibrate', 'calibration'}
+        return bool(command_tokens & config_targets) and bool(command_tokens & config_actions)
+
+    def parse_json_dict(self, payload):
+        if isinstance(payload, dict):
+            return payload
+        if not isinstance(payload, str):
+            return None
+
+        payload = payload.strip()
+        if not payload:
+            return None
+
+        try:
+            parsed = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def merge_config_dicts(self, existing_data, updated_data):
+        merged_data = dict(existing_data or {})
+        for key, value in (updated_data or {}).items():
+            if isinstance(value, dict) and isinstance(merged_data.get(key), dict):
+                merged_data[key] = self.merge_config_dicts(merged_data.get(key), value)
+            else:
+                merged_data[key] = value
+        return merged_data
+
+    def looks_like_config_payload(self, payload):
+        if not isinstance(payload, dict) or not payload:
+            return False
+
+        if isinstance(payload.get('config'), dict):
+            return True
+
+        key_markers = [
+            'cfg',
+            'config',
+            'sensor',
+            'meter',
+            'calib',
+            'setting',
+            'param',
+        ]
+        for key in payload.keys():
+            key_name = str(key or '').strip().lower()
+            if any(marker in key_name for marker in key_markers):
+                return True
+        return False
+
+    def extract_updated_config_data(self, command, topic_type, message_data, response_payload):
+        command_name = getattr(command, 'command', '')
+        is_config_command = self.is_config_update_command(command_name)
+        is_update_response_topic = topic_type == CLIENT_UPDATE_RESP_TOPIC_TYPE
+        if not is_update_response_topic and not is_config_command:
+            return None
+
+        config_candidates = []
+        if isinstance(message_data, dict):
+            config_candidates.extend([
+                message_data.get('config'),
+                message_data.get('response'),
+                message_data,
+            ])
+        config_candidates.append(response_payload)
+
+        for candidate in config_candidates:
+            parsed_candidate = self.parse_json_dict(candidate)
+            if parsed_candidate is None:
+                continue
+
+            if isinstance(parsed_candidate.get('config'), dict):
+                return parsed_candidate.get('config')
+
+            pruned_payload = {
+                key: value for key, value in parsed_candidate.items()
+                if key not in COMMAND_RESPONSE_METADATA_FIELDS
+            }
+            if pruned_payload and (
+                is_update_response_topic
+                or self.looks_like_config_payload(pruned_payload)
+            ):
+                return pruned_payload
+        return None
+
+    def is_successful_command_response(self, message_data):
+        status_value = str(message_data.get('status', '') or '').strip().lower() if isinstance(message_data, dict) else ''
+        status_message = str(message_data.get('status_message', '') or '').strip().lower() if isinstance(message_data, dict) else ''
+
+        success_status_values = [
+            'ok',
+            'success',
+            'succeeded',
+            'complete',
+            'completed',
+            'done',
+            'applied',
+        ]
+        failure_status_values = [
+            'failed',
+            'error',
+            'invalid',
+            'timeout',
+            'denied',
+            'exception',
+        ]
+        if status_value:
+            if status_value in success_status_values:
+                return True
+            if status_value in failure_status_values:
+                return False
+            return False
+
+        failure_markers = ['fail', 'error', 'invalid', 'timeout', 'denied', 'exception']
+        if any(marker in status_message for marker in failure_markers):
+            return False
+
+        success_markers = ['success', 'succeed', 'completed', 'applied', 'done', 'ok']
+        if any(marker in status_message for marker in success_markers):
+            return True
+
+        return False
+
+    def sync_device_config_after_command_success(self, command, topic_type, message_data, response_payload):
+        if command is None or getattr(command, 'device', None) is None:
+            return
+
+        if not self.is_successful_command_response(message_data):
+            return
+
+        updated_config_data = self.extract_updated_config_data(
+            command,
+            topic_type,
+            message_data,
+            response_payload,
+        )
+        if not isinstance(updated_config_data, dict) or len(updated_config_data) == 0:
+            return
+
+        cfg = DeviceConfig.objects.filter(device=command.device).order_by('-created_at').first()
+        if cfg is None:
+            DeviceConfig.objects.create(
+                device=command.device,
+                data=updated_config_data,
+                active=True,
+                description='Updated from command response'
+            )
+            return
+
+        existing_data = dict(cfg.data or {})
+        merged_data = self.merge_config_dicts(existing_data, updated_config_data)
+
+        if merged_data != existing_data or not cfg.active:
+            cfg.data = merged_data
+            cfg.active = True
+            cfg.save()
+            DeviceConfig.objects.filter(device=command.device).exclude(id=cfg.id).update(active=False)
 
     def check_and_send_commands(self, client):
         """_summary_
