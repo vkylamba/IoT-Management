@@ -1,9 +1,11 @@
 from datetime import datetime
-from unittest.mock import Mock
+import json
+from unittest.mock import Mock, patch
 
 import pytz
 from django.test import SimpleTestCase
 
+from api.management.commands.mqtt import CLIENT_CMD_RESP_TOPIC_TYPE, Command as MqttCommand
 from api.utils import refresh_status_processing_context_boundaries
 from device_schemas.schema import (get_status_expression_helper_content,
 								   translate_data_from_schema)
@@ -337,3 +339,67 @@ class StatusProcessingContextTests(SimpleTestCase):
 		self.assertTrue(any(item["name"] == "firstToday" for item in helper_data["history_context"]))
 		self.assertIn("meter_0.power", helper_data["available_raw_fields"])
 		self.assertIn("dht.temperature", helper_data["available_raw_fields"])
+
+
+class MqttCommandConfigSyncTests(SimpleTestCase):
+	def setUp(self):
+		self.mqtt_command = MqttCommand()
+
+	def test_sync_device_config_merges_updated_config_for_successful_config_command(self):
+		device = Mock()
+		command = Mock(command="update-config", device=device)
+		response_data = {"config": {"sensor_1": False, "meter_1": {"calibration": 1.4}}}
+		message_data = {"status": "SUCCESS"}
+
+		existing_cfg = Mock()
+		existing_cfg.id = "cfg-1"
+		existing_cfg.data = {"sensor_1": True, "meter_1": {"calibration": 1.2, "unit": "A"}, "mqtt_user": "Devtest"}
+		existing_cfg.active = False
+
+		with patch("api.management.commands.mqtt.DeviceConfig.objects.filter") as filter_mock:
+			latest_qs = Mock()
+			latest_qs.order_by.return_value.first.return_value = existing_cfg
+			filter_mock.return_value = latest_qs
+			latest_qs.exclude.return_value.update = Mock()
+
+			self.mqtt_command.sync_device_config_after_command_success(
+				command=command,
+				topic_type=CLIENT_CMD_RESP_TOPIC_TYPE,
+				message_data=message_data,
+				response_payload=json.dumps(response_data),
+			)
+
+			self.assertEqual(existing_cfg.data["sensor_1"], False)
+			self.assertEqual(existing_cfg.data["meter_1"]["calibration"], 1.4)
+			self.assertEqual(existing_cfg.data["meter_1"]["unit"], "A")
+			self.assertEqual(existing_cfg.data["mqtt_user"], "Devtest")
+			self.assertTrue(existing_cfg.active)
+			existing_cfg.save.assert_called_once()
+			latest_qs.exclude.return_value.update.assert_called_once_with(active=False)
+
+	def test_sync_device_config_skips_failed_command_responses(self):
+		device = Mock()
+		command = Mock(command="enable-sensor", device=device)
+		message_data = {"status": "FAILED", "status_message": "apply failed"}
+
+		existing_cfg = Mock()
+		existing_cfg.id = "cfg-1"
+		existing_cfg.data = {"sensor_1": True}
+		existing_cfg.active = True
+
+		with patch("api.management.commands.mqtt.DeviceConfig.objects.filter") as filter_mock:
+			latest_qs = Mock()
+			latest_qs.order_by.return_value.first.return_value = existing_cfg
+			filter_mock.return_value = latest_qs
+			latest_qs.exclude.return_value.update = Mock()
+
+			self.mqtt_command.sync_device_config_after_command_success(
+				command=command,
+				topic_type=CLIENT_CMD_RESP_TOPIC_TYPE,
+				message_data=message_data,
+				response_payload="{\"config\": {\"sensor_1\": false}}",
+			)
+
+			self.assertEqual(existing_cfg.data["sensor_1"], True)
+			existing_cfg.save.assert_not_called()
+			latest_qs.exclude.return_value.update.assert_not_called()
