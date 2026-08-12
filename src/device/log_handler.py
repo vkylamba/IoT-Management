@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from django.utils import timezone
@@ -16,6 +17,7 @@ class DeviceLogHandler(TimedRotatingFileHandler):
         self.filename = kwargs.get("filename") or (init_args[0] if init_args else None)
         if not self.filename:
             raise ValueError("DeviceLogHandler requires a filename")
+        self.filename = os.path.abspath(self.filename)
         self.logdir = os.path.dirname(self.filename)
         self.device = "unknown-device"
 
@@ -50,19 +52,32 @@ class DeviceLogHandler(TimedRotatingFileHandler):
             fallback_to_tmp()
             apply_filename(self.filename)
             super().__init__(*init_args, **kwargs)
+        self.baseFilename = os.path.abspath(self.filename)
+
+    def get_device_filename(self) -> str:
+        date_str = timezone.now().strftime("%Y-%m-%d")
+        name, _ = os.path.splitext(self.filename)
+        return os.path.abspath(f"{name}-{self.device}-{date_str}.log")
         
     def set_device(self, device):
         self.device = device
-        date_str = timezone.now().strftime("%Y-%m-%d")
-        name = self.filename.split('.')[0]
-        self.baseFilename = f"{name}-{self.device}-{date_str}.log"
+        self.baseFilename = self.get_device_filename()
+        log_dir = os.path.dirname(self.baseFilename)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
         self.clean_old_files()
 
     def emit(self, record):
-        message = self.format(record)
-        device = getattr(self, 'device', 'unknown-device')
-        with open(self.baseFilename, 'a') as f:
-            f.write(f"{device} -> {message}\n")
+        try:
+            message = self.format(record)
+            device = getattr(self, 'device', 'unknown-device')
+            with open(self.baseFilename, 'a', encoding=self.encoding or 'utf-8') as f:
+                f.write(f"{device} -> {message}\n")
+        except Exception:
+            sys.stderr.write(
+                f"Failed to write device log record to {self.baseFilename}\n"
+            )
+            self.handleError(record)
             
     def clean_old_files(self) -> None:
         date_old = timezone.now() - timedelta(days=self.backupCountDays)
