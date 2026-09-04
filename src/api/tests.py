@@ -1,10 +1,11 @@
 from datetime import datetime
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytz
 from django.test import SimpleTestCase
 
-from api.utils import refresh_status_processing_context_boundaries
+from api.utils import (backfill_status_processing_context_from_db_if_missing,
+						   refresh_status_processing_context_boundaries)
 from device_schemas.schema import (get_status_expression_helper_content,
 								   translate_data_from_schema)
 
@@ -173,6 +174,47 @@ class SchemaTranslationTests(SimpleTestCase):
 			400,
 		)
 
+	def test_last_value_energy_exported_uses_last_today_after_day_rollover(self):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_exported",
+						"type": "calculated",
+						"source": "lastValue__energy_exported + 25",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_exported_this_day",
+						"type": "calculated",
+						"source": "changeToday__energy_exported",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+		existing_statuses = {
+			"firstToday": {},
+			"lastToday": {
+				"device": {"DAILY_STATUS": {"energy_exported": 200}},
+				"raw": {},
+			},
+			"firstThisMonth": {},
+		}
+
+		translated_data = translate_data_from_schema(schema, {}, existing_statuses)
+
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported"], 225)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported_this_day"], 0)
+		self.assertEqual(
+			existing_statuses["firstToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			225,
+		)
+
 	def test_full_status_schema_can_resolve_fields_needed_during_replay(self):
 		schema = [
 			{
@@ -267,6 +309,130 @@ class SchemaTranslationTests(SimpleTestCase):
 
 
 class StatusProcessingContextTests(SimpleTestCase):
+	@patch("api.utils.build_status_processing_context")
+	def test_backfill_context_reads_from_db_when_last_today_missing(self, build_context_mock):
+		db_context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 180}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 200}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 120}}},
+			},
+			"last_status_models_by_target": {"device": Mock()},
+			"current_raw_data": {"meter_0": {"power": 100}},
+			"day_start_utc": datetime(2026, 5, 2, 0, 0, tzinfo=pytz.utc),
+			"month_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+		}
+		build_context_mock.return_value = db_context
+
+		status_processing_context = {
+			"existing_statuses": {
+				"firstToday": {},
+				"lastToday": {},
+				"firstThisMonth": {},
+			},
+			"last_status_models_by_target": {},
+			"current_raw_data": {},
+		}
+
+		backfill_status_processing_context_from_db_if_missing(
+			status_processing_context,
+			user=Mock(),
+			device=Mock(),
+			last_raw_data=None,
+			as_of_time=datetime(2026, 5, 2, 0, 5, tzinfo=pytz.utc),
+		)
+
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			200,
+		)
+		self.assertEqual(status_processing_context["current_raw_data"], {"meter_0": {"power": 100}})
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["firstToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			180,
+		)
+		build_context_mock.assert_called_once()
+
+	@patch("api.utils.build_status_processing_context")
+	def test_backfill_context_keeps_existing_cached_snapshots(self, build_context_mock):
+		status_processing_context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 181}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 201}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 121}}},
+			},
+			"last_status_models_by_target": {"device": Mock()},
+			"current_raw_data": {"meter_0": {"power": 101}},
+		}
+
+		backfill_status_processing_context_from_db_if_missing(
+			status_processing_context,
+			user=Mock(),
+			device=Mock(),
+			last_raw_data=None,
+		)
+
+		build_context_mock.assert_not_called()
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			201,
+		)
+
+	def test_day_boundary_reset_still_allows_last_value_energy_exported(self):
+		device = Mock()
+		device.get_timezone.return_value = pytz.utc
+
+		status_processing_context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 195}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 200}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 120}}},
+			},
+			"day_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+			"month_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+		}
+
+		refresh_status_processing_context_boundaries(
+			status_processing_context,
+			device,
+			datetime(2026, 5, 2, 0, 5, tzinfo=pytz.utc),
+		)
+
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_exported",
+						"type": "calculated",
+						"source": "lastValue__energy_exported + 25",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_exported_this_day",
+						"type": "calculated",
+						"source": "changeToday__energy_exported",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+
+		translated_data = translate_data_from_schema(
+			schema,
+			{},
+			status_processing_context["existing_statuses"],
+		)
+
+		self.assertEqual(status_processing_context["existing_statuses"]["firstToday"], {
+			"device": {"DAILY_STATUS": {"energy_exported": 225}}
+		})
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported"], 225)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported_this_day"], 0)
+
 	def test_refresh_context_resets_first_today_on_new_day(self):
 		device = Mock()
 		device.get_timezone.return_value = pytz.utc

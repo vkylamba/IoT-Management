@@ -426,6 +426,62 @@ def refresh_status_processing_context_boundaries(
     return status_processing_context
 
 
+def backfill_status_processing_context_from_db_if_missing(
+    status_processing_context,
+    user,
+    device,
+    last_raw_data,
+    as_of_time=None,
+):
+    if status_processing_context is None:
+        return None
+
+    existing_statuses = status_processing_context.setdefault(
+        'existing_statuses',
+        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
+    )
+
+    needs_backfill = any(
+        not existing_statuses.get(snapshot_name)
+        for snapshot_name in ('firstToday', 'lastToday', 'firstThisMonth')
+    )
+    if not needs_backfill:
+        return status_processing_context
+
+    db_context = build_status_processing_context(
+        user,
+        device,
+        last_raw_data,
+        as_of_time=as_of_time,
+    )
+    db_existing_statuses = db_context.get('existing_statuses', {})
+
+    for snapshot_name in ('firstToday', 'lastToday', 'firstThisMonth'):
+        current_snapshot = existing_statuses.get(snapshot_name)
+        db_snapshot = db_existing_statuses.get(snapshot_name) or {}
+        if not current_snapshot:
+            existing_statuses[snapshot_name] = deepcopy(db_snapshot)
+
+    current_raw_data = status_processing_context.get('current_raw_data')
+    if not current_raw_data:
+        status_processing_context['current_raw_data'] = dict(
+            db_context.get('current_raw_data', {}) or {}
+        )
+
+    last_status_models_by_target = status_processing_context.setdefault(
+        'last_status_models_by_target',
+        {},
+    )
+    if not last_status_models_by_target:
+        last_status_models_by_target.update(
+            db_context.get('last_status_models_by_target', {}) or {}
+        )
+
+    status_processing_context.setdefault('day_start_utc', db_context.get('day_start_utc'))
+    status_processing_context.setdefault('month_start_utc', db_context.get('month_start_utc'))
+    return status_processing_context
+
+
 def merge_raw_into_status_context(status_processing_context, raw_snapshot):
     if status_processing_context is None:
         return None
@@ -926,6 +982,13 @@ def update_user_and_device_statuses(
             status_created_at,
         )
         merge_raw_into_status_context(status_processing_context, normalized_raw_data)
+        backfill_status_processing_context_from_db_if_missing(
+            status_processing_context,
+            user,
+            device,
+            last_raw_data,
+            as_of_time=status_created_at,
+        )
 
     existing_statuses = status_processing_context.get('existing_statuses', {})
     current_raw_data = (
