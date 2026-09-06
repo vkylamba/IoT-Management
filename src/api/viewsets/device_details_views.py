@@ -13,6 +13,7 @@ from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
 from api.utils import get_existing_status_data_for_today, get_or_create_user_device, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from django.conf import settings
+from utils.reports.report_helpers import get_report_status_names_for_period
 
 if getattr(settings, 'CLICKHOUSE_ENABLED', False):
     from device.clickhouse_models import DerivedData
@@ -1179,6 +1180,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         status_type.active = new_available_status_type.get("active", status_type.active)
                         status_type.name = new_available_status_type.get("name", status_type.name)
                         status_type.target_type = new_available_status_type.get("target_type", status_type.target_type)
+                        status_type.report_period = new_available_status_type.get("report_period", status_type.report_period)
                         status_type.update_trigger = new_available_status_type.get("update_trigger", status_type.update_trigger)
                         status_type.device = device
                         status_type.device_type = new_available_status_type.get("device_type", status_type.device_type)
@@ -1453,26 +1455,17 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             ]
             if len(device) == 0:
                 return Response(status=status.HTTP_404_NOT_FOUND)
+            device = device[0]
 
         report_data = None
-        report_name = None
-
-        if report_type == 'yesterday':
-            report_name = AssetStatus.LAST_DAY_REPORT
-
-        elif report_type == 'month':
-            report_name = AssetStatus.LAST_MONTH_REPORT
-
-        elif report_type == 'week':
-            report_name = AssetStatus.LAST_WEEK_REPORT
-            
-        if report_name is not None:
+        for report_name in get_report_status_names_for_period(device, report_type):
             report_status = AssetStatus.objects.filter(
                 device=device,
                 name=report_name
             ).order_by('-created_at').first()
             if report_status:
                 report_data = report_status.status
+                break
 
         # Get weekly/monthly energy consumption data by appliance.
         # x, consumption_data_by_appaliance = data_report.get_data_with_apaliances(

@@ -45,6 +45,12 @@ STATUS_TARGET_TYPES = (
     ('report', 'report'),
 )
 
+STATUS_REPORT_PERIODS = (
+    ('yesterday', 'yesterday'),
+    ('week', 'week'),
+    ('month', 'month'),
+)
+
 STATUS_UPDATE_TRIGGER = (
     ('data', 'Data'),
     ('schedule', 'Schedule'),
@@ -70,6 +76,7 @@ class StatusType(models.Model):
     device = models.ForeignKey('Device', blank=True, null=True, on_delete=models.DO_NOTHING)
     device_type = models.ForeignKey('UserDeviceType', blank=True, null=True, on_delete=models.DO_NOTHING)
     target_type = models.CharField(max_length=255, choices=STATUS_TARGET_TYPES, help_text='Resulting status type')
+    report_period = models.CharField(max_length=255, blank=True, null=True, choices=STATUS_REPORT_PERIODS)
     update_trigger = models.CharField(max_length=255, choices=STATUS_UPDATE_TRIGGER, help_text='Status update trigger')
     schedule = models.ForeignKey(CrontabSchedule, null=True, blank=True, on_delete=models.CASCADE)
     last_trigger_time = models.DateTimeField(null=True, blank=True)

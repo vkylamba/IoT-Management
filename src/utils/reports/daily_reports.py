@@ -9,6 +9,7 @@ from pipe import select, where
 from utils.dev_data import DataReports
 from api.utils import get_existing_status_data_for_today
 from device_schemas.device_types import IOT_GW_SHAKTI_SOLAR_PUMP, IOT_GW_SOLAR_CC
+from utils.reports.report_helpers import get_report_status_name_for_period
 
 
 def get_statistics_yesterday(dr, from_time, to_time, params='all'):
@@ -189,7 +190,7 @@ def get_daily_report(device):
 
     dev_status = AssetStatus(
         device=device,
-        name=AssetStatus.LAST_DAY_REPORT,
+        name=get_report_status_name_for_period(device, 'yesterday') or AssetStatus.LAST_DAY_REPORT,
         status=daily_report
     )
     dev_status.save()

@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from api.utils import (backfill_status_processing_context_from_db_if_missing,
 						   refresh_status_processing_context_boundaries)
+from api.viewsets.device_views import _normalize_favorite_device_ids
 from device_schemas.schema import (get_status_expression_helper_content,
 								   translate_data_from_schema)
 
@@ -503,3 +504,15 @@ class StatusProcessingContextTests(SimpleTestCase):
 		self.assertTrue(any(item["name"] == "firstToday" for item in helper_data["history_context"]))
 		self.assertIn("meter_0.power", helper_data["available_raw_fields"])
 		self.assertIn("dht.temperature", helper_data["available_raw_fields"])
+
+
+class FavoriteDevicesTests(SimpleTestCase):
+	def test_normalize_favorite_device_ids_casts_and_deduplicates(self):
+		self.assertEqual(
+			_normalize_favorite_device_ids([1, "1", 2, "2", None, ""]),
+			["1", "2"],
+		)
+
+	def test_normalize_favorite_device_ids_handles_non_list(self):
+		self.assertEqual(_normalize_favorite_device_ids(None), [])
+		self.assertEqual(_normalize_favorite_device_ids({"id": 1}), [])

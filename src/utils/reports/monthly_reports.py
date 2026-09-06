@@ -6,6 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from pipe import select, where
 from utils.dev_data import DataReports
+from utils.reports.report_helpers import get_report_status_name_for_period
 
 
 def get_statistics_last_month(dr, from_time, to_time, params='all'):
@@ -103,7 +104,7 @@ def get_monthly_report(device):
    
     dev_status = AssetStatus(
         device=device,
-        name=AssetStatus.LAST_MONTH_REPORT,
+        name=get_report_status_name_for_period(device, 'month') or AssetStatus.LAST_MONTH_REPORT,
         status=monthly_report
     )
     dev_status.save()

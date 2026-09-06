@@ -26,6 +26,7 @@ class StatusTypeSerializer(serializers.ModelSerializer):
             'device',
             'device_type',
             'target_type',
+            'report_period',
             'update_trigger',
             'schedule',
             'last_trigger_time',

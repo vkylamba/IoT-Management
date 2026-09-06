@@ -118,6 +118,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     status_type.active = available_status_type.get("active", status_type.active)
                     status_type.name = available_status_type.get("name", status_type.name)
                     status_type.target_type = available_status_type.get("target_type", status_type.target_type)
+                    status_type.report_period = available_status_type.get("report_period", status_type.report_period)
                     status_type.update_trigger = available_status_type.get("update_trigger", status_type.update_trigger)
                     if status_type.user is None:
                         status_type.user = request.user

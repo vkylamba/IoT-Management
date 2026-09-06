@@ -15,6 +15,20 @@ from rest_framework.response import Response
 logger = logging.getLogger('django')
 
 
+def _normalize_favorite_device_ids(favorite_devices):
+    if not isinstance(favorite_devices, list):
+        return []
+
+    normalized_ids = []
+    for favorite_device_id in favorite_devices:
+        if favorite_device_id in [None, '']:
+            continue
+        normalized_id = str(favorite_device_id)
+        if normalized_id not in normalized_ids:
+            normalized_ids.append(normalized_id)
+    return normalized_ids
+
+
 class DeviceViewSet(viewsets.ViewSet):
     """
         ViewSet to provide uviews related to data analysis.
@@ -215,9 +229,12 @@ class DeviceViewSet(viewsets.ViewSet):
         if user_widget.metadata is None:
             user_widget.metadata = {}
 
-        favorite_devices = user_widget.metadata.get("favorite_devices", [])
-        if device.id not in favorite_devices:
-            favorite_devices.append(str(device.id))
+        normalized_device_id = str(device.id)
+        favorite_devices = _normalize_favorite_device_ids(
+            user_widget.metadata.get("favorite_devices", [])
+        )
+        if normalized_device_id not in favorite_devices:
+            favorite_devices.append(normalized_device_id)
             user_widget.metadata["favorite_devices"] = favorite_devices
             user_widget.save()
         return Response(status=status.HTTP_200_OK)
@@ -240,8 +257,13 @@ class DeviceViewSet(viewsets.ViewSet):
         if user_widget.metadata is None:
             user_widget.metadata = {}
 
-        favorite_devices = user_widget.metadata.get("favorite_devices", [])
-        if device.id in favorite_devices:
-            user_widget.metadata["favorite_devices"] = [x for x in favorite_devices if x != device.id]
+        normalized_device_id = str(device.id)
+        favorite_devices = _normalize_favorite_device_ids(
+            user_widget.metadata.get("favorite_devices", [])
+        )
+        if normalized_device_id in favorite_devices:
+            user_widget.metadata["favorite_devices"] = [
+                x for x in favorite_devices if x != normalized_device_id
+            ]
             user_widget.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
