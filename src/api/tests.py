@@ -9,9 +9,30 @@ from api.utils import (backfill_status_processing_context_from_db_if_missing,
 from api.viewsets.device_views import _normalize_favorite_device_ids
 from device_schemas.schema import (get_status_expression_helper_content,
 								   translate_data_from_schema)
+from utils.reports.report_helpers import get_report_status_type_for_period
 
 
 class SchemaTranslationTests(SimpleTestCase):
+	def test_report_status_type_lookup_avoids_djongo_unsupported_active_filter(self):
+		device = Mock()
+		device.type = None
+		class QuerySetLike(list):
+			def order_by(self, *args, **kwargs):
+				return self
+
+		matching_type = Mock(active=True)
+		query_set = QuerySetLike([matching_type])
+
+		with patch('utils.reports.report_helpers.StatusType.objects.filter', return_value=query_set) as filter_mock:
+			result = get_report_status_type_for_period(device, 'yesterday')
+
+		self.assertIs(result, matching_type)
+		self.assertEqual(filter_mock.call_count, 1)
+		self.assertNotIn('active', filter_mock.call_args.kwargs)
+		self.assertEqual(filter_mock.call_args.kwargs['device'], device)
+		self.assertEqual(filter_mock.call_args.kwargs['target_type'], 'report')
+		self.assertEqual(filter_mock.call_args.kwargs['report_period'], 'yesterday')
+
 	def test_energy_expression_can_reference_current_sibling_field(self):
 		schema = [
 			{

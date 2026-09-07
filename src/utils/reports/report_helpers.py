@@ -25,18 +25,19 @@ def get_report_status_type_for_period(device, report_period):
     query = {
         'target_type': StatusType.STATUS_TARGET_REPORT,
         'report_period': normalized_period,
-        'active': True,
     }
 
-    status_type = StatusType.objects.filter(device=device, **query).order_by('-created_at').first()
-    if status_type is not None:
-        return status_type
+    status_type = StatusType.objects.filter(device=device, **query).order_by('-created_at')
+    for candidate in status_type:
+        if getattr(candidate, 'active', False):
+            return candidate
 
     device_type = getattr(device, 'type', None)
     if device_type is not None:
-        status_type = StatusType.objects.filter(device_type=device_type, **query).order_by('-created_at').first()
-        if status_type is not None:
-            return status_type
+        status_type = StatusType.objects.filter(device_type=device_type, **query).order_by('-created_at')
+        for candidate in status_type:
+            if getattr(candidate, 'active', False):
+                return candidate
 
     return None
 
