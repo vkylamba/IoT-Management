@@ -91,3 +91,31 @@ class StatusType(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.active}"
+
+
+class StatusCache(models.Model):
+    """
+    Persist the latest rolling window context needed for status expressions such as
+    firstToday__, lastToday__, firstThisMonth__, and changeToday__/changeThisMonth__.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device = models.ForeignKey('Device', blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
+    user = models.ForeignKey('User', blank=True, null=True, on_delete=models.DO_NOTHING, db_index=True)
+    status_type = models.ForeignKey('StatusType', on_delete=models.DO_NOTHING, db_index=True)
+    cache_data = models.JSONField(blank=True, null=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "device"
+        verbose_name = "Status Cache"
+        verbose_name_plural = "Status Caches"
+        indexes = [
+            models.Index(fields=['device', '-updated_at']),
+            models.Index(fields=['user', '-updated_at']),
+            models.Index(fields=['status_type', '-updated_at']),
+        ]
+
+    def __str__(self):
+        target = self.device or self.user or self.status_type
+        return f"{self.status_type} - {target}"

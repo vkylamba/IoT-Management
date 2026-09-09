@@ -6,8 +6,8 @@ from datetime import datetime
 
 import pytz
 import simplejson as json
-from device.models import (Device, AssetStatus, Meter, RawData, StatusType,
-                           User, UserDeviceType)
+from device.models import (Device, AssetStatus, Meter, RawData, StatusCache,
+                           StatusType, User, UserDeviceType)
 from device_schemas.schema import (extract_data, translate_data_from_schema,
                                    validate_data_schema, validate_schema)
 from django.conf import settings
@@ -547,6 +547,84 @@ def get_existing_status_data_for_today(user, device, last_raw_data, as_of_time=N
     return status_processing_context['existing_statuses']
 
 
+def _sync_legacy_field_window_snapshots(status_context):
+    if not isinstance(status_context, dict):
+        return status_context
+
+    existing_statuses = status_context.setdefault('existing_statuses', {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}})
+    legacy_snapshots = status_context.get('field_window_snapshots', {}) or {}
+    for window_name in ('firstToday', 'lastToday', 'firstThisMonth'):
+        if legacy_snapshots.get(window_name):
+            existing_statuses.setdefault(window_name, {})
+            for target_name, target_data in legacy_snapshots[window_name].items():
+                if not isinstance(target_data, dict):
+                    continue
+                existing_statuses[window_name].setdefault(target_name, {})
+                for status_name, status_data in target_data.items():
+                    if status_name == 'raw':
+                        existing_statuses[window_name][target_name]['raw'] = deepcopy(status_data)
+                        continue
+                    if isinstance(status_data, dict):
+                        existing_statuses[window_name][target_name].setdefault(status_name, {}).update(deepcopy(status_data))
+    status_context.pop('field_window_snapshots', None)
+    return status_context
+
+
+def get_status_processing_context_from_status_cache(status_type, device, last_raw_data=None, as_of_time=None):
+    if status_type is None:
+        return None
+
+    queryset = StatusCache.objects.filter(status_type=status_type)
+    if device is not None:
+        queryset = queryset.filter(device=device)
+    else:
+        queryset = queryset.filter(user=status_type.user)
+
+    cache_record = queryset.order_by('-updated_at').first()
+    if cache_record is None or not cache_record.cache_data:
+        fallback_context = build_status_processing_context(
+            status_type.user,
+            device,
+            last_raw_data,
+            as_of_time=as_of_time,
+        )
+        return fallback_context
+
+    status_context = deepcopy(cache_record.cache_data)
+    status_context = _sync_legacy_field_window_snapshots(status_context)
+
+    if not status_context.get('current_raw_data') and last_raw_data:
+        status_context['current_raw_data'] = dict(_normalize_raw_snapshot(last_raw_data) or {})
+    return status_context
+
+
+def save_status_processing_context_to_status_cache(status_processing_context, user, device, status_type):
+    if status_processing_context is None or status_type is None:
+        return None
+
+    record = StatusCache.objects.filter(status_type=status_type)
+    if device is not None:
+        record = record.filter(device=device)
+    else:
+        record = record.filter(user=user)
+    record = record.order_by('-updated_at').first()
+
+    payload = deepcopy(status_processing_context or {})
+    payload = _sync_legacy_field_window_snapshots(payload)
+    payload.setdefault('existing_statuses', {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}})
+    payload.setdefault('current_raw_data', {})
+    payload.pop('field_window_snapshots', None)
+
+    if record is None:
+        record = StatusCache(status_type=status_type, device=device, user=user)
+    else:
+        record.device = device
+        record.user = user
+    record.cache_data = payload
+    record.save()
+    return record
+
+
 def get_status_types_for_device(user, device):
     if user is not None and user.is_authenticated:
         return StatusType.objects.filter(
@@ -848,6 +926,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     if "apiKey" in message_data:
         message_data.pop("apiKey")
 
+    last_raw_data = get_latest_raw_data(device)
     raw_data = RawData(
         device=device,
         channel=channel,
@@ -864,8 +943,6 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     if data_type == 'status':
         logger.info("Status data received, skipping meter data processing.")
         return ""
-
-    last_raw_data = get_latest_raw_data(device)
 
     meters_and_data = []
     dev_meters_list = Meter.objects.filter(
@@ -1004,101 +1081,126 @@ def update_user_and_device_statuses(
 
     for status_type in status_types:
         schema = status_type.translation_schema
-        if schema is not None:
-            if isinstance(schema, list) and status_type.target_type != StatusType.STATUS_TARGET_METER:
-                for x in schema:
-                    x["target"] = status_type.target_type
-                    x["name"] = status_type.name
-                    # x["type"] = status_type.target_type
-            elif isinstance(schema, dict):
-                schema["target"] = status_type.target_type
-                schema["name"] = status_type.name
-                # schema["type"] = status_type.target_type
+        if schema is None:
+            continue
 
-            validated_data = translate_data_from_schema(
-                schema,
-                current_raw_data,
-                existing_statuses,
-                weather_and_loads_data or {},
+        type_context = get_status_processing_context_from_status_cache(
+            status_type,
+            device,
+            last_raw_data,
+            as_of_time=status_created_at,
+        ) or status_processing_context
+        if type_context is status_processing_context:
+            refresh_status_processing_context_boundaries(
+                type_context,
+                device,
+                status_created_at,
             )
-            if validated_data is None:
-                logger.warning(f"Invalid data! for status {status_type.name}. Data: {current_raw_data}")
-                return "Invalid data! Data doesn't match the schema configured for the device/user."
+            merge_raw_into_status_context(type_context, normalized_raw_data)
+            backfill_status_processing_context_from_db_if_missing(
+                type_context,
+                user,
+                device,
+                last_raw_data,
+                as_of_time=status_created_at,
+            )
 
-            logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
-            validated_status_data = validated_data.get(status_type.name, {})
-            if isinstance(validated_status_data, dict):
-                calculated_alarm_status_data.update(validated_status_data)
-            if any(validated_status_data):
-                # create a new status if last once was created at least 10 minutes ago
-                last_status = last_status_models_by_target.get(status_type.target_type)
+        type_existing_statuses = type_context.get('existing_statuses', {})
+        type_current_raw_data = (
+            type_context.get('current_raw_data')
+            or current_raw_data
+            or normalized_raw_data
+            or {}
+        )
+        type_last_status_models_by_target = type_context.setdefault(
+            'last_status_models_by_target',
+            {},
+        )
+
+        if isinstance(schema, list) and status_type.target_type != StatusType.STATUS_TARGET_METER:
+            for x in schema:
+                x["target"] = status_type.target_type
+                x["name"] = status_type.name
+        elif isinstance(schema, dict):
+            schema["target"] = status_type.target_type
+            schema["name"] = status_type.name
+
+        validated_data = translate_data_from_schema(
+            schema,
+            type_current_raw_data,
+            type_existing_statuses,
+            weather_and_loads_data or {},
+        )
+        if validated_data is None:
+            logger.warning(f"Invalid data! for status {status_type.name}. Data: {type_current_raw_data}")
+            return "Invalid data! Data doesn't match the schema configured for the device/user."
+
+        logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
+        validated_status_data = validated_data.get(status_type.name, {})
+        if isinstance(validated_status_data, dict):
+            calculated_alarm_status_data.update(validated_status_data)
+        if any(validated_status_data):
+            last_status = type_last_status_models_by_target.get(status_type.target_type)
+            create_new = True
+            time_now = status_created_at
+            if last_status is not None:
+                last_status_creation_time = last_status.created_at
+                if (time_now - last_status_creation_time).total_seconds() <= min_status_interval_seconds:
+                    create_new = False
+            else:
                 create_new = True
-                time_now = status_created_at
-                if last_status is not None:
-                    last_status_creation_time = last_status.created_at
-                    if (time_now - last_status_creation_time).total_seconds() <= min_status_interval_seconds:
-                        create_new = False
-                else:
+            if not create_new and last_status is not None and not enforce_min_status_interval:
+                last_validated_data = last_status.status.copy() if isinstance(last_status.status, dict) else {}
+                current_validated_data = validated_data.copy() if isinstance(validated_data, dict) else {}
+                last_validated_data.pop('energy', None)
+                current_validated_data.pop('energy', None)
+                data_changed = last_validated_data != current_validated_data
+                if data_changed:
                     create_new = True
-                if not create_new and last_status is not None and not enforce_min_status_interval:
-                    # Create copies of the dicts and remove energy field for comparison
-                    last_validated_data = last_status.status.copy() if isinstance(last_status.status, dict) else {}
-                    current_validated_data = validated_data.copy() if isinstance(validated_data, dict) else {}
-                    
-                    # Remove energy field from both for comparison (handles both flat and nested dicts)
-                    # Remove top-level energy field
-                    last_validated_data.pop('energy', None)
-                    current_validated_data.pop('energy', None)
-                    
-                    # Remove energy from nested dicts
-                    # for key in list(last_validated_data.keys()):
-                    #     if isinstance(last_validated_data[key], dict):
-                    #         last_validated_data[key] = {k: v for k, v in last_validated_data[key].items() if k != 'energy'}
-                    
-                    # for key in list(current_validated_data.keys()):
-                    #     if isinstance(current_validated_data[key], dict):
-                    #         current_validated_data[key] = {k: v for k, v in current_validated_data[key].items() if k != 'energy'}
+                    logger.debug(f"Status data changed for {status_type.target_type}, creating new status entry")
+            elif not create_new:
+                create_new = True
 
-                    data_changed = last_validated_data != current_validated_data
-                    if data_changed:
-                        create_new = True
-                        logger.debug(f"Status data changed for {status_type.target_type}, creating new status entry")
-                elif not create_new:
-                    create_new = True
-                        
-                if create_new:
-                    status = create_device_status_with_timestamp(
-                        name=status_type.target_type,
-                        device=device,
-                        user=user,
-                        status_data=validated_data,
-                        created_at=time_now,
-                    )
-                    record_status_in_context(
-                        status_processing_context,
-                        status_type.target_type,
-                        status,
-                    )
-                if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
-                    other_data = device.other_data
+            if create_new:
+                status = create_device_status_with_timestamp(
+                    name=status_type.target_type,
+                    device=device,
+                    user=user,
+                    status_data=validated_data,
+                    created_at=time_now,
+                )
+                record_status_in_context(
+                    type_context,
+                    status_type.target_type,
+                    status,
+                )
+                type_last_status_models_by_target[status_type.target_type] = status
+                save_status_processing_context_to_status_cache(
+                    type_context,
+                    user,
+                    device,
+                    status_type,
+                )
+
+            if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
+                other_data = device.other_data
+                if other_data is None:
+                    other_data = validated_status_data
+                else:
+                    other_data.update(validated_status_data)
+                device.save()
+
+            if status_type.target_type == StatusType.STATUS_TARGET_USER:
+                if user is not None and user.is_authenticated:
+                    other_data = user.other_data
                     if other_data is None:
                         other_data = validated_status_data
                     else:
                         other_data.update(validated_status_data)
-                    device.save()
-                
-                if status_type.target_type == StatusType.STATUS_TARGET_USER:
-                    if user is not None and user.is_authenticated:
-                        other_data = user.other_data
-                        if other_data is None:
-                            other_data = validated_status_data
-                        else:
-                            other_data.update(validated_status_data)
-                        user.save()
-                
-                if status_type.target_type == StatusType.STATUS_TARGET_METER:
-                    pass
-                    # ToDo: Save meter data here
+                    user.save()
+
+            if status_type.target_type == StatusType.STATUS_TARGET_METER:
+                pass
 
     if any(calculated_alarm_status_data):
         evaluate_device_status_alarms(

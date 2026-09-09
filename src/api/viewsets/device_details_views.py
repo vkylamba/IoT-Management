@@ -932,6 +932,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 if field_detail.get('status_name') == target_name
             ]
 
+        helper_content = get_status_expression_helper_content(raw_data)
+
         return Response({
             'status_type': {
                 'name': target_name,
@@ -939,6 +941,8 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             },
             'calculated_values': calculated_values,
             'field_details': field_details,
+            'supported_methods': helper_content.get('supported_methods', []),
+            'helper_data': helper_content,
             'debug_context': translated_preview.get('debug_context', {}),
             'raw_data_sample': raw_data,
             'data_arrival_time': latest_raw.data_arrival_time if latest_raw is not None else None,

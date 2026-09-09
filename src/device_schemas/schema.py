@@ -52,6 +52,38 @@ def collect_data_paths(data, prefix="", fields=None):
 
 def get_status_expression_helper_content(raw_data_sample=None):
     raw_field_paths = collect_data_paths(raw_data_sample or {})
+    supported_methods = [
+        {
+            "name": "lastValue__",
+            "syntax": "lastValue__energy_generated",
+            "description": "Reads the latest stored value from the current last snapshot and falls back to the most recent raw field.",
+        },
+        {
+            "name": "firstToday__",
+            "syntax": "firstToday__energy_generated",
+            "description": "Reads the first value seen in the current device-local day window.",
+        },
+        {
+            "name": "lastToday__",
+            "syntax": "lastToday__energy_generated",
+            "description": "Reads the latest value seen in the current device-local day window.",
+        },
+        {
+            "name": "changeToday__",
+            "syntax": "changeToday__energy_consumed",
+            "description": "Calculates current value minus the first value of the current device-local day.",
+        },
+        {
+            "name": "firstThisMonth__",
+            "syntax": "firstThisMonth__energy_consumed",
+            "description": "Reads the first value seen in the current device-local calendar month.",
+        },
+        {
+            "name": "changeThisMonth__",
+            "syntax": "changeThisMonth__energy_consumed",
+            "description": "Calculates current value minus the first value of the current device-local month.",
+        },
+    ]
     return {
         "summary": {
             "title": "Status Expression Helper",
@@ -62,6 +94,7 @@ def get_status_expression_helper_content(raw_data_sample=None):
                 "Expressions follow the token-based evaluator used by translate_data_from_schema.",
             ],
         },
+        "supported_methods": supported_methods,
         "status_targets": [
             {
                 "value": "device",
@@ -144,10 +177,28 @@ def get_status_expression_helper_content(raw_data_sample=None):
                 "example": "lastValue__energy_generated + meter_2.power * 120 / 3600000",
             },
             {
+                "name": "First value today helper",
+                "syntax": "firstToday__energy_generated",
+                "description": "Reads the first value observed in the current device-local day window.",
+                "example": "firstToday__energy_generated + meter_2.power * 120 / 3600000",
+            },
+            {
+                "name": "Last value today helper",
+                "syntax": "lastToday__energy_generated",
+                "description": "Reads the most recent value observed in the current device-local day window.",
+                "example": "lastToday__energy_generated + meter_2.power * 120 / 3600000",
+            },
+            {
                 "name": "Daily delta helper",
                 "syntax": "changeToday__energy_consumed",
                 "description": "Uses the current value minus the first value from today. Current value can come from raw data or a sibling field; first value comes from the firstToday snapshot.",
                 "example": "changeToday__energy_revenue",
+            },
+            {
+                "name": "First value this month helper",
+                "syntax": "firstThisMonth__energy_consumed",
+                "description": "Reads the first value in the current device-local month window.",
+                "example": "firstThisMonth__energy_consumed",
             },
             {
                 "name": "Monthly delta helper",
@@ -527,6 +578,38 @@ def extract_calculated_data(
         status_scope = _get_or_create_status_scope(snapshot_name)
         _set_nested_value(status_scope, field_path, value)
 
+    def _resolve_window_snapshot_value(snapshot_name, field_name, fallback_to_current=True):
+        snapshot = _normalize_snapshot(existing_statuses.get(snapshot_name, {}))
+        raw_snapshot = _normalize_snapshot(snapshot.get("raw", {}))
+        status_root = _normalize_snapshot(snapshot.get(schema_target, {}))
+        status_scope = _resolve_status_scope(status_root, target_name)
+
+        for source_name, source_data in (
+            ("raw", raw_snapshot),
+            ("status_scope", status_scope),
+            ("status_root", status_root),
+        ):
+            value = extract_data(field_name, source_data, 1, 0)
+            if value is not None:
+                return value, source_name
+
+        if fallback_to_current:
+            for source_name, source_data in (
+                ("current_raw", data),
+                ("current_status_fields", current_target_fields or {}),
+            ):
+                value = extract_data(field_name, source_data, 1, 0)
+                if value is not None:
+                    return value, source_name
+
+        return None, "missing"
+
+    def _seed_window_snapshot(snapshot_name, field_name, value, source_name):
+        remember_source_kind = "status"
+        if source_name in {"current_raw", "raw"}:
+            remember_source_kind = "raw"
+        _remember_default(snapshot_name, remember_source_kind, field_name, value)
+
     def _resolve_status_scope(status_snapshot, status_name):
         status_snapshot = _normalize_snapshot(status_snapshot)
         nested_status = status_snapshot.get(status_name)
@@ -580,6 +663,40 @@ def extract_calculated_data(
                     "value": next_value,
                     "source": value_source,
                 })
+        elif field_or_operator.startswith("firstToday__"):
+            field_name = field_or_operator.replace("firstToday__", "")
+            next_value, value_source = _resolve_window_snapshot_value("firstToday", field_name)
+            if next_value is None:
+                next_value = 0
+                value_source = "default_zero"
+            else:
+                _seed_window_snapshot("firstToday", field_name, next_value, value_source)
+            value_already_fetched = True
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "firstToday",
+                    "field": field_name,
+                    "value": next_value,
+                    "source": value_source,
+                })
+        elif field_or_operator.startswith("lastToday__"):
+            field_name = field_or_operator.replace("lastToday__", "")
+            next_value, value_source = _resolve_window_snapshot_value("lastToday", field_name)
+            if next_value is None:
+                next_value = 0
+                value_source = "default_zero"
+            else:
+                _seed_window_snapshot("lastToday", field_name, next_value, value_source)
+            value_already_fetched = True
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "lastToday",
+                    "field": field_name,
+                    "value": next_value,
+                    "source": value_source,
+                })
         elif field_or_operator.startswith("changeToday__"):
             field_name = field_or_operator.replace("changeToday__", "")
             value_now_source = "current_raw"
@@ -628,6 +745,23 @@ def extract_calculated_data(
                     "value": next_value,
                     "value_now_source": value_now_source,
                     "value_first_source": value_first_source,
+                })
+        elif field_or_operator.startswith("firstThisMonth__"):
+            field_name = field_or_operator.replace("firstThisMonth__", "")
+            next_value, value_source = _resolve_window_snapshot_value("firstThisMonth", field_name)
+            if next_value is None:
+                next_value = 0
+                value_source = "default_zero"
+            else:
+                _seed_window_snapshot("firstThisMonth", field_name, next_value, value_source)
+            value_already_fetched = True
+            if include_debug:
+                resolved_tokens.append({
+                    "token": field_or_operator,
+                    "kind": "firstThisMonth",
+                    "field": field_name,
+                    "value": next_value,
+                    "source": value_source,
                 })
         elif field_or_operator.startswith("changeThisMonth__"):
             field_name = field_or_operator.replace("changeThisMonth__", "")

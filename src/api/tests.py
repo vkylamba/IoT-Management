@@ -2,13 +2,16 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytz
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
-from api.utils import (backfill_status_processing_context_from_db_if_missing,
-						   refresh_status_processing_context_boundaries)
+from api.utils import (
+	backfill_status_processing_context_from_db_if_missing,
+	get_status_processing_context_from_status_cache,
+	refresh_status_processing_context_boundaries,
+)
 from api.viewsets.device_views import _normalize_favorite_device_ids
-from device_schemas.schema import (get_status_expression_helper_content,
-								   translate_data_from_schema)
+from device.models import Device, StatusCache, StatusType
+from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
 from utils.reports.report_helpers import get_report_status_type_for_period
 
 
@@ -68,6 +71,60 @@ class SchemaTranslationTests(SimpleTestCase):
 			translated_data["DAILY_STATUS"]["energy_generated"],
 			10.01,
 			places=6,
+		)
+
+	def test_first_today_helper_reads_initial_snapshot_and_keeps_value(self):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_generated",
+						"type": "calculated",
+						"source": "firstToday__energy_generated + meter_0.power * 120 / 3600000",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_generated_today",
+						"type": "calculated",
+						"source": "changeToday__energy_generated",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+		test_data = {
+			"meter_0": {"power": 100},
+		}
+		existing_statuses = {
+			"firstToday": {
+				"device": {"DAILY_STATUS": {"energy_generated": 12}},
+				"raw": {},
+			},
+			"lastToday": {
+				"device": {"DAILY_STATUS": {"energy_generated": 15}},
+				"raw": {},
+			},
+		}
+
+		translated_data = translate_data_from_schema(schema, test_data, existing_statuses)
+
+		self.assertAlmostEqual(
+			translated_data["DAILY_STATUS"]["energy_generated"],
+			12 + 100 * 120 / 3600000,
+			places=6,
+		)
+		self.assertAlmostEqual(
+			translated_data["DAILY_STATUS"]["energy_generated_today"],
+			100 * 120 / 3600000,
+			places=6,
+		)
+		self.assertEqual(
+			existing_statuses["firstToday"]["device"]["DAILY_STATUS"]["energy_generated"],
+			12,
 		)
 
 	def test_change_today_can_reference_current_calculated_field(self):
@@ -330,7 +387,7 @@ class SchemaTranslationTests(SimpleTestCase):
 		)
 
 
-class StatusProcessingContextTests(SimpleTestCase):
+class StatusProcessingContextTests(TestCase):
 	@patch("api.utils.build_status_processing_context")
 	def test_backfill_context_reads_from_db_when_last_today_missing(self, build_context_mock):
 		db_context = {
@@ -522,9 +579,46 @@ class StatusProcessingContextTests(SimpleTestCase):
 		self.assertTrue(any(item["value"] == "device" for item in helper_data["status_targets"]))
 		self.assertTrue(any(item["value"] == "calculated" for item in helper_data["field_types"]))
 		self.assertTrue(any(item["syntax"] == "lastValue__energy_generated" for item in helper_data["expression_sources"]))
+		self.assertTrue(any(item["syntax"] == "firstToday__energy_generated" for item in helper_data["expression_sources"]))
+		self.assertTrue(any(item["syntax"] == "lastToday__energy_generated" for item in helper_data["expression_sources"]))
 		self.assertTrue(any(item["name"] == "firstToday" for item in helper_data["history_context"]))
 		self.assertIn("meter_0.power", helper_data["available_raw_fields"])
 		self.assertIn("dht.temperature", helper_data["available_raw_fields"])
+
+	def test_status_cache_hydrates_context_without_requerying_db(self):
+		device = Device.objects.create(ip_address="192.168.1.50", alias="cache-device")
+		status_type = StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+		)
+		StatusCache.objects.create(
+			device=device,
+			status_type=status_type,
+			cache_data={
+				"existing_statuses": {
+					"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 180}}},
+					"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 200}}},
+					"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 120}}},
+				},
+				"current_raw_data": {"meter_0": {"power": 100}},
+				"day_start_utc": "2026-05-02T00:00:00Z",
+				"month_start_utc": "2026-05-01T00:00:00Z",
+			},
+		)
+
+		context = get_status_processing_context_from_status_cache(status_type, device, None)
+
+		self.assertEqual(
+			context["existing_statuses"]["firstToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			180,
+		)
+		self.assertEqual(
+			context["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			200,
+		)
+		self.assertEqual(context["current_raw_data"]["meter_0"]["power"], 100)
 
 
 class FavoriteDevicesTests(SimpleTestCase):

@@ -6,6 +6,7 @@ Purpose: give coding agents enough repository context to start making correct ed
 
 - Stack: Django 4, DRF, Channels, Celery, Redis, MongoDB (Djongo), optional ClickHouse.
 - Main app root: `src/`
+- Docker is the default execution environment for this repo; use the container workflow unless a task explicitly requires a local-only setup.
 - Docker service entrypoint: `docker-compose.yaml` -> service `app`.
 - Public API/docs (default docker): `http://localhost:8113/swagger/`
 
@@ -21,13 +22,14 @@ Purpose: give coding agents enough repository context to start making correct ed
 
 ## Runbook
 
-### Docker-first workflow (preferred)
+### Default workflow: Docker-first (required unless task says otherwise)
 
 1. `docker-compose up --build`
 2. `docker-compose exec app python manage.py migrate`
 3. Optional admin user: `docker-compose exec app python manage.py createsuperuser`
+4. For repo checks, tests, and Django commands, run them inside the container: `docker-compose exec app ...`
 
-### Local workflow (without docker)
+### Local workflow (only for explicit local debugging or when Docker is unavailable)
 
 1. `cd src`
 2. `pip install -r requirements.txt`
@@ -37,9 +39,14 @@ Purpose: give coding agents enough repository context to start making correct ed
 
 ### Typical side processes
 
-- Celery worker: `celery -A iot_server worker -l info`
-- Celery beat: `celery -A iot_server beat -l info`
-- MQTT listener: `python manage.py mqtt`
+- Celery worker: `docker-compose exec app celery -A iot_server worker -l info`
+- Celery beat: `docker-compose exec app celery -A iot_server beat -l info`
+- MQTT listener: `docker-compose exec app python manage.py mqtt`
+
+### Agent rule
+
+- If a command can be run via Docker, prefer the container version for consistency with the production-like environment.
+- Do not assume a host-local Python environment is the canonical runtime for this repo.
 
 ## Change Routing Rules
 
@@ -54,9 +61,11 @@ Purpose: give coding agents enough repository context to start making correct ed
 ## Validation Checklist For Agents
 
 - Run focused Django checks/tests for touched area before broad test runs.
-- If models changed: run `python manage.py makemigrations --check` and migrate flow validation.
-- If API schema/serializer changed: quickly validate impacted endpoints via DRF tests or manual request examples.
+- Prefer Docker-backed validation commands, such as `docker-compose exec app python manage.py test ...` or `docker-compose exec app python manage.py check`.
+- If models changed: run `docker-compose exec app python manage.py makemigrations --check` and migrate flow validation.
+- If API schema/serializer changed: quickly validate impacted endpoints via DRF tests or manual request examples inside the container.
 - If websocket logic changed: validate route registration and consumer import paths.
+- If a local command is suggested in docs or prior context but a Docker equivalent exists, prefer the Docker equivalent.
 
 ## Guardrails
 

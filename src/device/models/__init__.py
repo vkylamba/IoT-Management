@@ -18,7 +18,8 @@ from .ota import DeviceFirmware, DeviceConfig
 
 from .status import (
     UserDeviceType,
-    StatusType
+    StatusType,
+    StatusCache,
 )
 
 __all__ = (
@@ -38,5 +39,6 @@ __all__ = (
     'Subnet',
     'UserDeviceType',
     'StatusType',
+    'StatusCache',
     'get_image_path'
 )
