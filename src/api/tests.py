@@ -1,20 +1,51 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 import pytz
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 from api.utils import (
 	backfill_status_processing_context_from_db_if_missing,
 	get_status_processing_context_from_status_cache,
+	is_device_status_replay_locked,
+	process_raw_data,
 	replay_stored_raw_data,
 	refresh_status_processing_context_boundaries,
 	save_status_processing_context_to_status_cache,
+	set_device_status_replay_lock,
 )
+from api.viewsets.device_details_views import _get_report_event_marker, _sync_report_events_for_device
 from api.viewsets.device_views import _normalize_favorite_device_ids
 from device.models import AssetStatus, Device, RawData, StatusCache, StatusType
+from event.models import Action, DeviceEvent, EventType
+from event.tasks import daily_energy_report
 from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
 from utils.reports.report_helpers import get_report_status_type_for_period
+
+
+class EventEquationTests(SimpleTestCase):
+	def test_eval_equation_returns_true_for_none_equation(self):
+		device_event = DeviceEvent(equation_threshold=None)
+		device_event.typ = EventType(
+			name="Auto Report",
+			description="Auto report event",
+			trigger_type="Time",
+			equation=None,
+		)
+
+		self.assertTrue(device_event.eval_equation(data=Mock()))
+
+	def test_eval_equation_returns_true_for_blank_equation(self):
+		device_event = DeviceEvent(equation_threshold=None)
+		device_event.typ = EventType(
+			name="Auto Report",
+			description="Auto report event",
+			trigger_type="Time",
+			equation="   ",
+		)
+
+		self.assertTrue(device_event.eval_equation(data=Mock()))
 
 
 class SchemaTranslationTests(SimpleTestCase):
@@ -779,6 +810,140 @@ class FavoriteDevicesTests(SimpleTestCase):
 		self.assertEqual(_normalize_favorite_device_ids({"id": 1}), [])
 
 
+class ReportEventSyncTests(TestCase):
+	def test_sync_auto_enables_report_events_when_running_status_exists(self):
+		device = Device.objects.create(ip_address="192.168.1.209", alias="report-auto-device")
+		StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+			active=True,
+		)
+
+		_sync_report_events_for_device(device, None)
+
+		self.assertTrue(
+			DeviceEvent.objects.filter(
+				device=device,
+				equation_threshold=_get_report_event_marker("yesterday"),
+			).exists()
+		)
+		self.assertTrue(
+			DeviceEvent.objects.filter(
+				device=device,
+				equation_threshold=_get_report_event_marker("week"),
+			).exists()
+		)
+		self.assertTrue(
+			DeviceEvent.objects.filter(
+				device=device,
+				equation_threshold=_get_report_event_marker("month"),
+			).exists()
+		)
+
+		self.assertTrue(
+			Action.objects.filter(
+				device_event__device=device,
+				task="event.tasks.daily_energy_report",
+			).exists()
+		)
+		self.assertTrue(
+			Action.objects.filter(
+				device_event__device=device,
+				task="event.tasks.weekly_energy_report",
+			).exists()
+		)
+		self.assertTrue(
+			Action.objects.filter(
+				device_event__device=device,
+				task="event.tasks.monthly_energy_report",
+			).exists()
+		)
+
+	def test_sync_creates_report_event_and_action_for_active_report_status(self):
+		device = Device.objects.create(ip_address="192.168.1.210", alias="report-sync-device")
+		StatusType.objects.create(
+			name="WEEKLY_REPORT_STATUS",
+			target_type=StatusType.STATUS_TARGET_REPORT,
+			report_period="week",
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+			active=True,
+		)
+
+		_sync_report_events_for_device(device, None)
+
+		event = DeviceEvent.objects.filter(
+			device=device,
+			equation_threshold=_get_report_event_marker("week"),
+		).first()
+		self.assertIsNotNone(event)
+		self.assertEqual(event.typ.name, "Weekly Report")
+		self.assertIsNotNone(event.schedule)
+
+		action = Action.objects.filter(device_event=event, task="event.tasks.weekly_energy_report").first()
+		self.assertIsNotNone(action)
+		self.assertTrue(action.active)
+
+	def test_sync_deletes_report_event_and_action_when_status_is_inactive(self):
+		device = Device.objects.create(ip_address="192.168.1.211", alias="report-sync-delete")
+		status_type = StatusType.objects.create(
+			name="YESTERDAY_REPORT_STATUS",
+			target_type=StatusType.STATUS_TARGET_REPORT,
+			report_period="yesterday",
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+			active=True,
+		)
+
+		_sync_report_events_for_device(device, None)
+		self.assertTrue(
+			DeviceEvent.objects.filter(
+				device=device,
+				equation_threshold=_get_report_event_marker("yesterday"),
+			).exists()
+		)
+
+		status_type.active = False
+		status_type.save(update_fields=["active"])
+
+		_sync_report_events_for_device(device, None)
+
+		self.assertFalse(
+			DeviceEvent.objects.filter(
+				device=device,
+				equation_threshold=_get_report_event_marker("yesterday"),
+			).exists()
+		)
+		self.assertFalse(
+			Action.objects.filter(
+				device_event__device=device,
+				task="event.tasks.daily_energy_report",
+			).exists()
+		)
+
+
+class ReportTaskOverrideTests(SimpleTestCase):
+	def test_daily_report_task_skips_auto_calculation_when_explicit_status_exists(self):
+		action = Mock()
+		action.id = "action-1"
+		device_event = Mock()
+		device_event.device = Mock()
+		device_event.eval_equation.return_value = True
+		action.device_event = device_event
+
+		with patch('event.tasks.Action.objects.get', return_value=action), \
+			 patch('event.tasks.get_report_status_type_for_period', return_value=Mock()), \
+			 patch('event.tasks.calculate_report_status_for_period') as calculate_mock, \
+			 patch('event.tasks.get_daily_report', return_value={'ok': True}), \
+			 patch('event.tasks.EventHistory') as event_history_mock:
+			daily_energy_report("action-1")
+
+		calculate_mock.assert_not_called()
+		event_history_mock.return_value.save.assert_called_once()
+
+
 class ReplayStatusTests(TestCase):
 	def _create_device_status_type(self, device):
 		schema = [
@@ -900,4 +1065,91 @@ class ReplayStatusTests(TestCase):
 				created_at__lt=end_time,
 			).count(),
 			1,
+		)
+
+	def test_process_raw_data_defers_live_status_updates_while_replay_locked(self):
+		device = Device.objects.create(ip_address="192.168.1.72", alias="replay-live-pause")
+		self._create_device_status_type(device)
+
+		self.assertFalse(is_device_status_replay_locked(device))
+		set_device_status_replay_lock(device, enabled=True, timeout_seconds=3600)
+
+		message_data = {
+			"last_update_time": "2026-09-09T11:10:00+0000",
+			"meter_0": {"power": 555},
+		}
+		process_raw_data(device, message_data, channel="test", data_type="raw", user=None)
+
+		self.assertEqual(RawData.objects.filter(device=device).count(), 1)
+		self.assertEqual(AssetStatus.objects.filter(device=device).count(), 0)
+
+		set_device_status_replay_lock(device, enabled=False)
+
+	def test_replay_releases_device_lock_after_completion(self):
+		device = Device.objects.create(ip_address="192.168.1.73", alias="replay-lock-release")
+		self._create_device_status_type(device)
+
+		start_time = datetime(2026, 9, 9, 11, 0, tzinfo=pytz.utc)
+		end_time = datetime(2026, 9, 9, 12, 0, tzinfo=pytz.utc)
+
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=datetime(2026, 9, 9, 11, 3, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 333}},
+		)
+
+		self.assertFalse(is_device_status_replay_locked(device))
+		replay_stored_raw_data(
+			device=device,
+			start_time=start_time,
+			end_time=end_time,
+			user=None,
+			clear_existing_statuses=True,
+			replay_status_interval_minutes=10,
+		)
+		self.assertFalse(is_device_status_replay_locked(device))
+
+	def test_replay_runs_post_window_catchup_pass(self):
+		device = Device.objects.create(ip_address="192.168.1.74", alias="replay-catchup-pass")
+		self._create_device_status_type(device)
+
+		now = timezone.now().astimezone(pytz.utc)
+		start_time = now - timedelta(minutes=20)
+		end_time = now - timedelta(minutes=5)
+
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=start_time + timedelta(minutes=2),
+			data={"meter_0": {"power": 101}},
+		)
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=end_time + timedelta(minutes=1),
+			data={"meter_0": {"power": 202}},
+		)
+
+		result = replay_stored_raw_data(
+			device=device,
+			start_time=start_time,
+			end_time=end_time,
+			user=None,
+			clear_existing_statuses=True,
+			replay_status_interval_minutes=0,
+		)
+
+		self.assertEqual(result["catchup_processed_raw_count"], 1)
+		self.assertEqual(result["catchup_replayed_raw_count"], 1)
+		self.assertEqual(result["replayed_raw_count"], 2)
+		self.assertEqual(
+			AssetStatus.objects.filter(
+				device=device,
+				created_at__gte=start_time,
+			).count(),
+			2,
 		)

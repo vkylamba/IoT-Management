@@ -65,7 +65,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 'Reprocessed statuses for device {device} from {start} to {end}. '
                 'Warm-up start: {warmup}. Raw rows visited: {processed}. '
-                'Rows in requested window: {replayed}. Skipped status raws: {skipped}. '
+                'Rows in requested window: {replayed}. Catch-up rows processed: {catchup_processed}. '
+                'Catch-up rows replayed: {catchup_replayed}. Skipped status raws: {skipped}. '
                 'Deleted existing statuses: {deleted}. User context: {user}.'.format(
                     device=device.id,
                     start=result['start_time'].isoformat(),
@@ -73,6 +74,8 @@ class Command(BaseCommand):
                     warmup=result['replay_start_time'].isoformat(),
                     processed=result['processed_raw_count'],
                     replayed=result['replayed_raw_count'],
+                    catchup_processed=result.get('catchup_processed_raw_count', 0),
+                    catchup_replayed=result.get('catchup_replayed_raw_count', 0),
                     skipped=result['skipped_status_raw_count'],
                     deleted=result['deleted_status_count'],
                     user=user.id if user is not None else 'none',

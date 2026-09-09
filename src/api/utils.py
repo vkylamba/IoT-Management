@@ -54,6 +54,40 @@ ALARM_TYPE_IDS_CACHE_KEY = 'alarm_eval:type_ids:v1'
 ALARM_EVENT_TYPE_CACHE_KEY_PREFIX = 'alarm_eval:event_type:'
 ALARM_TYPE_IDS_CACHE_TIMEOUT_SECONDS = 120
 ALARM_EVENT_TYPE_CACHE_TIMEOUT_SECONDS = 300
+STATUS_REPLAY_LOCK_KEY_PREFIX = 'status_replay_lock:device:'
+STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS = 60 * 60
+
+
+def _status_replay_lock_cache_key(device):
+    if device is None:
+        return None
+
+    device_id = getattr(device, 'id', None)
+    if device_id is None:
+        return None
+    return f"{STATUS_REPLAY_LOCK_KEY_PREFIX}{device_id}"
+
+
+def set_device_status_replay_lock(device, enabled=True, timeout_seconds=None):
+    cache_key = _status_replay_lock_cache_key(device)
+    if cache_key is None:
+        return
+
+    if enabled:
+        if timeout_seconds is None:
+            timeout_seconds = STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS
+        timeout_seconds = max(int(timeout_seconds), STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS)
+        cache.set(cache_key, {'locked_at': timezone.now().isoformat()}, timeout=timeout_seconds)
+        return
+
+    cache.delete(cache_key)
+
+
+def is_device_status_replay_locked(device):
+    cache_key = _status_replay_lock_cache_key(device)
+    if cache_key is None:
+        return False
+    return cache.get(cache_key) is not None
 
 
 def create_device_status_with_timestamp(
@@ -985,6 +1019,10 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         logger.info("Status data received, skipping meter data processing.")
         return ""
 
+    if is_device_status_replay_locked(device):
+        logger.info("Replay lock active, deferring live processing after raw data ingest.")
+        return ""
+
     meters_and_data = []
     dev_meters_list = Meter.objects.filter(
         device=device
@@ -1265,117 +1303,161 @@ def replay_stored_raw_data(
 ):
     replay_start_time = get_local_day_start_utc(device, reference_time=start_time)
     replay_month_start_time = get_local_month_start_utc(device, reference_time=start_time)
-    status_types = list(get_status_types_for_device(user, device) or [])
-    if replay_target_types:
-        allowed_target_types = set(replay_target_types)
-        status_types = [
-            status_type
-            for status_type in status_types
-            if status_type.target_type in allowed_target_types
-        ]
-    status_processing_context = {
-        'existing_statuses': {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
-        'last_status_models_by_target': {},
-        'current_raw_data': {},
-        'day_start_utc': replay_start_time,
-        'month_start_utc': replay_month_start_time,
-    }
-    raw_data_queryset = RawData.objects.filter(
-        device=device,
-        data_arrival_time__gte=replay_start_time,
-        data_arrival_time__lt=end_time,
-    ).order_by('data_arrival_time', 'id')
-    total_raw_count = raw_data_queryset.count()
+    lock_timeout_seconds = int(max(
+        STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS,
+        (end_time - replay_start_time).total_seconds() + STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS,
+    ))
 
-    deleted_status_count = 0
-    if clear_existing_statuses:
-        deleted_status_count, _ = AssetStatus.objects.filter(
+    set_device_status_replay_lock(
+        device,
+        enabled=True,
+        timeout_seconds=lock_timeout_seconds,
+    )
+    try:
+        status_types = list(get_status_types_for_device(user, device) or [])
+        if replay_target_types:
+            allowed_target_types = set(replay_target_types)
+            status_types = [
+                status_type
+                for status_type in status_types
+                if status_type.target_type in allowed_target_types
+            ]
+        status_processing_context = {
+            'existing_statuses': {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
+            'last_status_models_by_target': {},
+            'current_raw_data': {},
+            'day_start_utc': replay_start_time,
+            'month_start_utc': replay_month_start_time,
+        }
+        raw_data_queryset = RawData.objects.filter(
             device=device,
-            created_at__gte=replay_start_time,
-            created_at__lt=end_time,
-        ).delete()
+            data_arrival_time__gte=replay_start_time,
+            data_arrival_time__lt=end_time,
+        ).order_by('data_arrival_time', 'id')
+        total_raw_count = raw_data_queryset.count()
 
-    processed_raw_count = 0
-    replayed_raw_count = 0
-    skipped_status_raw_count = 0
+        deleted_status_count = 0
+        if clear_existing_statuses:
+            deleted_status_count, _ = AssetStatus.objects.filter(
+                device=device,
+                created_at__gte=replay_start_time,
+                created_at__lt=end_time,
+            ).delete()
 
-    def emit_progress(phase='replaying', force=False, raw_entry=None):
-        if not callable(progress_callback):
-            return
+        processed_raw_count = 0
+        replayed_raw_count = 0
+        skipped_status_raw_count = 0
+        catchup_processed_raw_count = 0
+        catchup_replayed_raw_count = 0
 
-        if not force and processed_raw_count > 0 and processed_raw_count % 25 != 0:
-            return
+        def process_replay_raw_entry(raw_entry):
+            nonlocal skipped_status_raw_count
 
-        if total_raw_count > 0:
-            progress_percent = min(99, int((processed_raw_count / total_raw_count) * 100))
-        else:
-            progress_percent = 99
+            if _is_status_raw_data_type(raw_entry.data_type):
+                skipped_status_raw_count += 1
+                return False
 
-        progress_callback({
-            'phase': phase,
+            stored_weather_data = get_weather_data_cached(
+                device,
+                use_cache=False,
+                reference_time=raw_entry.data_arrival_time,
+                allow_fetch=False,
+                store_in_raw_data=False,
+            )
+            replay_context_data = {}
+            if stored_weather_data:
+                replay_context_data['weather'] = stored_weather_data
+
+            update_user_and_device_statuses(
+                user,
+                device,
+                raw_entry,
+                raw_entry.data,
+                replay_context_data,
+                status_created_at=raw_entry.data_arrival_time,
+                status_types=status_types,
+                status_processing_context=status_processing_context,
+                min_status_interval_minutes=replay_status_interval_minutes,
+                enforce_min_status_interval=True,
+                use_status_cache=False,
+            )
+            return True
+
+        def emit_progress(phase='replaying', force=False, raw_entry=None):
+            if not callable(progress_callback):
+                return
+
+            if not force and processed_raw_count > 0 and processed_raw_count % 25 != 0:
+                return
+
+            if total_raw_count > 0:
+                progress_percent = min(99, int((processed_raw_count / total_raw_count) * 100))
+            else:
+                progress_percent = 99
+
+            progress_callback({
+                'phase': phase,
+                'processed_raw_count': processed_raw_count,
+                'replayed_raw_count': replayed_raw_count,
+                'catchup_processed_raw_count': catchup_processed_raw_count,
+                'catchup_replayed_raw_count': catchup_replayed_raw_count,
+                'skipped_status_raw_count': skipped_status_raw_count,
+                'deleted_status_count': deleted_status_count,
+                'total_raw_count': total_raw_count,
+                'current_raw_time': (
+                    raw_entry.data_arrival_time.isoformat()
+                    if raw_entry is not None and raw_entry.data_arrival_time is not None
+                    else None
+                ),
+                'progress_percent': progress_percent,
+            })
+
+        emit_progress(phase='starting', force=True)
+
+        for raw_entry in raw_data_queryset.iterator():
+            processed_raw_count += 1
+            entry_processed = process_replay_raw_entry(raw_entry)
+
+            if entry_processed and raw_entry.data_arrival_time >= start_time:
+                replayed_raw_count += 1
+
+            emit_progress(raw_entry=raw_entry)
+
+        catchup_end_time = timezone.now()
+        catchup_queryset = RawData.objects.filter(
+            device=device,
+            data_arrival_time__gte=end_time,
+            data_arrival_time__lt=catchup_end_time,
+        ).order_by('data_arrival_time', 'id')
+
+        for raw_entry in catchup_queryset.iterator():
+            catchup_processed_raw_count += 1
+            processed_raw_count += 1
+
+            entry_processed = process_replay_raw_entry(raw_entry)
+
+            if entry_processed and raw_entry.data_arrival_time >= start_time:
+                catchup_replayed_raw_count += 1
+                replayed_raw_count += 1
+
+            emit_progress(phase='catching_up', raw_entry=raw_entry)
+
+        emit_progress(phase='completed', force=True)
+
+        return {
             'processed_raw_count': processed_raw_count,
             'replayed_raw_count': replayed_raw_count,
+            'catchup_processed_raw_count': catchup_processed_raw_count,
+            'catchup_replayed_raw_count': catchup_replayed_raw_count,
             'skipped_status_raw_count': skipped_status_raw_count,
             'deleted_status_count': deleted_status_count,
             'total_raw_count': total_raw_count,
-            'current_raw_time': (
-                raw_entry.data_arrival_time.isoformat()
-                if raw_entry is not None and raw_entry.data_arrival_time is not None
-                else None
-            ),
-            'progress_percent': progress_percent,
-        })
-
-    emit_progress(phase='starting', force=True)
-
-    for raw_entry in raw_data_queryset.iterator():
-        processed_raw_count += 1
-
-        if _is_status_raw_data_type(raw_entry.data_type):
-            skipped_status_raw_count += 1
-            continue
-
-        stored_weather_data = get_weather_data_cached(
-            device,
-            use_cache=False,
-            reference_time=raw_entry.data_arrival_time,
-            allow_fetch=False,
-            store_in_raw_data=False,
-        )
-        replay_context_data = {}
-        if stored_weather_data:
-            replay_context_data['weather'] = stored_weather_data
-
-        update_user_and_device_statuses(
-            user,
-            device,
-            raw_entry,
-            raw_entry.data,
-            replay_context_data,
-            status_created_at=raw_entry.data_arrival_time,
-            status_types=status_types,
-            status_processing_context=status_processing_context,
-            min_status_interval_minutes=replay_status_interval_minutes,
-            enforce_min_status_interval=True,
-            use_status_cache=False,
-        )
-
-        if raw_entry.data_arrival_time >= start_time:
-            replayed_raw_count += 1
-
-        emit_progress(raw_entry=raw_entry)
-
-    emit_progress(phase='completed', force=True)
-
-    return {
-        'processed_raw_count': processed_raw_count,
-        'replayed_raw_count': replayed_raw_count,
-        'skipped_status_raw_count': skipped_status_raw_count,
-        'deleted_status_count': deleted_status_count,
-        'total_raw_count': total_raw_count,
-        'replay_status_interval_minutes': replay_status_interval_minutes,
-        'replay_target_types': list(replay_target_types or []),
-        'replay_start_time': replay_start_time,
-        'start_time': start_time,
-        'end_time': end_time,
-    }
+            'replay_status_interval_minutes': replay_status_interval_minutes,
+            'replay_target_types': list(replay_target_types or []),
+            'replay_start_time': replay_start_time,
+            'start_time': start_time,
+            'end_time': end_time,
+            'catchup_end_time': catchup_end_time,
+        }
+    finally:
+        set_device_status_replay_lock(device, enabled=False)

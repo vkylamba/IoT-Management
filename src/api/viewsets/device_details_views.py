@@ -13,7 +13,7 @@ from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
 from api.utils import get_existing_status_data_for_today, get_or_create_user_device, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from django.conf import settings
-from utils.reports.report_helpers import get_report_status_names_for_period
+from utils.reports.report_helpers import get_latest_report_data_for_period
 
 if getattr(settings, 'CLICKHOUSE_ENABLED', False):
     from device.clickhouse_models import DerivedData
@@ -32,8 +32,9 @@ from django.db.models import Q
 from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django_celery_beat.models import CrontabSchedule
 from device.models.ota import DeviceConfig
-from event.models import DeviceEvent, EventHistory, EventType
+from event.models import Action, DeviceEvent, EventHistory, EventType
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -51,6 +52,164 @@ REPROCESS_JOB_STATUS_DIR = os.path.join(
     'iot-management-reprocess-jobs',
 )
 REPROCESS_JOB_STATUS_TTL_SECONDS = 6 * 60 * 60
+
+REPORT_PERIOD_TO_EVENT_CONFIG = {
+    'yesterday': {
+        'event_type_name': 'Daily Report',
+        'event_type_description': 'Auto-generated daily report event for configured report status.',
+        'action_task': 'event.tasks.daily_energy_report',
+        'schedule_defaults': {
+            'minute': '5',
+            'hour': '0',
+            'day_of_week': '*',
+            'day_of_month': '*',
+            'month_of_year': '*',
+        },
+    },
+    'week': {
+        'event_type_name': 'Weekly Report',
+        'event_type_description': 'Auto-generated weekly report event for configured report status.',
+        'action_task': 'event.tasks.weekly_energy_report',
+        'schedule_defaults': {
+            'minute': '10',
+            'hour': '0',
+            'day_of_week': '1',
+            'day_of_month': '*',
+            'month_of_year': '*',
+        },
+    },
+    'month': {
+        'event_type_name': 'Monthly Report',
+        'event_type_description': 'Auto-generated monthly report event for configured report status.',
+        'action_task': 'event.tasks.monthly_energy_report',
+        'schedule_defaults': {
+            'minute': '15',
+            'hour': '0',
+            'day_of_week': '*',
+            'day_of_month': '1',
+            'month_of_year': '*',
+        },
+    },
+}
+
+REPORT_EVENT_MARKER_PREFIX = 'AUTO_REPORT_STATUS'
+
+
+def _get_report_event_marker(report_period):
+    return f'{REPORT_EVENT_MARKER_PREFIX}:{report_period}'
+
+
+def _get_or_create_report_event_type(report_period):
+    event_config = REPORT_PERIOD_TO_EVENT_CONFIG.get(report_period)
+    if event_config is None:
+        return None
+
+    event_type, created = EventType.objects.get_or_create(
+        name=event_config['event_type_name'],
+        defaults={
+            'description': event_config['event_type_description'],
+            'trigger_type': 'Time',
+            'equation': None,
+        },
+    )
+
+    if created:
+        return event_type
+
+    dirty = False
+    if event_type.trigger_type != 'Time':
+        event_type.trigger_type = 'Time'
+        dirty = True
+    if event_type.description != event_config['event_type_description']:
+        event_type.description = event_config['event_type_description']
+        dirty = True
+    if dirty:
+        event_type.save(update_fields=['trigger_type', 'description'])
+    return event_type
+
+
+def _sync_report_events_for_device(device, user):
+    report_status_types = StatusType.objects.filter(
+        device=device,
+        target_type=StatusType.STATUS_TARGET_REPORT,
+    ).order_by('-created_at')
+
+    running_status_types = StatusType.objects.filter(
+        device=device,
+        target_type=StatusType.STATUS_TARGET_DEVICE,
+    ).order_by('-created_at')
+    has_active_running_status = False
+    for running_status in running_status_types:
+        if getattr(running_status, 'active', False):
+            has_active_running_status = True
+            break
+
+    preferred_status_by_period = {}
+    for status_type in report_status_types:
+        if not getattr(status_type, 'active', False):
+            continue
+        report_period = (status_type.report_period or '').strip().lower()
+        if report_period in REPORT_PERIOD_TO_EVENT_CONFIG and report_period not in preferred_status_by_period:
+            preferred_status_by_period[report_period] = status_type
+
+    for report_period, event_config in REPORT_PERIOD_TO_EVENT_CONFIG.items():
+        marker = _get_report_event_marker(report_period)
+        existing_events = DeviceEvent.objects.filter(
+            device=device,
+            equation_threshold=marker,
+        ).order_by('-created_at')
+
+        status_type = preferred_status_by_period.get(report_period)
+        if status_type is None and not has_active_running_status:
+            for managed_event in existing_events:
+                managed_event.delete()
+            continue
+
+        report_event = existing_events.first()
+        if report_event is None:
+            report_event = DeviceEvent(
+                device=device,
+                user=user,
+                equation_threshold=marker,
+                active=True,
+            )
+
+        event_type = _get_or_create_report_event_type(report_period)
+        if event_type is None:
+            continue
+
+        report_event.typ = event_type
+        report_event.active = True
+        report_event.equation_threshold = marker
+
+        if status_type is not None and status_type.schedule is not None:
+            report_event.schedule = status_type.schedule
+        else:
+            schedule_defaults = event_config['schedule_defaults']
+            schedule, _ = CrontabSchedule.objects.get_or_create(**schedule_defaults)
+            report_event.schedule = schedule
+
+        if report_event.user is None:
+            report_event.user = user
+
+        report_event.save()
+
+        Action.objects.update_or_create(
+            device_event=report_event,
+            task=event_config['action_task'],
+            defaults={
+                'name': f'{marker}:{device.ip_address}',
+                'active': True,
+            },
+        )
+
+        stale_actions = Action.objects.filter(device_event=report_event).exclude(task=event_config['action_task'])
+        if stale_actions.exists():
+            stale_actions.delete()
+
+        duplicate_events = existing_events.exclude(id=report_event.id)
+        if duplicate_events.exists():
+            duplicate_events.delete()
 
 
 def _serialize_reprocess_job_value(value):
@@ -136,6 +295,8 @@ def _build_reprocess_response(
         'user_id': str(replay_user.id) if replay_user is not None else None,
         'processed_raw_count': result['processed_raw_count'],
         'replayed_raw_count': result['replayed_raw_count'],
+        'catchup_processed_raw_count': result.get('catchup_processed_raw_count', 0),
+        'catchup_replayed_raw_count': result.get('catchup_replayed_raw_count', 0),
         'skipped_status_raw_count': result['skipped_status_raw_count'],
         'deleted_status_count': result['deleted_status_count'],
         'total_raw_count': result.get('total_raw_count', 0),
@@ -217,6 +378,8 @@ def _run_reprocess_job(
                 'phase': 'completed',
                 'processed_raw_count': response_data['processed_raw_count'],
                 'replayed_raw_count': response_data['replayed_raw_count'],
+                'catchup_processed_raw_count': response_data['catchup_processed_raw_count'],
+                'catchup_replayed_raw_count': response_data['catchup_replayed_raw_count'],
                 'skipped_status_raw_count': response_data['skipped_status_raw_count'],
                 'deleted_status_count': response_data['deleted_status_count'],
                 'total_raw_count': response_data['total_raw_count'],
@@ -1157,17 +1320,13 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # Update status types for the device
         errors = []
         if request.user.has_permission(PERMISSIONS_ADMIN):
-            if resolved_device_type is not None:
-                device_status_types = StatusType.objects.filter(
-                    Q(device=device) | Q(device_type=resolved_device_type)
-                ).all()
-            else:
-                device_status_types = StatusType.objects.filter(
-                    Q(device=device)
-                ).all()
+            device_status_types = StatusType.objects.filter(
+                device=device
+            ).all()
             # handle the status types update
             new_available_status_types = request.data.get("available_status_types")
             if isinstance(new_available_status_types, list):
+                status_type_ids_to_keep = []
                 for new_available_status_type in new_available_status_types:
                     status_type_id = new_available_status_type.get("id")
                     status_type = None
@@ -1190,6 +1349,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                         status_type.device_type = new_available_status_type.get("device_type", status_type.device_type)
                         status_type.translation_schema = new_available_status_type.get("translation_schema", status_type.translation_schema)
                         status_type.save()
+                        status_type_ids_to_keep.append(status_type.id)
+
+                if len(errors) == 0:
+                    stale_status_types = device_status_types.exclude(id__in=status_type_ids_to_keep)
+                    if stale_status_types.exists():
+                        stale_status_types.delete()
+
+                    _sync_report_events_for_device(device, request.user)
 
         latest_status = AssetStatus.objects.filter(
             device=device,
@@ -1461,15 +1628,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 return Response(status=status.HTTP_404_NOT_FOUND)
             device = device[0]
 
-        report_data = None
-        for report_name in get_report_status_names_for_period(device, report_type):
-            report_status = AssetStatus.objects.filter(
-                device=device,
-                name=report_name
-            ).order_by('-created_at').first()
-            if report_status:
-                report_data = report_status.status
-                break
+        report_data = get_latest_report_data_for_period(device, report_type)
 
         # Get weekly/monthly energy consumption data by appliance.
         # x, consumption_data_by_appaliance = data_report.get_data_with_apaliances(

@@ -179,7 +179,9 @@ class DeviceEvent(models.Model):
     def eval_equation(self, data=None):
         event_typ = self.typ
         equation = event_typ.equation
-        if equation == "":
+        if equation is None:
+            return True
+        if isinstance(equation, str) and equation.strip() == "":
             return True
         data_members = [attr for attr in dir(data) if not callable(attr) and not attr.startswith("__")]
         logger.info("Equation is {}".format(equation))
