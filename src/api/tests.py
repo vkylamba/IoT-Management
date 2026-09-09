@@ -8,9 +8,10 @@ from api.utils import (
 	backfill_status_processing_context_from_db_if_missing,
 	get_status_processing_context_from_status_cache,
 	refresh_status_processing_context_boundaries,
+	save_status_processing_context_to_status_cache,
 )
 from api.viewsets.device_views import _normalize_favorite_device_ids
-from device.models import Device, StatusCache, StatusType
+from device.models import AssetStatus, Device, StatusCache, StatusType
 from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
 from utils.reports.report_helpers import get_report_status_type_for_period
 
@@ -619,6 +620,65 @@ class StatusProcessingContextTests(TestCase):
 			200,
 		)
 		self.assertEqual(context["current_raw_data"]["meter_0"]["power"], 100)
+
+	def test_status_cache_ignores_runtime_status_model_instances_when_saving(self):
+		device = Device.objects.create(ip_address="192.168.1.60", alias="cache-model-device")
+		status_type = StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+		)
+		status_model = AssetStatus.objects.create(
+			name="DAILY_STATUS",
+			device=device,
+			status={"energy_exported": 200},
+		)
+
+		context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 180}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 200}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 120}}},
+			},
+			"current_raw_data": {"meter_0": {"power": 100}},
+			"last_status_models_by_target": {"device": status_model},
+		}
+
+		record = save_status_processing_context_to_status_cache(context, None, device, status_type)
+
+		self.assertIsNotNone(record)
+		self.assertNotIn("last_status_models_by_target", record.cache_data)
+		self.assertEqual(record.cache_data["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy_exported"], 200)
+
+	def test_status_cache_serializes_datetime_boundaries(self):
+		device = Device.objects.create(ip_address="192.168.1.61", alias="cache-datetime-device")
+		status_type = StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+		)
+		day_start = datetime(2026, 9, 9, 0, 0, tzinfo=pytz.utc)
+		month_start = datetime(2026, 9, 1, 0, 0, tzinfo=pytz.utc)
+
+		context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 10}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 20}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 5}}},
+			},
+			"current_raw_data": {"meter_0": {"power": 100}},
+			"day_start_utc": day_start,
+			"month_start_utc": month_start,
+		}
+
+		record = save_status_processing_context_to_status_cache(context, None, device, status_type)
+
+		self.assertIsInstance(record.cache_data["day_start_utc"], str)
+		self.assertIsInstance(record.cache_data["month_start_utc"], str)
+		self.assertEqual(record.cache_data["day_start_utc"], day_start.isoformat())
+		self.assertEqual(record.cache_data["month_start_utc"], month_start.isoformat())
 
 
 class FavoriteDevicesTests(SimpleTestCase):

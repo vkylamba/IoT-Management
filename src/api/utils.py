@@ -2,7 +2,7 @@
 import logging
 import re
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime, time
 
 import pytz
 import simplejson as json
@@ -598,6 +598,35 @@ def get_status_processing_context_from_status_cache(status_type, device, last_ra
     return status_context
 
 
+def _sanitize_status_cache_payload(value):
+    if isinstance(value, datetime):
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, timezone.get_current_timezone())
+        return value.isoformat()
+
+    if isinstance(value, date):
+        return value.isoformat()
+
+    if isinstance(value, time):
+        return value.isoformat()
+
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if key == 'last_status_models_by_target':
+                continue
+            sanitized[key] = _sanitize_status_cache_payload(item)
+        return sanitized
+
+    if isinstance(value, list):
+        return [_sanitize_status_cache_payload(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_sanitize_status_cache_payload(item) for item in value)
+
+    return value
+
+
 def save_status_processing_context_to_status_cache(status_processing_context, user, device, status_type):
     if status_processing_context is None or status_type is None:
         return None
@@ -611,6 +640,7 @@ def save_status_processing_context_to_status_cache(status_processing_context, us
 
     payload = deepcopy(status_processing_context or {})
     payload = _sync_legacy_field_window_snapshots(payload)
+    payload = _sanitize_status_cache_payload(payload)
     payload.setdefault('existing_statuses', {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}})
     payload.setdefault('current_raw_data', {})
     payload.pop('field_window_snapshots', None)
