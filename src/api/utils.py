@@ -927,6 +927,12 @@ def evaluate_device_status_alarms(device, status_snapshot, trigger_time=None):
         alarm.save(update_fields=['last_trigger_time', 'last_evaluation_match'])
 
 
+def _is_status_raw_data_type(data_type):
+    if data_type is None:
+        return False
+    return str(data_type).strip().lower() == 'status'
+
+
 def process_raw_data(device, message_data, channel='unknown', data_type='unknown', user=None):
     config_data = message_data.get("config", {})
     dev_type_name = config_data.get("devType")
@@ -975,7 +981,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         "last_data_sync_time": data_arrival_time.strftime(settings.TIME_FORMAT_STRING)
     })
 
-    if data_type == 'status':
+    if _is_status_raw_data_type(data_type):
         logger.info("Status data received, skipping meter data processing.")
         return ""
 
@@ -1053,6 +1059,7 @@ def update_user_and_device_statuses(
     status_processing_context=None,
     min_status_interval_minutes=10,
     enforce_min_status_interval=False,
+    use_status_cache=True,
 ):
     set_device_for_logger(logger, device.ip_address or str(device.id))
 
@@ -1119,26 +1126,29 @@ def update_user_and_device_statuses(
         if schema is None:
             continue
 
-        type_context = get_status_processing_context_from_status_cache(
-            status_type,
-            device,
-            last_raw_data,
-            as_of_time=status_created_at,
-        ) or status_processing_context
-        if type_context is status_processing_context:
-            refresh_status_processing_context_boundaries(
-                type_context,
-                device,
-                status_created_at,
-            )
-            merge_raw_into_status_context(type_context, normalized_raw_data)
-            backfill_status_processing_context_from_db_if_missing(
-                type_context,
-                user,
+        if use_status_cache:
+            type_context = get_status_processing_context_from_status_cache(
+                status_type,
                 device,
                 last_raw_data,
                 as_of_time=status_created_at,
-            )
+            ) or status_processing_context
+        else:
+            type_context = status_processing_context
+
+        refresh_status_processing_context_boundaries(
+            type_context,
+            device,
+            status_created_at,
+        )
+        merge_raw_into_status_context(type_context, normalized_raw_data)
+        backfill_status_processing_context_from_db_if_missing(
+            type_context,
+            user,
+            device,
+            last_raw_data,
+            as_of_time=status_created_at,
+        )
 
         type_existing_statuses = type_context.get('existing_statuses', {})
         type_current_raw_data = (
@@ -1193,8 +1203,6 @@ def update_user_and_device_statuses(
                 if data_changed:
                     create_new = True
                     logger.debug(f"Status data changed for {status_type.target_type}, creating new status entry")
-            elif not create_new:
-                create_new = True
 
             if create_new:
                 status = create_device_status_with_timestamp(
@@ -1276,8 +1284,6 @@ def replay_stored_raw_data(
         device=device,
         data_arrival_time__gte=replay_start_time,
         data_arrival_time__lt=end_time,
-    ).exclude(
-        data_type='status'
     ).order_by('data_arrival_time', 'id')
     total_raw_count = raw_data_queryset.count()
 
@@ -1325,7 +1331,7 @@ def replay_stored_raw_data(
     for raw_entry in raw_data_queryset.iterator():
         processed_raw_count += 1
 
-        if raw_entry.data_type == 'status':
+        if _is_status_raw_data_type(raw_entry.data_type):
             skipped_status_raw_count += 1
             continue
 
@@ -1351,6 +1357,7 @@ def replay_stored_raw_data(
             status_processing_context=status_processing_context,
             min_status_interval_minutes=replay_status_interval_minutes,
             enforce_min_status_interval=True,
+            use_status_cache=False,
         )
 
         if raw_entry.data_arrival_time >= start_time:

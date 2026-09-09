@@ -7,11 +7,12 @@ from django.test import SimpleTestCase, TestCase
 from api.utils import (
 	backfill_status_processing_context_from_db_if_missing,
 	get_status_processing_context_from_status_cache,
+	replay_stored_raw_data,
 	refresh_status_processing_context_boundaries,
 	save_status_processing_context_to_status_cache,
 )
 from api.viewsets.device_views import _normalize_favorite_device_ids
-from device.models import AssetStatus, Device, StatusCache, StatusType
+from device.models import AssetStatus, Device, RawData, StatusCache, StatusType
 from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
 from utils.reports.report_helpers import get_report_status_type_for_period
 
@@ -776,3 +777,127 @@ class FavoriteDevicesTests(SimpleTestCase):
 	def test_normalize_favorite_device_ids_handles_non_list(self):
 		self.assertEqual(_normalize_favorite_device_ids(None), [])
 		self.assertEqual(_normalize_favorite_device_ids({"id": 1}), [])
+
+
+class ReplayStatusTests(TestCase):
+	def _create_device_status_type(self, device):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "load_status",
+						"type": "raw",
+						"source": "meter_0.power",
+						"multiplier": 1,
+						"offset": 0,
+					}
+				],
+			}
+		]
+		return StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+			translation_schema=schema,
+		)
+
+	def test_replay_skips_status_raw_data_types(self):
+		device = Device.objects.create(ip_address="192.168.1.70", alias="replay-skip-status")
+		self._create_device_status_type(device)
+
+		start_time = datetime(2026, 9, 9, 11, 0, tzinfo=pytz.utc)
+		end_time = datetime(2026, 9, 9, 12, 0, tzinfo=pytz.utc)
+
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="status",
+			data_arrival_time=datetime(2026, 9, 9, 11, 1, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 111}},
+		)
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type=" Status ",
+			data_arrival_time=datetime(2026, 9, 9, 11, 2, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 222}},
+		)
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=datetime(2026, 9, 9, 11, 3, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 333}},
+		)
+
+		result = replay_stored_raw_data(
+			device=device,
+			start_time=start_time,
+			end_time=end_time,
+			user=None,
+			clear_existing_statuses=True,
+			replay_status_interval_minutes=10,
+		)
+
+		self.assertEqual(result["skipped_status_raw_count"], 2)
+		self.assertEqual(result["replayed_raw_count"], 1)
+		self.assertEqual(
+			AssetStatus.objects.filter(
+				device=device,
+				created_at__gte=start_time,
+				created_at__lt=end_time,
+			).count(),
+			1,
+		)
+
+	def test_replay_enforces_min_interval_and_does_not_create_per_raw(self):
+		device = Device.objects.create(ip_address="192.168.1.71", alias="replay-interval-check")
+		self._create_device_status_type(device)
+
+		start_time = datetime(2026, 9, 9, 11, 0, tzinfo=pytz.utc)
+		end_time = datetime(2026, 9, 9, 12, 0, tzinfo=pytz.utc)
+
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=datetime(2026, 9, 9, 11, 1, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 100}},
+		)
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=datetime(2026, 9, 9, 11, 2, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 200}},
+		)
+		RawData.objects.create(
+			device=device,
+			channel="test",
+			data_type="raw",
+			data_arrival_time=datetime(2026, 9, 9, 11, 3, tzinfo=pytz.utc),
+			data={"meter_0": {"power": 300}},
+		)
+
+		result = replay_stored_raw_data(
+			device=device,
+			start_time=start_time,
+			end_time=end_time,
+			user=None,
+			clear_existing_statuses=True,
+			replay_status_interval_minutes=10,
+		)
+
+		self.assertEqual(result["replayed_raw_count"], 3)
+		self.assertEqual(result["skipped_status_raw_count"], 0)
+		self.assertEqual(
+			AssetStatus.objects.filter(
+				device=device,
+				created_at__gte=start_time,
+				created_at__lt=end_time,
+			).count(),
+			1,
+		)
