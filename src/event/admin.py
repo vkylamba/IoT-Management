@@ -1,18 +1,21 @@
+import importlib
+
 from django.conf import settings
+from django.contrib import admin, messages
+from django.http import HttpResponseRedirect
+from django.urls import path, re_path, reverse
+from django.utils import timezone
+from django.utils.html import format_html
+from django import forms
+
+from iot_server.admin_utils import DjongoSafeModelAdmin
+
+from event.models import Action, DeviceEvent, EventHistory, EventType
 
 if getattr(settings, 'CLICKHOUSE_ENABLED', False):
     from device.clickhouse_models import MeterData
 else:
     MeterData = None
-from django import forms
-from django.urls import path, re_path
-from django.contrib import admin
-from django.http import HttpResponseRedirect
-from django.urls import reverse
-from django.utils.html import format_html
-from iot_server.admin_utils import DjongoSafeModelAdmin
-
-from event.models import Action, DeviceEvent, EventHistory, EventType
 
 admin.site.register(EventType, DjongoSafeModelAdmin)
 # admin.site.register(DeviceEvent)
@@ -65,36 +68,39 @@ class DeviceEventAdmin(DjongoSafeModelAdmin):
 
     def fire_event(self, request, event_id, *args, **kwargs):
         device_event = self.get_object(request, event_id)
-        device = device_event.device
-        event_type = device_event.typ.trigger_type
-        device_data = None
-        if event_type == 'Data' and MeterData is not None:
-            last_data = device.get_last_data_point()
+        if device_event is None:
+            self.message_user(request, 'Device event not found.', level=messages.ERROR)
+            url = reverse('admin:event_deviceevent_changelist', current_app=self.admin_site.name)
+            return HttpResponseRedirect(url)
 
-            # Create a data object
-            voltage = int(input('Enter voltage value(dV): '))
-            current = int(input('Enter current value(cA): '))
-            time = int(input('Enter time value(in secs): '))
-            state = int(input('Enter state value: '))
-            latitude = input('Enter latitude value: ')
-            longitude = input('Enter longitude value: ')
-            power = voltage * current
-            device_data = MeterData(
-                device=device,
-                voltage=voltage,
-                current=current,
-                power=power,
-                energy=last_data.energy + (power * time / 1000),
-                runtime=last_data.runtime + time,
-                state=state,
-                latitude=latitude,
-                longitude=longitude
+        data = None
+        if device_event.device is not None:
+            data = device_event.device.get_last_data_point()
+
+        if not device_event.eval_equation(data):
+            self.message_user(request, 'Event condition did not match. No actions were fired.', level=messages.WARNING)
+        else:
+            executed_actions = 0
+            event_actions = Action.objects.filter(device_event=device_event)
+            for action in event_actions:
+                if not getattr(action, 'active', False):
+                    continue
+                if not action.task:
+                    continue
+                if self._run_action_task(action):
+                    executed_actions += 1
+
+            device_event.last_trigger_time = timezone.now()
+            device_event.save(update_fields=['last_trigger_time'])
+
+            EventHistory.objects.create(
+                device_event=device_event,
+                result={
+                    'manual_fire': True,
+                    'executed_actions': executed_actions,
+                },
             )
-            device_data.save()
-        elif event_type == 'Time':
-            device_event.trigger_events()
-        if device_data:
-            device_data.delete()
+            self.message_user(request, f'Fired event successfully. Executed {executed_actions} action task(s).')
         # if request.method != 'POST':
         #     form = FireForm()
         # else:
@@ -132,6 +138,30 @@ class DeviceEventAdmin(DjongoSafeModelAdmin):
             current_app=self.admin_site.name,
         )
         return HttpResponseRedirect(url)
+
+    def _run_action_task(self, action):
+        temp_list = action.task.split('.')
+        import_module = '.'.join(temp_list[:-1])
+        func_name = temp_list[-1]
+        try:
+            task_module = importlib.import_module(import_module)
+            task = getattr(task_module, func_name, None)
+        except Exception:
+            return False
+
+        if task is None:
+            return False
+
+        if action.args:
+            if action.kwargs:
+                task(action.id, *action.args, **action.kwargs)
+            else:
+                task(action.id, *action.args)
+        elif action.kwargs:
+            task(action.id, **action.kwargs)
+        else:
+            task(action.id)
+        return True
 
 
 admin.site.register(DeviceEvent, DeviceEventAdmin)
