@@ -6,7 +6,7 @@ from django.contrib.admin.sites import NotRegistered
 from pymongo import MongoClient
 from typing import Any
 
-from device.models import DeviceFirmware, Meter, RawData, UserDeviceType, StatusType, DeviceConfig
+from device.models import DeviceFirmware, Meter, RawData, UserDeviceType, StatusType, StatusCache, DeviceConfig
 from device.models.device import *
 from iot_server.admin_utils import DjongoSafeModelAdmin
 
@@ -140,6 +140,12 @@ class StatusTypeAdmin(SafeDeviceAdminMixin):
     list_filter = ('name', 'target_type', 'user', 'device', 'device_type', 'update_trigger')
 
 
+class StatusCacheAdmin(SafeDeviceAdminMixin):
+    ordering = ('-updated_at',)
+    list_display = ('id', 'status_type', 'device', 'user', 'created_at', 'updated_at')
+    list_filter = ('status_type', 'device', 'user', 'created_at', 'updated_at')
+
+
 class UserDeviceTypeAdmin(SafeDeviceAdminMixin):
     ordering = ('name',)
     list_display = ('id', 'name', 'code', 'user', 'identifier_field')
@@ -180,6 +186,7 @@ admin.site.register(Subnet, DjongoSafeModelAdmin)
 admin.site.register(DeviceConfig, DeviceConfigAdmin)
 admin.site.register(UserDeviceType, UserDeviceTypeAdmin)
 admin.site.register(StatusType, StatusTypeAdmin)
+admin.site.register(StatusCache, StatusCacheAdmin)
 
 for auth_model in (Group, AuthPermission):
     try:

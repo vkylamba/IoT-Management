@@ -680,6 +680,91 @@ class StatusProcessingContextTests(TestCase):
 		self.assertEqual(record.cache_data["day_start_utc"], day_start.isoformat())
 		self.assertEqual(record.cache_data["month_start_utc"], month_start.isoformat())
 
+	def test_status_cache_save_deduplicates_same_device_and_status_type(self):
+		device = Device.objects.create(ip_address="192.168.1.62", alias="cache-dup-device")
+		status_type = StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+		)
+
+		StatusCache.objects.create(
+			device=device,
+			status_type=status_type,
+			cache_data={"current_raw_data": {"meter_0": {"power": 1}}},
+		)
+		StatusCache.objects.create(
+			device=device,
+			status_type=status_type,
+			cache_data={"current_raw_data": {"meter_0": {"power": 2}}},
+		)
+
+		save_status_processing_context_to_status_cache(
+			{
+				"existing_statuses": {
+					"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 10}}},
+					"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 20}}},
+					"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 5}}},
+				},
+				"current_raw_data": {"meter_0": {"power": 123}},
+			},
+			None,
+			device,
+			status_type,
+		)
+
+		rows = list(StatusCache.objects.filter(device=device, status_type=status_type).order_by('-updated_at'))
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].cache_data["current_raw_data"]["meter_0"]["power"], 123)
+
+	def test_status_cache_save_deduplicates_by_device_and_status_name(self):
+		device = Device.objects.create(ip_address="192.168.1.63", alias="cache-name-dup-device")
+		status_type_1 = StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+		)
+		status_type_2 = StatusType.objects.create(
+			name="DAILY_STATUS",
+			target_type=StatusType.STATUS_TARGET_DEVICE,
+			device=device,
+			update_trigger=StatusType.STATUS_UPDATE_TRIGGER_DATA,
+		)
+
+		StatusCache.objects.create(
+			device=device,
+			status_type=status_type_1,
+			cache_data={"current_raw_data": {"meter_0": {"power": 11}}},
+		)
+		StatusCache.objects.create(
+			device=device,
+			status_type=status_type_2,
+			cache_data={"current_raw_data": {"meter_0": {"power": 22}}},
+		)
+
+		save_status_processing_context_to_status_cache(
+			{
+				"existing_statuses": {
+					"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 10}}},
+					"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 20}}},
+					"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 5}}},
+				},
+				"current_raw_data": {"meter_0": {"power": 333}},
+			},
+			None,
+			device,
+			status_type_2,
+		)
+
+		rows = list(
+			StatusCache.objects.filter(device=device, status_type__name="DAILY_STATUS").order_by('-updated_at')
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].status_type_id, status_type_2.id)
+		self.assertEqual(rows[0].cache_data["current_raw_data"]["meter_0"]["power"], 333)
+
 
 class FavoriteDevicesTests(SimpleTestCase):
 	def test_normalize_favorite_device_ids_casts_and_deduplicates(self):

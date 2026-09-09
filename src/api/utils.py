@@ -574,11 +574,11 @@ def get_status_processing_context_from_status_cache(status_type, device, last_ra
     if status_type is None:
         return None
 
-    queryset = StatusCache.objects.filter(status_type=status_type)
+    queryset = StatusCache.objects.all()
     if device is not None:
-        queryset = queryset.filter(device=device)
+        queryset = queryset.filter(device=device, status_type__name=status_type.name)
     else:
-        queryset = queryset.filter(user=status_type.user)
+        queryset = queryset.filter(user=status_type.user, status_type__name=status_type.name)
 
     cache_record = queryset.order_by('-updated_at').first()
     if cache_record is None or not cache_record.cache_data:
@@ -631,12 +631,17 @@ def save_status_processing_context_to_status_cache(status_processing_context, us
     if status_processing_context is None or status_type is None:
         return None
 
-    record = StatusCache.objects.filter(status_type=status_type)
+    record_queryset = StatusCache.objects.all()
     if device is not None:
-        record = record.filter(device=device)
+        record_queryset = record_queryset.filter(device=device, status_type__name=status_type.name)
     else:
-        record = record.filter(user=user)
-    record = record.order_by('-updated_at').first()
+        record_queryset = record_queryset.filter(user=user, status_type__name=status_type.name)
+
+    record_candidates = list(record_queryset.order_by('-updated_at'))
+    record = record_candidates[0] if record_candidates else None
+    if len(record_candidates) > 1:
+        duplicate_ids = [item.id for item in record_candidates[1:]]
+        StatusCache.objects.filter(id__in=duplicate_ids).delete()
 
     payload = deepcopy(status_processing_context or {})
     payload = _sync_legacy_field_window_snapshots(payload)
