@@ -13,7 +13,7 @@ from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
 from api.utils import get_existing_status_data_for_today, get_or_create_user_device, get_status_processing_context_from_status_cache, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from django.conf import settings
-from utils.reports.report_helpers import get_latest_report_data_for_period
+from utils.reports.report_helpers import calculate_report_status_for_period, get_latest_report_data_for_period
 
 if getattr(settings, 'CLICKHOUSE_ENABLED', False):
     from device.clickhouse_models import DerivedData
@@ -1659,6 +1659,46 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # )
 
         return Response(report_data)
+
+    @device_admin
+    def recalculate_reports(self, request, device_id):
+        device, _ = is_device_admin(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        requested_periods = (request.data or {}).get('periods', ['yesterday', 'week', 'month'])
+        if not isinstance(requested_periods, list):
+            return Response(
+                {'error': 'periods must be a list.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_periods = ['yesterday', 'week', 'month']
+        normalized_periods = []
+        for report_period in requested_periods:
+            normalized_period = str(report_period).strip().lower()
+            if normalized_period not in allowed_periods:
+                return Response(
+                    {'error': f'Invalid report period: {report_period}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if normalized_period not in normalized_periods:
+                normalized_periods.append(normalized_period)
+
+        refreshed_reports = {}
+        for report_period in normalized_periods:
+            refreshed_payload = calculate_report_status_for_period(device, report_period)
+            refreshed_reports[report_period] = refreshed_payload
+
+        return Response(
+            {
+                'success': True,
+                'device_id': device.ip_address,
+                'refreshed_periods': normalized_periods,
+                'reports': refreshed_reports,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def remove_device(self, request, device_id):
         dev_user = request.user
