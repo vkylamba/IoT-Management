@@ -64,13 +64,23 @@ class Migration(migrations.Migration):
                 'verbose_name_plural': 'Status Caches',
             },
         ),
-        migrations.RemoveField(
-            model_name='devicestatus',
-            name='device',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='devicestatus',
+                    name='device',
+                ),
+            ],
         ),
-        migrations.RemoveField(
-            model_name='devicestatus',
-            name='user',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='devicestatus',
+                    name='user',
+                ),
+            ],
         ),
         migrations.RemoveField(
             model_name='document',
@@ -108,8 +118,13 @@ class Migration(migrations.Migration):
         migrations.DeleteModel(
             name='DevCommand',
         ),
-        migrations.DeleteModel(
-            name='DeviceStatus',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.DeleteModel(
+                    name='DeviceStatus',
+                ),
+            ],
         ),
         migrations.DeleteModel(
             name='DeviceType',
@@ -135,15 +150,25 @@ class Migration(migrations.Migration):
             name='user',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to=settings.AUTH_USER_MODEL),
         ),
-        migrations.AddField(
-            model_name='assetstatus',
-            name='device',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='device.device'),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.AddField(
+                    model_name='assetstatus',
+                    name='device',
+                    field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='device.device'),
+                ),
+            ],
         ),
-        migrations.AddField(
-            model_name='assetstatus',
-            name='user',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to=settings.AUTH_USER_MODEL),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.AddField(
+                    model_name='assetstatus',
+                    name='user',
+                    field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to=settings.AUTH_USER_MODEL),
+                ),
+            ],
         ),
         migrations.AddField(
             model_name='assetdocument',
