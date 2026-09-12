@@ -783,7 +783,7 @@ class Command(BaseCommand):
         """
         # Get unsent commands
         while self.loop_running:
-            commands = CommandsModal.objects.filter(status__iexact='P').order_by('-command_in_time')
+            commands = CommandsModal.objects.filter(status='P').order_by('-command_in_time')
             for command in commands:
                 logger.info("Found command waiting to be processed: %s for device: %s", command.command, command.device.ip_address)
                 device = command.device
