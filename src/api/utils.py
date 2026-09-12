@@ -216,11 +216,14 @@ def get_or_create_user_device(user: User, data: json) -> Device:
                         break
     return device
 
-def get_latest_raw_data(device):
+def get_latest_raw_data(device, skip_status_type=False):
     try:
         raw_data = RawData.objects.filter(
-            device=device
-        ).order_by(
+            device=device,
+        )
+        if skip_status_type:
+            raw_data = raw_data.exclude(data_type='status')
+        raw_data = raw_data.order_by(
             '-data_arrival_time'
         )[0]
         return json.loads(raw_data.data)
@@ -295,6 +298,36 @@ def _normalize_raw_snapshot(raw_snapshot):
     return None
 
 
+def _status_window_snapshot_template():
+    return {
+        'firstToday': {},
+        'lastToday': {},
+        'firstThisMonth': {},
+        'lastYesterday': {},
+        'lastPreviousMonth': {},
+    }
+
+
+def _ensure_status_window_snapshots(existing_statuses):
+    existing_statuses = existing_statuses or {}
+    for snapshot_name in _status_window_snapshot_template().keys():
+        snapshot = existing_statuses.get(snapshot_name)
+        if not isinstance(snapshot, dict):
+            existing_statuses[snapshot_name] = {}
+    return existing_statuses
+
+
+def _get_non_status_raw_data_queryset(device):
+    return RawData.objects.filter(device=device).exclude(data_type='status')
+
+
+def _get_latest_non_status_raw(raw_queryset):
+    for raw_entry in raw_queryset.order_by('-data_arrival_time'):
+        if not _is_status_raw_data_type(raw_entry.data_type):
+            return raw_entry
+    return None
+
+
 def _merge_raw_snapshot(base_snapshot, incoming_snapshot, overwrite=True):
     base_snapshot = dict(base_snapshot or {})
     incoming_snapshot = _normalize_raw_snapshot(incoming_snapshot) or {}
@@ -327,6 +360,26 @@ def _get_status_queryset_for_day(user, device, day_start_utc, as_of_time=None):
     return statuses.order_by('created_at')
 
 
+def _build_status_snapshot_from_model(status_model):
+    if status_model is None:
+        return {}
+
+    snapshot = {}
+    if status_model.name is not None:
+        snapshot[status_model.name] = deepcopy(status_model.status)
+    return snapshot
+
+
+def _build_raw_snapshot_from_model(raw_model):
+    if raw_model is None:
+        return {}
+
+    raw_snapshot = _normalize_raw_snapshot(raw_model)
+    if not isinstance(raw_snapshot, dict):
+        return {}
+    return {'raw': deepcopy(raw_snapshot)}
+
+
 def build_status_processing_context(user, device, last_raw_data, as_of_time=None):
     day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
     month_start_utc = get_local_month_start_utc(device, reference_time=as_of_time)
@@ -337,18 +390,16 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
         day_start_utc,
         as_of_time=as_of_time,
     )
-    raw_data_today = RawData.objects.filter(
-        device=device,
-        data_type='meters-data',
+    raw_data_base_queryset = _get_non_status_raw_data_queryset(device)
+
+    raw_data_today = raw_data_base_queryset.filter(
         data_arrival_time__gte=day_start_utc
     )
     if as_of_time is not None:
         raw_data_today = raw_data_today.filter(data_arrival_time__lte=as_of_time)
     raw_data_today = raw_data_today.order_by('data_arrival_time')
 
-    raw_data_month = RawData.objects.filter(
-        device=device,
-        data_type='meters-data',
+    raw_data_month = raw_data_base_queryset.filter(
         data_arrival_time__gte=month_start_utc,
         data_arrival_time__lt=day_start_utc,
     )
@@ -359,6 +410,8 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
     raw_data_first = {}
     raw_data_last = {}
     for raw_data_point in raw_data_today:
+        if _is_status_raw_data_type(raw_data_point.data_type):
+            continue
         raw_data_first = _merge_raw_snapshot(
             raw_data_first,
             raw_data_point,
@@ -374,6 +427,8 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
 
     raw_data_month_first = {}
     for raw_data_point in raw_data_month:
+        if _is_status_raw_data_type(raw_data_point.data_type):
+            continue
         raw_data_month_first = _merge_raw_snapshot(
             raw_data_month_first,
             raw_data_point,
@@ -417,11 +472,52 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
     elif raw_data_first:
         status_month_first.setdefault('raw', raw_data_first)
 
+    status_before_today = AssetStatus.objects.filter(
+        device=device,
+        created_at__lt=day_start_utc,
+    )
+    status_before_month = AssetStatus.objects.filter(
+        device=device,
+        created_at__lt=month_start_utc,
+    )
+    if user is not None and user.is_authenticated:
+        status_before_today = status_before_today.filter(Q(user=user) | Q(device=device))
+        status_before_month = status_before_month.filter(Q(user=user) | Q(device=device))
+
+    if as_of_time is not None:
+        status_before_today = status_before_today.filter(created_at__lte=as_of_time)
+        status_before_month = status_before_month.filter(created_at__lte=as_of_time)
+
+    status_before_today = status_before_today.order_by('-created_at').first()
+    status_before_month = status_before_month.order_by('-created_at').first()
+
+    raw_before_today = raw_data_base_queryset.filter(
+        data_arrival_time__lt=day_start_utc,
+    )
+    raw_before_month = raw_data_base_queryset.filter(
+        data_arrival_time__lt=month_start_utc,
+    )
+    if as_of_time is not None:
+        raw_before_today = raw_before_today.filter(data_arrival_time__lte=as_of_time)
+        raw_before_month = raw_before_month.filter(data_arrival_time__lte=as_of_time)
+
+    raw_before_today = _get_latest_non_status_raw(raw_before_today)
+    raw_before_month = _get_latest_non_status_raw(raw_before_month)
+
+    last_yesterday = _build_status_snapshot_from_model(status_before_today)
+    last_yesterday.update(_build_raw_snapshot_from_model(raw_before_today))
+
+    last_previous_month = _build_status_snapshot_from_model(status_before_month)
+    last_previous_month.update(_build_raw_snapshot_from_model(raw_before_month))
+
     existing_statuses = {
         'firstToday': status_first,
         'lastToday': status_last,
         'firstThisMonth': status_month_first,
+        'lastYesterday': last_yesterday,
+        'lastPreviousMonth': last_previous_month,
     }
+    existing_statuses = _ensure_status_window_snapshots(existing_statuses)
     return {
         'existing_statuses': existing_statuses,
         'last_status_models_by_target': last_status_models_by_target,
@@ -442,18 +538,23 @@ def refresh_status_processing_context_boundaries(
     target_day_start = get_local_day_start_utc(device, reference_time=reference_time)
     target_month_start = get_local_month_start_utc(device, reference_time=reference_time)
 
-    existing_statuses = status_processing_context.setdefault(
-        'existing_statuses',
-        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
-    )
+    existing_statuses = status_processing_context.setdefault('existing_statuses', {})
+    _ensure_status_window_snapshots(existing_statuses)
 
     current_day_start = status_processing_context.get('day_start_utc')
+    previous_last_today = deepcopy(existing_statuses.get('lastToday') or {})
+
     if current_day_start != target_day_start:
+        if previous_last_today:
+            existing_statuses['lastYesterday'] = deepcopy(previous_last_today)
         existing_statuses['firstToday'] = {}
         status_processing_context['day_start_utc'] = target_day_start
 
     current_month_start = status_processing_context.get('month_start_utc')
     if current_month_start != target_month_start:
+        last_month_snapshot = existing_statuses.get('lastYesterday') or previous_last_today
+        if isinstance(last_month_snapshot, dict) and last_month_snapshot:
+            existing_statuses['lastPreviousMonth'] = deepcopy(last_month_snapshot)
         existing_statuses['firstThisMonth'] = {}
         status_processing_context['month_start_utc'] = target_month_start
 
@@ -470,10 +571,8 @@ def backfill_status_processing_context_from_db_if_missing(
     if status_processing_context is None:
         return None
 
-    existing_statuses = status_processing_context.setdefault(
-        'existing_statuses',
-        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
-    )
+    existing_statuses = status_processing_context.setdefault('existing_statuses', {})
+    _ensure_status_window_snapshots(existing_statuses)
 
     needs_backfill = any(
         not existing_statuses.get(snapshot_name)
@@ -490,7 +589,7 @@ def backfill_status_processing_context_from_db_if_missing(
     )
     db_existing_statuses = db_context.get('existing_statuses', {})
 
-    for snapshot_name in ('firstToday', 'lastToday', 'firstThisMonth'):
+    for snapshot_name in ('firstToday', 'lastToday', 'firstThisMonth', 'lastYesterday', 'lastPreviousMonth'):
         current_snapshot = existing_statuses.get(snapshot_name)
         db_snapshot = db_existing_statuses.get(snapshot_name) or {}
         if not current_snapshot:
@@ -521,10 +620,8 @@ def merge_raw_into_status_context(status_processing_context, raw_snapshot):
         return None
 
     normalized_snapshot = _normalize_raw_snapshot(raw_snapshot) or {}
-    existing_statuses = status_processing_context.setdefault(
-        'existing_statuses',
-        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
-    )
+    existing_statuses = status_processing_context.setdefault('existing_statuses', {})
+    _ensure_status_window_snapshots(existing_statuses)
     first_today = existing_statuses.setdefault('firstToday', {})
     last_today = existing_statuses.setdefault('lastToday', {})
     first_this_month = existing_statuses.setdefault('firstThisMonth', {})
@@ -552,10 +649,8 @@ def record_status_in_context(status_processing_context, target_type, status_mode
     if status_processing_context is None or status_model is None:
         return
 
-    existing_statuses = status_processing_context.setdefault(
-        'existing_statuses',
-        {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
-    )
+    existing_statuses = status_processing_context.setdefault('existing_statuses', {})
+    _ensure_status_window_snapshots(existing_statuses)
     first_today = existing_statuses.setdefault('firstToday', {})
     last_today = existing_statuses.setdefault('lastToday', {})
     first_this_month = existing_statuses.setdefault('firstThisMonth', {})
@@ -585,7 +680,8 @@ def _sync_legacy_field_window_snapshots(status_context):
     if not isinstance(status_context, dict):
         return status_context
 
-    existing_statuses = status_context.setdefault('existing_statuses', {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}})
+    existing_statuses = status_context.setdefault('existing_statuses', {})
+    _ensure_status_window_snapshots(existing_statuses)
     legacy_snapshots = status_context.get('field_window_snapshots', {}) or {}
     for window_name in ('firstToday', 'lastToday', 'firstThisMonth'):
         if legacy_snapshots.get(window_name):
@@ -680,7 +776,8 @@ def save_status_processing_context_to_status_cache(status_processing_context, us
     payload = deepcopy(status_processing_context or {})
     payload = _sync_legacy_field_window_snapshots(payload)
     payload = _sanitize_status_cache_payload(payload)
-    payload.setdefault('existing_statuses', {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}})
+    payload.setdefault('existing_statuses', {})
+    _ensure_status_window_snapshots(payload['existing_statuses'])
     payload.setdefault('current_raw_data', {})
     payload.pop('field_window_snapshots', None)
 
@@ -1001,7 +1098,7 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     if "apiKey" in message_data:
         message_data.pop("apiKey")
 
-    last_raw_data = get_latest_raw_data(device)
+    last_raw_data = get_latest_raw_data(device, True)
     raw_data = RawData(
         device=device,
         channel=channel,
@@ -1323,7 +1420,7 @@ def replay_stored_raw_data(
                 if status_type.target_type in allowed_target_types
             ]
         status_processing_context = {
-            'existing_statuses': {'firstToday': {}, 'lastToday': {}, 'firstThisMonth': {}},
+            'existing_statuses': _status_window_snapshot_template(),
             'last_status_models_by_target': {},
             'current_raw_data': {},
             'day_start_utc': replay_start_time,

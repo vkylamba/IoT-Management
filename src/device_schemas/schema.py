@@ -71,7 +71,7 @@ def get_status_expression_helper_content(raw_data_sample=None):
         {
             "name": "changeToday__",
             "syntax": "changeToday__energy_consumed",
-            "description": "Calculates current value minus the first value of the current device-local day.",
+            "description": "Calculates current value minus previous-day last value when available, otherwise minus current-day first value.",
         },
         {
             "name": "firstThisMonth__",
@@ -81,7 +81,7 @@ def get_status_expression_helper_content(raw_data_sample=None):
         {
             "name": "changeThisMonth__",
             "syntax": "changeThisMonth__energy_consumed",
-            "description": "Calculates current value minus the first value of the current device-local month.",
+            "description": "Calculates current value minus previous-month last value when available, otherwise minus current-month first value.",
         },
     ]
     return {
@@ -191,7 +191,7 @@ def get_status_expression_helper_content(raw_data_sample=None):
             {
                 "name": "Daily delta helper",
                 "syntax": "changeToday__energy_consumed",
-                "description": "Uses the current value minus the first value from today. Current value can come from raw data or a sibling field; first value comes from the firstToday snapshot.",
+                "description": "Uses the current value minus previous-day last when available, otherwise minus firstToday. Current value can come from raw data or a sibling field.",
                 "example": "changeToday__energy_revenue",
             },
             {
@@ -203,7 +203,7 @@ def get_status_expression_helper_content(raw_data_sample=None):
             {
                 "name": "Monthly delta helper",
                 "syntax": "changeThisMonth__energy_consumed",
-                "description": "Uses the current value minus the first value recorded this calendar month. Current value can come from raw data or a sibling field; first value comes from the firstThisMonth snapshot.",
+                "description": "Uses the current value minus previous-month last when available, otherwise minus firstThisMonth. Current value can come from raw data or a sibling field.",
                 "example": "changeThisMonth__energy_consumed",
             },
             {
@@ -235,6 +235,14 @@ def get_status_expression_helper_content(raw_data_sample=None):
             {
                 "name": "firstThisMonth",
                 "description": "The first status/raw snapshot for the current calendar month (device-local timezone). Used internally by changeThisMonth__ helpers.",
+            },
+            {
+                "name": "lastYesterday",
+                "description": "Last status/raw snapshot captured before the current device-local day started. Used by changeToday__ fallback logic.",
+            },
+            {
+                "name": "lastPreviousMonth",
+                "description": "Last status/raw snapshot captured before the current device-local month started. Used by changeThisMonth__ fallback logic.",
             },
         ],
         "notes": [
@@ -628,12 +636,20 @@ def extract_calculated_data(
         existing_statuses = {}
     first_today = _normalize_snapshot(existing_statuses.get("firstToday", {}))
     last_today = _normalize_snapshot(existing_statuses.get("lastToday", {}))
+    last_yesterday = _normalize_snapshot(existing_statuses.get("lastYesterday", {}))
+    last_previous_month = _normalize_snapshot(existing_statuses.get("lastPreviousMonth", {}))
     last_status_root = _normalize_snapshot(last_today.get(schema_target, {}))
     first_status_root = _normalize_snapshot(first_today.get(schema_target, {}))
+    last_yesterday_status_root = _normalize_snapshot(last_yesterday.get(schema_target, {}))
+    last_previous_month_status_root = _normalize_snapshot(last_previous_month.get(schema_target, {}))
     last_status_data = _resolve_status_scope(last_status_root, target_name)
     first_status_data = _resolve_status_scope(first_status_root, target_name)
+    last_yesterday_status_data = _resolve_status_scope(last_yesterday_status_root, target_name)
+    last_previous_month_status_data = _resolve_status_scope(last_previous_month_status_root, target_name)
     first_raw_data = _normalize_snapshot(first_today.get("raw", {}))
     last_raw_data = _normalize_snapshot(last_today.get("raw", {}))
+    last_yesterday_raw_data = _normalize_snapshot(last_yesterday.get("raw", {}))
+    last_previous_month_raw_data = _normalize_snapshot(last_previous_month.get("raw", {}))
     current_target_fields = _normalize_snapshot(current_target_fields)
     for field_or_operator in fields_and_operators:
         operator = None
@@ -713,8 +729,17 @@ def extract_calculated_data(
                 field_resolver(field_name)
                 value_now = extract_data(field_name, current_target_fields, multiplier, offset)
                 value_now_source = "current_status_fields"
-            value_first = extract_data(field_name, first_raw_data, 1, 0)
-            value_first_source = "first_raw"
+            value_first = extract_data(field_name, last_yesterday_raw_data, 1, 0)
+            value_first_source = "last_yesterday_raw"
+            if value_first is None:
+                value_first_source = "last_yesterday_status_scope"
+                value_first = extract_data(field_name, last_yesterday_status_data, 1, 0)
+            if value_first is None:
+                value_first_source = "last_yesterday_status_root"
+                value_first = extract_data(field_name, last_yesterday_status_root, 1, 0)
+            if value_first is None:
+                value_first = extract_data(field_name, first_raw_data, 1, 0)
+                value_first_source = "first_raw"
             if value_first is None:
                 value_first_source = "first_status_scope"
                 value_first = extract_data(field_name, first_status_data, 1, 0)
@@ -783,8 +808,17 @@ def extract_calculated_data(
                 field_resolver(field_name)
                 value_now = extract_data(field_name, current_target_fields, multiplier, offset)
                 value_now_source = "current_status_fields"
-            value_first = extract_data(field_name, first_month_raw_data, 1, 0)
-            value_first_source = "first_month_raw"
+            value_first = extract_data(field_name, last_previous_month_raw_data, 1, 0)
+            value_first_source = "last_previous_month_raw"
+            if value_first is None:
+                value_first_source = "last_previous_month_status_scope"
+                value_first = extract_data(field_name, last_previous_month_status_data, 1, 0)
+            if value_first is None:
+                value_first_source = "last_previous_month_status_root"
+                value_first = extract_data(field_name, last_previous_month_status_root, 1, 0)
+            if value_first is None:
+                value_first = extract_data(field_name, first_month_raw_data, 1, 0)
+                value_first_source = "first_month_raw"
             if value_first is None:
                 value_first_source = "first_month_status_scope"
                 value_first = extract_data(field_name, first_month_status_data, 1, 0)

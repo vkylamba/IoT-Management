@@ -11,7 +11,7 @@ import pytz
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
-from api.utils import get_existing_status_data_for_today, get_or_create_user_device, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
+from api.utils import get_existing_status_data_for_today, get_or_create_user_device, get_status_processing_context_from_status_cache, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from django.conf import settings
 from utils.reports.report_helpers import get_latest_report_data_for_period
 
@@ -1067,9 +1067,31 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
 
         latest_raw = RawData.objects.filter(device=device).order_by('-data_arrival_time').first()
         raw_data = (latest_raw.data if latest_raw is not None else {}) or {}
-        existing_statuses = get_existing_status_data_for_today(dev_user, device, latest_raw)
+
+        status_type_id = status_type.get('id')
+        status_context = None
+        if status_type_id not in [None, '', 'None', 'null', 'NULL']:
+            status_type_model = StatusType.objects.filter(pk=status_type_id).first()
+            if status_type_model is not None:
+                status_context = get_status_processing_context_from_status_cache(
+                    status_type_model,
+                    device,
+                    latest_raw,
+                    as_of_time=(latest_raw.data_arrival_time if latest_raw is not None else None),
+                )
+
+        if status_context is None:
+            status_context = {
+                'existing_statuses': get_existing_status_data_for_today(dev_user, device, latest_raw),
+                'current_raw_data': (
+                    (latest_raw.data if latest_raw is not None else {}) or {}
+                ),
+            }
+
+        existing_statuses = status_context.get('existing_statuses', {}) or {}
         raw_data = (
-            (existing_statuses.get('lastToday', {}) or {}).get('raw')
+            status_context.get('current_raw_data')
+            or (existing_statuses.get('lastToday', {}) or {}).get('raw')
             or raw_data
             or {}
         )

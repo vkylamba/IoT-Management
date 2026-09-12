@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytz
@@ -248,6 +250,47 @@ class SchemaTranslationTests(SimpleTestCase):
 			400,
 		)
 
+	def test_change_today_prefers_previous_day_last_baseline(self):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_consumed",
+						"type": "calculated",
+						"source": "lastValue__energy_consumed + 10",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_consumed_today",
+						"type": "calculated",
+						"source": "changeToday__energy_consumed",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+		existing_statuses = {
+			"firstToday": {},
+			"lastToday": {
+				"device": {"DAILY_STATUS": {"energy_consumed": 150}},
+				"raw": {},
+			},
+			"firstThisMonth": {},
+			"lastYesterday": {
+				"device": {"DAILY_STATUS": {"energy_consumed": 120}},
+				"raw": {},
+			},
+		}
+
+		translated_data = translate_data_from_schema(schema, {}, existing_statuses)
+
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed"], 160)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed_today"], 40)
+
 	def test_change_this_month_seeds_missing_first_month_baseline(self):
 		schema = [
 			{
@@ -285,6 +328,47 @@ class SchemaTranslationTests(SimpleTestCase):
 			existing_statuses["firstThisMonth"]["device"]["DAILY_STATUS"]["energy_consumed"],
 			400,
 		)
+
+	def test_change_this_month_prefers_previous_month_last_baseline(self):
+		schema = [
+			{
+				"target": "device",
+				"name": "DAILY_STATUS",
+				"fields": [
+					{
+						"target": "energy_consumed",
+						"type": "calculated",
+						"source": "lastValue__energy_consumed + 10",
+						"multiplier": 1,
+						"offset": 0,
+					},
+					{
+						"target": "energy_consumed_this_month",
+						"type": "calculated",
+						"source": "changeThisMonth__energy_consumed",
+						"multiplier": 1,
+						"offset": 0,
+					},
+				],
+			}
+		]
+		existing_statuses = {
+			"firstToday": {},
+			"lastToday": {
+				"device": {"DAILY_STATUS": {"energy_consumed": 150}},
+				"raw": {},
+			},
+			"firstThisMonth": {},
+			"lastPreviousMonth": {
+				"device": {"DAILY_STATUS": {"energy_consumed": 90}},
+				"raw": {},
+			},
+		}
+
+		translated_data = translate_data_from_schema(schema, {}, existing_statuses)
+
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed"], 160)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_consumed_this_month"], 70)
 
 	def test_last_value_energy_exported_uses_last_today_after_day_rollover(self):
 		schema = [
@@ -419,6 +503,134 @@ class SchemaTranslationTests(SimpleTestCase):
 			places=6,
 		)
 
+	def test_status_translation_accepts_raw_fields_payload_and_validates_status(self):
+		raw_schema_payload = {
+			"fields": [
+				{"target": "pay_per_unit", "type": "calculated", "source": "10 * 1", "multiplier": 1, "offset": 0},
+				{"target": "load_status", "type": "raw", "source": "meter_3.power", "multiplier": 1, "offset": 0},
+				{"target": "car_charging_status", "type": "raw", "source": "meter_4.power", "multiplier": 1, "offset": 0},
+				{"target": "weather", "type": "dataCache", "source": "weather", "multiplier": 1, "offset": 0},
+				{"target": "net_meter_power_factor", "type": "raw", "source": "meter_3.powerFactor", "multiplier": 1, "offset": 0},
+				{"target": "system_temperature", "type": "raw", "source": "dht.temperature", "multiplier": 1, "offset": 0},
+				{"target": "system_humidity", "type": "raw", "source": "dht.humidity", "multiplier": 1, "offset": 0},
+				{"target": "system_status", "type": "calculated", "source": "\"Exporting\" if .net_meter_power_factor < 0 else \"Importing\"", "multiplier": 1, "offset": 0},
+				{"target": "net_meter_status", "type": "calculated", "source": "meter_3.power if .net_meter_power_factor < 0 else -1 * meter_3.power", "multiplier": 1, "offset": 0},
+				{"target": "energy_imported", "type": "calculated", "source": "lastValue__energy_imported + (-1 * .net_meter_status if .net_meter_status < 0 else 0) * 120 / 3600000", "multiplier": 1, "offset": 0},
+				{"target": "energy_exported", "type": "calculated", "source": "lastValue__energy_exported + (1 * .net_meter_status if .net_meter_status > 0 else 0) * 120 / 3600000", "multiplier": 1, "offset": 0},
+				{"target": "energy_exported_this_day", "type": "calculated", "source": "changeToday__energy_exported", "multiplier": 1, "offset": 0},
+				{"target": "energy_exported_this_month", "type": "calculated", "source": "changeThisMonth__energy_exported", "multiplier": 1, "offset": 0},
+				{"target": "energy_imported_this_day", "type": "calculated", "source": "changeToday__energy_imported", "multiplier": 1, "offset": 0},
+				{"target": "energy_imported_this_month", "type": "calculated", "source": "changeThisMonth__energy_imported", "multiplier": 1, "offset": 0},
+				{"target": "monthly_bill_amount", "type": "calculated", "source": ".energy_imported_this_month * .pay_per_unit", "multiplier": 1, "offset": 0},
+				{"target": "timeUTC", "type": "raw", "source": "timeUTC", "multiplier": 1, "offset": 0},
+			],
+		}
+		schema = [{"target": "device", "name": "DAILY_STATUS", **raw_schema_payload}]
+
+		fixture_path = Path(__file__).resolve().parent.parent / "device_schemas" / "schemas" / "sample-raw-data.json"
+		raw_samples = json.loads(fixture_path.read_text())
+		meter_sample = next(
+			record["data"]
+			for record in raw_samples
+			if record.get("data_type") == "meters-data"
+		)
+
+		base_data = {
+			"meter_3": {
+				"power": meter_sample.get("meter_3", {}).get("power", 360),
+				"powerFactor": meter_sample.get("meter_3", {}).get("powerFactor", 0.56),
+			},
+			"meter_4": {
+				"power": meter_sample.get("meter_4", {}).get("power", 0),
+			},
+			"dht": {
+				"temperature": meter_sample.get("dht", {}).get("temperature", 26.5),
+				"humidity": meter_sample.get("dht", {}).get("humidity", 61),
+			},
+			"timeUTC": meter_sample.get("timeUTC", "2026-09-10T10:00:00Z"),
+		}
+		existing_statuses = {
+			"firstToday": {
+				"device": {"DAILY_STATUS": {"energy_exported": 3.0, "energy_imported": 4.0}},
+				"raw": {},
+			},
+			"lastToday": {
+				"device": {"DAILY_STATUS": {"energy_exported": 7.0, "energy_imported": 8.0}},
+				"raw": {},
+			},
+			"firstThisMonth": {
+				"device": {"DAILY_STATUS": {"energy_exported": 2.0, "energy_imported": 1.0}},
+				"raw": {},
+			},
+		}
+		data_cache = {"weather": {"condition": "cloudy"}}
+
+		exporting_data = {
+			**base_data,
+			"meter_3": {
+				"power": base_data["meter_3"]["power"],
+				"powerFactor": -abs(base_data["meter_3"]["powerFactor"]),
+			},
+		}
+		exporting_status = translate_data_from_schema(
+			schema,
+			exporting_data,
+			existing_statuses,
+			data_cache,
+		)["DAILY_STATUS"]
+
+		self.assertEqual(exporting_status["pay_per_unit"], 10)
+		self.assertEqual(exporting_status["load_status"], base_data["meter_3"]["power"])
+		self.assertEqual(exporting_status["car_charging_status"], base_data["meter_4"]["power"])
+		self.assertEqual(exporting_status["weather"], {"condition": "cloudy"})
+		self.assertEqual(exporting_status["system_temperature"], base_data["dht"]["temperature"])
+		self.assertEqual(exporting_status["system_humidity"], base_data["dht"]["humidity"])
+		self.assertEqual(exporting_status["system_status"], "Exporting")
+		self.assertEqual(exporting_status["net_meter_status"], base_data["meter_3"]["power"])
+		self.assertAlmostEqual(exporting_status["energy_imported"], 8.0, places=6)
+		self.assertAlmostEqual(
+			exporting_status["energy_exported"],
+			7.0 + base_data["meter_3"]["power"] * 120 / 3600000,
+			places=6,
+		)
+		self.assertAlmostEqual(
+			exporting_status["energy_exported_this_day"],
+			exporting_status["energy_exported"] - 3.0,
+			places=6,
+		)
+		self.assertAlmostEqual(
+			exporting_status["energy_exported_this_month"],
+			exporting_status["energy_exported"] - 2.0,
+			places=6,
+		)
+		self.assertAlmostEqual(exporting_status["energy_imported_this_day"], 4.0, places=6)
+		self.assertAlmostEqual(exporting_status["energy_imported_this_month"], 7.0, places=6)
+		self.assertAlmostEqual(exporting_status["monthly_bill_amount"], 70.0, places=6)
+		self.assertEqual(exporting_status["timeUTC"], base_data["timeUTC"])
+
+		importing_data = {
+			**base_data,
+			"meter_3": {
+				"power": base_data["meter_3"]["power"],
+				"powerFactor": abs(base_data["meter_3"]["powerFactor"]),
+			},
+		}
+		importing_status = translate_data_from_schema(
+			schema,
+			importing_data,
+			existing_statuses,
+			data_cache,
+		)["DAILY_STATUS"]
+
+		self.assertEqual(importing_status["system_status"], "Importing")
+		self.assertEqual(importing_status["net_meter_status"], -base_data["meter_3"]["power"])
+		self.assertAlmostEqual(importing_status["energy_exported"], 7.0, places=6)
+		self.assertAlmostEqual(
+			importing_status["energy_imported"],
+			8.0 + base_data["meter_3"]["power"] * 120 / 3600000,
+			places=6,
+		)
+
 
 class StatusProcessingContextTests(TestCase):
 	@patch("api.utils.build_status_processing_context")
@@ -539,11 +751,13 @@ class StatusProcessingContextTests(TestCase):
 			status_processing_context["existing_statuses"],
 		)
 
-		self.assertEqual(status_processing_context["existing_statuses"]["firstToday"], {
-			"device": {"DAILY_STATUS": {"energy_exported": 225}}
-		})
+		self.assertEqual(
+			status_processing_context["existing_statuses"]["lastYesterday"]["device"]["DAILY_STATUS"]["energy_exported"],
+			200,
+		)
+		self.assertEqual(status_processing_context["existing_statuses"]["firstToday"], {})
 		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported"], 225)
-		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported_this_day"], 0)
+		self.assertEqual(translated_data["DAILY_STATUS"]["energy_exported_this_day"], 25)
 
 	def test_refresh_context_resets_first_today_on_new_day(self):
 		device = Mock()
