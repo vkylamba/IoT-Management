@@ -1,7 +1,6 @@
 
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, datetime, time
 
@@ -61,7 +60,15 @@ STATUS_TYPES_CACHE_KEY_PREFIX = 'status_types:v1:'
 STATUS_TYPES_CACHE_TIMEOUT_SECONDS = 300
 STATUS_CONTEXT_CACHE_KEY_PREFIX = 'status_context:v1:'
 STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS = 60
-DEVICE_ENRICHMENT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='device-enrichment')
+DEVICE_ENRICHMENT_QUEUE_KEY = 'device:enrichment:queue:v1'
+DEVICE_ENRICHMENT_QUEUE_MAX_LENGTH = int(
+    getattr(settings, 'DEVICE_ENRICHMENT_QUEUE_MAX_LENGTH', 1000)
+)
+
+try:
+    from django_redis import get_redis_connection
+except Exception:  # pragma: no cover - defensive fallback for unusual deploys
+    get_redis_connection = None
 
 
 def _status_replay_lock_cache_key(device):
@@ -314,32 +321,60 @@ def _status_window_snapshot_template():
     }
 
 
-def _run_background_device_enrichment(device_id, device_ip_address, meters_and_data, data_arrival_time):
+def _serialize_enrichment_meter_payload(meters_and_data):
+    payload = []
+    for item in meters_and_data or []:
+        meter = item.get('meter') if isinstance(item, dict) else None
+        meter_data = item.get('data') if isinstance(item, dict) else None
+        meter_id = getattr(meter, 'pk', None) or getattr(meter, 'id', None)
+        if meter_id is None or not isinstance(meter_data, dict):
+            continue
+
+        sanitized_meter_data = dict(meter_data)
+        sanitized_meter_data.pop('meter', None)
+        sanitized_meter_data = _sanitize_status_cache_payload(sanitized_meter_data)
+        payload.append({
+            'meter_id': str(meter_id),
+            'data': sanitized_meter_data,
+        })
+    return payload
+
+
+def _enqueue_background_device_enrichment(device, meters_and_data, data_arrival_time):
+    if device is None or not meters_and_data or get_redis_connection is None:
+        return False
+
+    meter_payload = _serialize_enrichment_meter_payload(meters_and_data)
+    if not meter_payload:
+        return False
+
+    queue_entry = {
+        'device_id': str(getattr(device, 'pk', None) or getattr(device, 'id', '')),
+        'device_ip_address': getattr(device, 'ip_address', None),
+        'data_arrival_time': data_arrival_time.isoformat() if data_arrival_time is not None else None,
+        'meters': meter_payload,
+        'queued_at': timezone.now().isoformat(),
+    }
+
     try:
-        from device.models import Device
-
-        device = Device.objects.filter(pk=device_id).first()
-        if device is None:
-            logger.warning('Skipping background enrichment for missing device %s (%s)', device_id, device_ip_address)
-            return
-
-        detect_and_save_meter_loads(device, meters_and_data, data_arrival_time)
+        redis_connection = get_redis_connection('default')
+        payload = json.dumps(queue_entry)
+        pipeline = redis_connection.pipeline()
+        pipeline.rpush(DEVICE_ENRICHMENT_QUEUE_KEY, payload)
+        pipeline.ltrim(
+            DEVICE_ENRICHMENT_QUEUE_KEY,
+            -DEVICE_ENRICHMENT_QUEUE_MAX_LENGTH,
+            -1,
+        )
+        pipeline.execute()
+        return True
     except Exception as exc:
-        logger.exception('Background device enrichment error for %s: %s', device_ip_address, exc)
+        logger.exception('Failed to enqueue background device enrichment for %s: %s', getattr(device, 'ip_address', 'unknown'), exc)
+        return False
 
 
 def _submit_background_device_enrichment(device, meters_and_data, data_arrival_time):
-    if device is None or not meters_and_data:
-        return
-
-    future = DEVICE_ENRICHMENT_POOL.submit(
-        _run_background_device_enrichment,
-        getattr(device, 'pk', None),
-        getattr(device, 'ip_address', 'unknown'),
-        meters_and_data,
-        data_arrival_time,
-    )
-    future.add_done_callback(lambda done_future: done_future.exception() if done_future.exception() else None)
+    _enqueue_background_device_enrichment(device, meters_and_data, data_arrival_time)
 
 
 def _ensure_status_window_snapshots(existing_statuses):

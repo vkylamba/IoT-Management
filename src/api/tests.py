@@ -17,10 +17,11 @@ from api.utils import (
 	refresh_status_processing_context_boundaries,
 	save_status_processing_context_to_status_cache,
 	set_device_status_replay_lock,
+	_submit_background_device_enrichment,
 )
 from api.viewsets.device_details_views import _get_report_event_marker, _sync_report_events_for_device
 from api.viewsets.device_views import _normalize_favorite_device_ids
-from device.models import AssetStatus, Device, RawData, StatusCache, StatusType
+from device.models import AssetStatus, Device, Meter, RawData, StatusCache, StatusType
 from event.models import Action, DeviceEvent, EventType
 from event.tasks import daily_energy_report
 from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
@@ -863,6 +864,37 @@ class StatusProcessingContextTests(TestCase):
 		self.assertEqual(result, "")
 		self.assertEqual(submit_mock.call_count, 1)
 		self.assertEqual(update_status_mock.call_count, 1)
+
+	@patch("api.utils.get_redis_connection")
+	def test_submit_background_device_enrichment_enqueues_job(self, redis_conn_mock):
+		device = Device.objects.create(ip_address="192.168.1.78", alias="queue-device", other_data={"device_load_detection_on": True})
+		meter = Meter.objects.create(name="meter_0", device=device)
+		redis_client = Mock()
+		pipeline = Mock()
+		redis_client.pipeline.return_value = pipeline
+		redis_conn_mock.return_value = redis_client
+
+		_submit_background_device_enrichment(
+			device,
+			[
+				{
+					"meter": meter,
+					"data": {
+						"id": "meter-data-id",
+						"meter": meter,
+						"data_arrival_time": timezone.now(),
+						"power": 42,
+					},
+				},
+			],
+			timezone.now(),
+		)
+
+		redis_conn_mock.assert_called_once_with("default")
+		redis_client.pipeline.assert_called_once()
+		pipeline.rpush.assert_called_once()
+		pipeline.ltrim.assert_called_once()
+		pipeline.execute.assert_called_once()
 
 	def test_status_expression_helper_content_lists_supported_sections(self):
 		helper_data = get_status_expression_helper_content({
