@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from api.utils import (
 	backfill_status_processing_context_from_db_if_missing,
+	build_status_processing_context,
 	get_status_processing_context_from_status_cache,
 	is_device_status_replay_locked,
 	process_raw_data,
@@ -815,6 +816,53 @@ class StatusProcessingContextTests(TestCase):
 			status_processing_context["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy"],
 			20,
 		)
+
+	@patch("api.utils.cache.get")
+	@patch("api.utils.cache.set")
+	def test_build_status_processing_context_cache_hit_avoids_db_rebuild(self, cache_set_mock, cache_get_mock):
+		device = Mock()
+		device.pk = 42
+		device.get_timezone.return_value = pytz.utc
+		cached_context = {
+			"existing_statuses": {
+				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 5}}},
+				"lastToday": {"device": {"DAILY_STATUS": {"energy_exported": 10}}},
+				"firstThisMonth": {"device": {"DAILY_STATUS": {"energy_exported": 1}}},
+			},
+			"last_status_models_by_target": {"device": Mock()},
+			"current_raw_data": {"meter_0": {"power": 22}},
+			"day_start_utc": datetime(2026, 5, 2, 0, 0, tzinfo=pytz.utc),
+			"month_start_utc": datetime(2026, 5, 1, 0, 0, tzinfo=pytz.utc),
+		}
+		cache_get_mock.return_value = cached_context
+
+		result = build_status_processing_context(
+			user=Mock(pk=7),
+			device=device,
+			last_raw_data=None,
+			as_of_time=datetime(2026, 5, 2, 0, 5, tzinfo=pytz.utc),
+		)
+
+		self.assertEqual(result["current_raw_data"]["meter_0"]["power"], 22)
+		self.assertEqual(result["existing_statuses"]["lastToday"]["device"]["DAILY_STATUS"]["energy_exported"], 10)
+		cache_set_mock.assert_not_called()
+
+	@patch("api.utils.create_model_instance")
+	@patch("api.utils.CLICKHOUSE_ENABLED", True)
+	@patch("api.utils.update_user_and_device_statuses")
+	@patch("api.utils._submit_background_device_enrichment")
+	def test_process_raw_data_submits_background_enrichment_without_waiting(self, submit_mock, update_status_mock, *args):
+		device = Device.objects.create(ip_address="192.168.1.77", alias="bg-device", other_data={"device_load_detection_on": True})
+		message_data = {
+			"last_update_time": "2026-09-13T12:00:00+00:00",
+			"meter_0": {"power": 42},
+		}
+
+		result = process_raw_data(device, message_data, channel="api", data_type="data", user=None)
+
+		self.assertEqual(result, "")
+		self.assertEqual(submit_mock.call_count, 1)
+		self.assertEqual(update_status_mock.call_count, 1)
 
 	def test_status_expression_helper_content_lists_supported_sections(self):
 		helper_data = get_status_expression_helper_content({

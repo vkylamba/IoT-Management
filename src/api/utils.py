@@ -1,6 +1,7 @@
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, datetime, time
 
@@ -56,6 +57,11 @@ ALARM_TYPE_IDS_CACHE_TIMEOUT_SECONDS = 120
 ALARM_EVENT_TYPE_CACHE_TIMEOUT_SECONDS = 300
 STATUS_REPLAY_LOCK_KEY_PREFIX = 'status_replay_lock:device:'
 STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS = 60 * 60
+STATUS_TYPES_CACHE_KEY_PREFIX = 'status_types:v1:'
+STATUS_TYPES_CACHE_TIMEOUT_SECONDS = 300
+STATUS_CONTEXT_CACHE_KEY_PREFIX = 'status_context:v1:'
+STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS = 60
+DEVICE_ENRICHMENT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='device-enrichment')
 
 
 def _status_replay_lock_cache_key(device):
@@ -308,6 +314,34 @@ def _status_window_snapshot_template():
     }
 
 
+def _run_background_device_enrichment(device_id, device_ip_address, meters_and_data, data_arrival_time):
+    try:
+        from device.models import Device
+
+        device = Device.objects.filter(pk=device_id).first()
+        if device is None:
+            logger.warning('Skipping background enrichment for missing device %s (%s)', device_id, device_ip_address)
+            return
+
+        detect_and_save_meter_loads(device, meters_and_data, data_arrival_time)
+    except Exception as exc:
+        logger.exception('Background device enrichment error for %s: %s', device_ip_address, exc)
+
+
+def _submit_background_device_enrichment(device, meters_and_data, data_arrival_time):
+    if device is None or not meters_and_data:
+        return
+
+    future = DEVICE_ENRICHMENT_POOL.submit(
+        _run_background_device_enrichment,
+        getattr(device, 'pk', None),
+        getattr(device, 'ip_address', 'unknown'),
+        meters_and_data,
+        data_arrival_time,
+    )
+    future.add_done_callback(lambda done_future: done_future.exception() if done_future.exception() else None)
+
+
 def _ensure_status_window_snapshots(existing_statuses):
     existing_statuses = existing_statuses or {}
     for snapshot_name in _status_window_snapshot_template().keys():
@@ -380,7 +414,29 @@ def _build_raw_snapshot_from_model(raw_model):
     return {'raw': deepcopy(raw_snapshot)}
 
 
+def _status_processing_context_cache_key(user, device, as_of_time=None):
+    if device is None:
+        return None
+
+    if as_of_time is not None and timezone.is_naive(as_of_time):
+        as_of_time = timezone.make_aware(as_of_time, timezone.get_current_timezone())
+
+    day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
+    month_start_utc = get_local_month_start_utc(device, reference_time=as_of_time)
+    user_key = getattr(user, 'pk', None) if user is not None else 'anonymous'
+    return (
+        f'{STATUS_CONTEXT_CACHE_KEY_PREFIX}{getattr(device, "pk", None) or getattr(device, "id", "unknown")}'
+        f':{user_key}:{day_start_utc.isoformat()}:{month_start_utc.isoformat()}'
+    )
+
+
 def build_status_processing_context(user, device, last_raw_data, as_of_time=None):
+    cache_key = _status_processing_context_cache_key(user, device, as_of_time)
+    if cache_key is not None:
+        cached_context = cache.get(cache_key)
+        if cached_context is not None:
+            return deepcopy(cached_context)
+
     day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
     month_start_utc = get_local_month_start_utc(device, reference_time=as_of_time)
 
@@ -518,13 +574,16 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
         'lastPreviousMonth': last_previous_month,
     }
     existing_statuses = _ensure_status_window_snapshots(existing_statuses)
-    return {
+    result = {
         'existing_statuses': existing_statuses,
         'last_status_models_by_target': last_status_models_by_target,
         'current_raw_data': dict(status_last.get('raw', {}) or {}),
         'day_start_utc': day_start_utc,
         'month_start_utc': month_start_utc,
     }
+    if cache_key is not None:
+        cache.set(cache_key, deepcopy(result), timeout=STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS)
+    return result
 
 
 def refresh_status_processing_context_boundaries(
@@ -791,18 +850,38 @@ def save_status_processing_context_to_status_cache(status_processing_context, us
     return record
 
 
+def _status_types_cache_key(user, device):
+    if device is None:
+        return None
+    user_key = getattr(user, 'pk', None) if user is not None else 'anonymous'
+    device_key = getattr(device, 'pk', None) or getattr(device, 'id', None) or 'unknown'
+    return f'{STATUS_TYPES_CACHE_KEY_PREFIX}{user_key}:{device_key}'
+
+
 def get_status_types_for_device(user, device):
+    cache_key = _status_types_cache_key(user, device)
+    if cache_key is not None:
+        cached_status_types = cache.get(cache_key)
+        if cached_status_types is not None:
+            return cached_status_types
+
     if user is not None and user.is_authenticated:
-        return StatusType.objects.filter(
+        queryset = StatusType.objects.filter(
             Q(user=user) | Q(device_type=device.type) | Q(device=device)
         )
-    if device.type is not None:
-        return StatusType.objects.filter(
+    elif device.type is not None:
+        queryset = StatusType.objects.filter(
             Q(device_type=device.type) | Q(device=device)
         )
-    return StatusType.objects.filter(
-        device=device
-    )
+    else:
+        queryset = StatusType.objects.filter(
+            device=device
+        )
+
+    status_types = list(queryset)
+    if cache_key is not None:
+        cache.set(cache_key, status_types, timeout=STATUS_TYPES_CACHE_TIMEOUT_SECONDS)
+    return status_types
 
 
 
@@ -1162,18 +1241,16 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
             logger.exception(e)
 
     weather_and_loads_data = {}
-    if other_data.get("device_load_detection_on", False):
-        # Skip if only status meter data is there
+    load_detection_enabled = bool(other_data.get("device_load_detection_on", False))
+    has_meter_payload = bool(meters_and_data)
+    if load_detection_enabled and has_meter_payload:
+        # Skip if only status meter data is there.
         if not(len(meters_names_found) == 1 and meters_names_found[0] == "status_meter"):
-            try:
-                weather_and_loads_data = detect_and_save_meter_loads(
-                    device,
-                    meters_and_data,
-                    data_arrival_time
-                )
-                logger.info(f"Weather and loads data detected for device {device.ip_address}: {weather_and_loads_data}")
-            except Exception as ex:
-                logger.exception("Load detection error: %s", ex)
+            logger.info(
+                'Scheduling background weather/load enrichment for device %s',
+                device.ip_address,
+            )
+            _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
 
     try:
         update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)
@@ -1222,6 +1299,9 @@ def update_user_and_device_statuses(
     else:
         normalized_raw_data = raw_data
 
+    # Reuse one device-level context for the full ingest batch instead of rebuilding
+    # a fresh historical snapshot for each status type. The per-status cache lookup can
+    # trigger the same expensive build path repeatedly and dominates request latency.
     if status_processing_context is None:
         status_processing_context = build_status_processing_context(
             user,
@@ -1261,15 +1341,17 @@ def update_user_and_device_statuses(
         if schema is None:
             continue
 
-        if use_status_cache:
+        # Avoid an extra per-type redis/db cache round trip when the main device
+        # context was already built for this ingest. That path is much more expensive
+        # than the actual schema translation work for a single incoming payload.
+        type_context = status_processing_context
+        if use_status_cache and status_processing_context is None:
             type_context = get_status_processing_context_from_status_cache(
                 status_type,
                 device,
                 last_raw_data,
                 as_of_time=status_created_at,
             ) or status_processing_context
-        else:
-            type_context = status_processing_context
 
         refresh_status_processing_context_boundaries(
             type_context,

@@ -23,11 +23,10 @@ def get_weather_data(latitude, longitude):
     """
     weather_data_url = url.format(lat=latitude, lon=longitude, apikey=openwathermap_api_key)
 
-    resp = requests.get(weather_data_url)
-    if resp.status_code == 200:
-        return resp.json()
-    else:
-        raise Exception(f"Error fetching weather data. {resp.status_code}")
+    timeout_seconds = float(getattr(settings, "WEATHER_DATA_REQUEST_TIMEOUT_SECONDS", 5))
+    resp = requests.get(weather_data_url, timeout=timeout_seconds)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def get_stored_weather_data(device, reference_time=None):

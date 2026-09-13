@@ -6,6 +6,7 @@ import threading
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, time, timedelta
+from time import perf_counter
 
 import pytz
 import simplejson as json
@@ -494,7 +495,15 @@ class DataViewSet(viewsets.ViewSet):
             errors.append("Device not found!")
             return Response(status=status.HTTP_422_UNPROCESSABLE_ENTITY, data=errors)
 
+        started_at = perf_counter()
         error = process_raw_data(device, data, channel='api', data_type='data', user=user)
+        processing_seconds = perf_counter() - started_at
+        if processing_seconds > 5:
+            logger.warning(
+                "Slow /api/data ingestion for device %s: %.2fs",
+                device.ip_address if device is not None else "unknown",
+                processing_seconds,
+            )
         if error != "":
             return Response(status=status.HTTP_400_BAD_REQUEST, data={
                 "error": error
