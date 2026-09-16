@@ -1,6 +1,8 @@
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED 1
 
+# Run as root to set up folders
+USER root
 # create directory for the application user
 ENV APP_HOME=/home/application/
 RUN mkdir -p $APP_HOME
