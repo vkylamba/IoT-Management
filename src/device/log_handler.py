@@ -6,13 +6,20 @@ from django.utils import timezone
 from datetime import timedelta
 
 def set_device_for_logger(logger, device):
+    set_success = False
     for handler in logger.handlers:
         if hasattr(handler, 'set_device'):
             handler.set_device(device)
+            set_success = True
+    if not set_success:
+        sys.stderr.write(
+            f"Warning: Failed to set logger for device {device}\n"
+        )
 
 class DeviceLogHandler(TimedRotatingFileHandler):
 
     def __init__(self, *args, **kwargs) -> None:
+        print("DeviceLogHandler init called with args:", args, "and kwargs:", kwargs)
         init_args = list(args)
         self.filename = kwargs.get("filename") or (init_args[0] if init_args else None)
         if not self.filename:
