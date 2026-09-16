@@ -884,9 +884,10 @@ def save_status_processing_context_to_status_cache(status_processing_context, us
     payload.pop('field_window_snapshots', None)
 
     if record is None:
-        record = StatusCache(device=device, user=user)
+        record = StatusCache(device=device)
     else:
         record.device = device
+    if user is not None and user.is_authenticated:
         record.user = user
     record.cache_data = payload
     record.save()
@@ -1290,7 +1291,8 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
                 'Scheduling background weather/load enrichment for device %s',
                 device.ip_address,
             )
-            _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
+            # disabling for now
+            # _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
 
     try:
         update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)
