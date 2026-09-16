@@ -1290,7 +1290,8 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
                 'Scheduling background weather/load enrichment for device %s',
                 device.ip_address,
             )
-            _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
+            # disabling for now
+            # _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
 
     try:
         update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)
