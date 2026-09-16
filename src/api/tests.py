@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from api.utils import (
 	backfill_status_processing_context_from_db_if_missing,
+	get_status_types_for_device,
 	build_status_processing_context,
 	get_status_processing_context_from_status_cache,
 	is_device_status_replay_locked,
@@ -636,7 +637,8 @@ class SchemaTranslationTests(SimpleTestCase):
 
 class StatusProcessingContextTests(TestCase):
 	@patch("api.utils.build_status_processing_context")
-	def test_backfill_context_reads_from_db_when_last_today_missing(self, build_context_mock):
+	@patch("api.utils.get_status_types_for_device")
+	def test_backfill_context_reads_from_db_when_last_today_missing(self, get_status_types_for_device_mock, build_context_mock):
 		db_context = {
 			"existing_statuses": {
 				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 180}}},
@@ -664,6 +666,7 @@ class StatusProcessingContextTests(TestCase):
 			status_processing_context,
 			user=Mock(),
 			device=Mock(),
+			status_types=get_status_types_for_device_mock(user=Mock(), device=Mock()),
 			last_raw_data=None,
 			as_of_time=datetime(2026, 5, 2, 0, 5, tzinfo=pytz.utc),
 		)
@@ -679,8 +682,9 @@ class StatusProcessingContextTests(TestCase):
 		)
 		build_context_mock.assert_called_once()
 
+	@patch("api.utils.get_status_types_for_device")
 	@patch("api.utils.build_status_processing_context")
-	def test_backfill_context_keeps_existing_cached_snapshots(self, build_context_mock):
+	def test_backfill_context_keeps_existing_cached_snapshots(self, build_context_mock, get_status_types_for_device_mock):
 		status_processing_context = {
 			"existing_statuses": {
 				"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 181}}},
@@ -695,6 +699,7 @@ class StatusProcessingContextTests(TestCase):
 			status_processing_context,
 			user=Mock(),
 			device=Mock(),
+			status_types=get_status_types_for_device_mock(user=Mock(), device=Mock()),
 			last_raw_data=None,
 		)
 
@@ -820,7 +825,8 @@ class StatusProcessingContextTests(TestCase):
 
 	@patch("api.utils.cache.get")
 	@patch("api.utils.cache.set")
-	def test_build_status_processing_context_cache_hit_avoids_db_rebuild(self, cache_set_mock, cache_get_mock):
+	@patch("api.utils.get_status_types_for_device")
+	def test_build_status_processing_context_cache_hit_avoids_db_rebuild(self, cache_set_mock, cache_get_mock, get_status_types_for_device_mock):
 		device = Mock()
 		device.pk = 42
 		device.get_timezone.return_value = pytz.utc
@@ -840,6 +846,7 @@ class StatusProcessingContextTests(TestCase):
 		result = build_status_processing_context(
 			user=Mock(pk=7),
 			device=device,
+			status_types=get_status_types_for_device_mock(user=Mock(pk=7), device=device),
 			last_raw_data=None,
 			as_of_time=datetime(2026, 5, 2, 0, 5, tzinfo=pytz.utc),
 		)
@@ -922,7 +929,6 @@ class StatusProcessingContextTests(TestCase):
 		)
 		StatusCache.objects.create(
 			device=device,
-			status_type=status_type,
 			cache_data={
 				"existing_statuses": {
 					"firstToday": {"device": {"DAILY_STATUS": {"energy_exported": 180}}},
@@ -971,7 +977,7 @@ class StatusProcessingContextTests(TestCase):
 			"last_status_models_by_target": {"device": status_model},
 		}
 
-		record = save_status_processing_context_to_status_cache(context, None, device, status_type)
+		record = save_status_processing_context_to_status_cache(context, None, device)
 
 		self.assertIsNotNone(record)
 		self.assertNotIn("last_status_models_by_target", record.cache_data)
@@ -999,7 +1005,7 @@ class StatusProcessingContextTests(TestCase):
 			"month_start_utc": month_start,
 		}
 
-		record = save_status_processing_context_to_status_cache(context, None, device, status_type)
+		record = save_status_processing_context_to_status_cache(context, None, device)
 
 		self.assertIsInstance(record.cache_data["day_start_utc"], str)
 		self.assertIsInstance(record.cache_data["month_start_utc"], str)
@@ -1017,12 +1023,10 @@ class StatusProcessingContextTests(TestCase):
 
 		StatusCache.objects.create(
 			device=device,
-			status_type=status_type,
 			cache_data={"current_raw_data": {"meter_0": {"power": 1}}},
 		)
 		StatusCache.objects.create(
 			device=device,
-			status_type=status_type,
 			cache_data={"current_raw_data": {"meter_0": {"power": 2}}},
 		)
 
@@ -1036,11 +1040,10 @@ class StatusProcessingContextTests(TestCase):
 				"current_raw_data": {"meter_0": {"power": 123}},
 			},
 			None,
-			device,
-			status_type,
+			device
 		)
 
-		rows = list(StatusCache.objects.filter(device=device, status_type=status_type).order_by('-updated_at'))
+		rows = list(StatusCache.objects.filter(device=device).order_by('-updated_at'))
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0].cache_data["current_raw_data"]["meter_0"]["power"], 123)
 
@@ -1061,12 +1064,10 @@ class StatusProcessingContextTests(TestCase):
 
 		StatusCache.objects.create(
 			device=device,
-			status_type=status_type_1,
 			cache_data={"current_raw_data": {"meter_0": {"power": 11}}},
 		)
 		StatusCache.objects.create(
 			device=device,
-			status_type=status_type_2,
 			cache_data={"current_raw_data": {"meter_0": {"power": 22}}},
 		)
 
@@ -1081,17 +1082,15 @@ class StatusProcessingContextTests(TestCase):
 			},
 			None,
 			device,
-			status_type_2,
 		)
 
 		rows = list(
-			StatusCache.objects.filter(device=device, status_type__name="DAILY_STATUS").order_by('-updated_at')
+			StatusCache.objects.filter(device=device).order_by('-updated_at')
 		)
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(rows[0].status_type_id, status_type_2.id)
 		self.assertEqual(rows[0].cache_data["current_raw_data"]["meter_0"]["power"], 333)
 
-
+	
 class FavoriteDevicesTests(SimpleTestCase):
 	def test_normalize_favorite_device_ids_casts_and_deduplicates(self):
 		self.assertEqual(

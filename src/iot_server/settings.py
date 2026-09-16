@@ -233,12 +233,19 @@ if REDIS_HOST:
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": redis_url,
+            "LOCATION": f'{redis_url}/1',
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "SOCKET_TIMEOUT": 10.0, 
+                "SOCKET_CONNECT_TIMEOUT": 5.0,
             }
         }
     }
+    # 2. Celery Broker uses Database 0
+    CELERY_BROKER_URL = f'{redis_url}/0'
+    
+    # 3. Celery Results use Database 2
+    CELERY_RESULT_BACKEND = f'{redis_url}/2'
 else:
     CHANNEL_LAYERS = {
         "default": {
