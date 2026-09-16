@@ -618,7 +618,6 @@ def build_status_processing_context(user, device, status_types: list[str], last_
         cache.set(cache_key, deepcopy(result), timeout=STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS)
     # update the StatusCache model too
     StatusCache.objects.update_or_create(
-        user=user,
         device=device,
         defaults={'cache_data': deepcopy(result)},
     )
