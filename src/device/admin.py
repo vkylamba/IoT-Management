@@ -142,8 +142,8 @@ class StatusTypeAdmin(SafeDeviceAdminMixin):
 
 class StatusCacheAdmin(SafeDeviceAdminMixin):
     ordering = ('-updated_at',)
-    list_display = ('id', 'status_type', 'device', 'user', 'created_at', 'updated_at')
-    list_filter = ('status_type', 'device', 'user', 'created_at', 'updated_at')
+    list_display = ('id', 'device', 'user', 'created_at', 'updated_at')
+    list_filter = ('device', 'user', 'created_at', 'updated_at')
 
 
 class UserDeviceTypeAdmin(SafeDeviceAdminMixin):
