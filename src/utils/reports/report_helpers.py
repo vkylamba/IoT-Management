@@ -274,10 +274,10 @@ def _calculate_yesterday_report(device):
         if status_payload is not None:
             active_days += 1
         by_time[day_date.strftime('%Y-%m-%d')] = _build_meter_row(
-            imported=energy_point['imported'],
-            exported=energy_point['exported'],
-            generated=energy_point['generated'],
-            consumed=energy_point['consumed'],
+            imported=energy_point['energy_imported_this_day'],
+            exported=energy_point['energy_exported_this_day'],
+            generated=energy_point['energy_generated_this_day'],
+            consumed=energy_point['energy_consumed_this_day'],
         )
 
     summary = _build_summary_from_rows(by_time)
@@ -316,10 +316,10 @@ def _calculate_week_report(device):
         for _, day_start_utc, day_end_utc in daily_windows:
             status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
             energy_point = _extract_energy_point(status_payload)
-            imported += energy_point['imported']
-            exported += energy_point['exported']
-            generated += energy_point['generated']
-            consumed += energy_point['consumed']
+            imported += energy_point['energy_imported_this_day']
+            exported += energy_point['energy_exported_this_day']
+            generated += energy_point['energy_generated_this_day']
+            consumed += energy_point['energy_consumed_this_day']
             if status_payload is not None:
                 has_data = True
         if has_data:
@@ -377,10 +377,10 @@ def _calculate_month_report(device):
         for _, day_start_utc, day_end_utc in daily_windows:
             status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
             energy_point = _extract_energy_point(status_payload)
-            imported += energy_point['imported']
-            exported += energy_point['exported']
-            generated += energy_point['generated']
-            consumed += energy_point['consumed']
+            imported += energy_point['energy_imported_this_day']
+            exported += energy_point['energy_exported_this_day']
+            generated += energy_point['energy_generated_this_day']
+            consumed += energy_point['energy_consumed_this_day']
             if status_payload is not None:
                 has_data = True
         if has_data:
