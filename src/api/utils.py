@@ -59,11 +59,15 @@ STATUS_REPLAY_LOCK_MIN_TIMEOUT_SECONDS = 60 * 60
 STATUS_TYPES_CACHE_KEY_PREFIX = 'status_types:v1:'
 STATUS_TYPES_CACHE_TIMEOUT_SECONDS = 300
 STATUS_CONTEXT_CACHE_KEY_PREFIX = 'status_context:v1:'
-STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS = 60
+STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS = 5 * 60
 DEVICE_ENRICHMENT_QUEUE_KEY = 'device:enrichment:queue:v1'
 DEVICE_ENRICHMENT_QUEUE_MAX_LENGTH = int(
     getattr(settings, 'DEVICE_ENRICHMENT_QUEUE_MAX_LENGTH', 1000)
 )
+
+RAW_DATA_CACHE_KEY_PREFIX = 'raw_data:v1:'
+RAW_DATA_CACHE_TIMEOUT_SECONDS = 120
+
 
 try:
     from django_redis import get_redis_connection
@@ -229,17 +233,29 @@ def get_or_create_user_device(user: User, data: json) -> Device:
                         break
     return device
 
-def get_latest_raw_data(device, skip_status_type=False):
+def get_latest_raw_data(device, new_data=None):
+    set_cache = new_data is not None
     try:
-        raw_data = RawData.objects.filter(
-            device=device,
-        )
-        if skip_status_type:
-            raw_data = raw_data.exclude(data_type='status')
-        raw_data = raw_data.order_by(
-            '-data_arrival_time'
-        )[0]
-        return json.loads(raw_data.data)
+        raw_data_cache_key = f"{RAW_DATA_CACHE_KEY_PREFIX}{device.pk}"
+        raw_data = cache.get(raw_data_cache_key)
+        if raw_data is None:
+            raw_data_p = RawData.objects.filter(
+                device=device,
+            ).exclude(
+                data_type='status'
+            ).order_by(
+                '-data_arrival_time'
+            ).first()
+            raw_data = json.loads(raw_data_p.data)
+
+            set_cache = True
+            if new_data is None:
+                new_data = raw_data
+
+        if set_cache:
+            # Save new data to db and cache
+            cache.set(raw_data_cache_key, json.dumps(new_data), RAW_DATA_CACHE_TIMEOUT_SECONDS)
+        return raw_data
     except Exception as ex:
         return None
 
@@ -426,27 +442,20 @@ def _get_status_queryset_for_day(user, device, day_start_utc, as_of_time=None):
     statuses = statuses.filter(created_at__gte=day_start_utc)
     if as_of_time is not None:
         statuses = statuses.filter(created_at__lte=as_of_time)
-    return statuses.order_by('created_at')
+    return statuses
 
+def _get_status_queryset_before_day(user, device, status_type, day_start_utc, as_of_time=None):
+    if user is not None and user.is_authenticated:
+        statuses = AssetStatus.objects.filter(
+            Q(user=user) | Q(device=device)
+        )
+    else:
+        statuses = AssetStatus.objects.filter(device=device)
 
-def _build_status_snapshot_from_model(status_model):
-    if status_model is None:
-        return {}
-
-    snapshot = {}
-    if status_model.name is not None:
-        snapshot[status_model.name] = deepcopy(status_model.status)
-    return snapshot
-
-
-def _build_raw_snapshot_from_model(raw_model):
-    if raw_model is None:
-        return {}
-
-    raw_snapshot = _normalize_raw_snapshot(raw_model)
-    if not isinstance(raw_snapshot, dict):
-        return {}
-    return {'raw': deepcopy(raw_snapshot)}
+    statuses = statuses.filter(created_at__lt=day_start_utc, name=status_type)
+    if as_of_time is not None:
+        statuses = statuses.filter(created_at__lte=as_of_time)
+    return statuses
 
 
 def _status_processing_context_cache_key(user, device, as_of_time=None):
@@ -457,28 +466,31 @@ def _status_processing_context_cache_key(user, device, as_of_time=None):
         as_of_time = timezone.make_aware(as_of_time, timezone.get_current_timezone())
 
     day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
-    month_start_utc = get_local_month_start_utc(device, reference_time=as_of_time)
     user_key = getattr(user, 'pk', None) if user is not None else 'anonymous'
     return (
         f'{STATUS_CONTEXT_CACHE_KEY_PREFIX}{getattr(device, "pk", None) or getattr(device, "id", "unknown")}'
-        f':{user_key}:{day_start_utc.isoformat()}:{month_start_utc.isoformat()}'
+        f':{user_key}:{day_start_utc.isoformat()}'
     )
 
 
-def build_status_processing_context(user, device, last_raw_data, as_of_time=None):
+def build_status_processing_context(user, device, status_types: list[str], last_raw_data, as_of_time=None):
     cache_key = _status_processing_context_cache_key(user, device, as_of_time)
     if cache_key is not None:
         cached_context = cache.get(cache_key)
         if cached_context is not None:
             return deepcopy(cached_context)
-
+    # check in the StatusCache first before building the context from scratch
     day_start_utc = get_local_day_start_utc(device, reference_time=as_of_time)
+    status_cache = StatusCache.objects.filter(device=device, created_at=day_start_utc).first()
+    if status_cache is not None:
+        return deepcopy(status_cache.cache_data)
+
     month_start_utc = get_local_month_start_utc(device, reference_time=as_of_time)
 
     statuses_today = _get_status_queryset_for_day(
         user,
         device,
-        day_start_utc,
+        day_start_utc=day_start_utc,
         as_of_time=as_of_time,
     )
     raw_data_base_queryset = _get_non_status_raw_data_queryset(device)
@@ -498,89 +510,84 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
         raw_data_month = raw_data_month.filter(data_arrival_time__lte=as_of_time)
     raw_data_month = raw_data_month.order_by('data_arrival_time')
 
-    raw_data_first = {}
-    raw_data_last = {}
-    for raw_data_point in raw_data_today:
-        if _is_status_raw_data_type(raw_data_point.data_type):
-            continue
-        raw_data_first = _merge_raw_snapshot(
-            raw_data_first,
-            raw_data_point,
-            overwrite=False,
-        )
-        raw_data_last = _merge_raw_snapshot(
-            raw_data_last,
-            raw_data_point,
-            overwrite=True,
-        )
+    raw_data_first = raw_data_today.order_by('data_arrival_time').first() or {}
+    raw_data_last = raw_data_today.order_by('-data_arrival_time').first() or {}
+    raw_data_month_first = raw_data_month.order_by('data_arrival_time').first() or {}
 
-    raw_data_last = _merge_raw_snapshot(raw_data_last, last_raw_data, overwrite=True)
-
-    raw_data_month_first = {}
-    for raw_data_point in raw_data_month:
-        if _is_status_raw_data_type(raw_data_point.data_type):
-            continue
-        raw_data_month_first = _merge_raw_snapshot(
-            raw_data_month_first,
-            raw_data_point,
-            overwrite=False,
-        )
-
+    if not raw_data_last:
+        raw_data_last = last_raw_data
     if not raw_data_first and raw_data_last:
-        raw_data_first = dict(raw_data_last)
+        raw_data_first = raw_data_last
 
     # If no data found before today this month, fall back to today's first snapshot
     if not raw_data_month_first:
-        raw_data_month_first = dict(raw_data_first)
+        raw_data_month_first = raw_data_first
 
-    status_first = {}
-    status_last = {}
-    status_month_first = {}
+
+    # Repeat the same logic for each of the status_types
+    statuses_first = {}
+    statuses_last = {}
+    statuses_month_first = {}
+    statuses_last_month = {}
+    statuses_last_day = {}
     last_status_models_by_target = {}
+    for status_type in status_types:
+        last_status_models_by_target.setdefault(status_type.name, {})
+        statuses_this_month = _get_status_queryset_for_day(
+            user,
+            device,
+            day_start_utc=month_start_utc,
+            as_of_time=day_start_utc,
+        )
 
-    statuses_this_month = _get_status_queryset_for_day(
-        user,
-        device,
-        month_start_utc,
-        as_of_time=day_start_utc,
-    )
-    for st_dt in statuses_this_month:
-        if st_dt.name not in status_month_first:
-            status_month_first[st_dt.name] = st_dt.status
+        status_month_first = statuses_this_month.order_by('created_at').first()
+        if status_month_first:
+            statuses_month_first[status_month_first.name] = status_month_first.status
 
-    for st_dt in statuses_today:
-        if st_dt.name not in status_first:
-            status_first[st_dt.name] = st_dt.status
-        status_last[st_dt.name] = st_dt.status
-        last_status_models_by_target[st_dt.name] = st_dt
+        statuses_today = _get_status_queryset_for_day(
+            user,
+            device,
+            day_start_utc,
+            as_of_time=as_of_time,
+        )
+
+        status_today_first = statuses_today.order_by('created_at').first()
+        status_today_last = statuses_today.order_by('-created_at').first()
+        if status_today_first:
+            statuses_first[status_today_first.name] = status_today_first.status
+        if status_today_last:
+            statuses_last[status_today_last.name] = status_today_last.status
+
+        status_last_month = _get_status_queryset_before_day(
+            user,
+            device,
+            status_type,
+            month_start_utc,
+            as_of_time=day_start_utc,
+        ).order_by('-created_at').first()
+
+        status_last_day = _get_status_queryset_before_day(
+            user,
+            device,
+            status_type,
+            day_start_utc,
+            as_of_time=as_of_time,
+        ).order_by('-created_at').first()
+
+        if status_last_month:
+            statuses_last_month[status_last_month.name] = status_last_month.status
+        if status_last_day:
+            statuses_last_day[status_last_day.name] = status_last_day.status
+
 
     if raw_data_first:
-        status_first['raw'] = raw_data_first
+        statuses_first['raw'] = raw_data_first.data if isinstance(raw_data_first, RawData) else raw_data_first
     if raw_data_last:
-        status_last['raw'] = raw_data_last
+        statuses_last['raw'] = raw_data_last.data if isinstance(raw_data_last, RawData) else raw_data_last
     if raw_data_month_first:
-        status_month_first['raw'] = raw_data_month_first
+        statuses_month_first['raw'] = raw_data_month_first.data if isinstance(raw_data_month_first, RawData) else raw_data_month_first
     elif raw_data_first:
-        status_month_first.setdefault('raw', raw_data_first)
-
-    status_before_today = AssetStatus.objects.filter(
-        device=device,
-        created_at__lt=day_start_utc,
-    )
-    status_before_month = AssetStatus.objects.filter(
-        device=device,
-        created_at__lt=month_start_utc,
-    )
-    if user is not None and user.is_authenticated:
-        status_before_today = status_before_today.filter(Q(user=user) | Q(device=device))
-        status_before_month = status_before_month.filter(Q(user=user) | Q(device=device))
-
-    if as_of_time is not None:
-        status_before_today = status_before_today.filter(created_at__lte=as_of_time)
-        status_before_month = status_before_month.filter(created_at__lte=as_of_time)
-
-    status_before_today = status_before_today.order_by('-created_at').first()
-    status_before_month = status_before_month.order_by('-created_at').first()
+        statuses_month_first.setdefault('raw', raw_data_first.data if isinstance(raw_data_first, RawData) else raw_data_first)
 
     raw_before_today = raw_data_base_queryset.filter(
         data_arrival_time__lt=day_start_utc,
@@ -592,32 +599,29 @@ def build_status_processing_context(user, device, last_raw_data, as_of_time=None
         raw_before_today = raw_before_today.filter(data_arrival_time__lte=as_of_time)
         raw_before_month = raw_before_month.filter(data_arrival_time__lte=as_of_time)
 
-    raw_before_today = _get_latest_non_status_raw(raw_before_today)
-    raw_before_month = _get_latest_non_status_raw(raw_before_month)
-
-    last_yesterday = _build_status_snapshot_from_model(status_before_today)
-    last_yesterday.update(_build_raw_snapshot_from_model(raw_before_today))
-
-    last_previous_month = _build_status_snapshot_from_model(status_before_month)
-    last_previous_month.update(_build_raw_snapshot_from_model(raw_before_month))
-
     existing_statuses = {
-        'firstToday': status_first,
-        'lastToday': status_last,
-        'firstThisMonth': status_month_first,
-        'lastYesterday': last_yesterday,
-        'lastPreviousMonth': last_previous_month,
+        'firstToday': statuses_first,
+        'lastToday': statuses_last,
+        'firstThisMonth': statuses_month_first,
+        'lastYesterday': statuses_last_day,
+        'lastPreviousMonth': statuses_last_month,
     }
     existing_statuses = _ensure_status_window_snapshots(existing_statuses)
     result = {
         'existing_statuses': existing_statuses,
         'last_status_models_by_target': last_status_models_by_target,
-        'current_raw_data': dict(status_last.get('raw', {}) or {}),
-        'day_start_utc': day_start_utc,
-        'month_start_utc': month_start_utc,
+        'current_raw_data': statuses_last.get('raw', {}) or {},
+        'day_start_utc': day_start_utc.isoformat(),
+        'month_start_utc': month_start_utc.isoformat(),
     }
     if cache_key is not None:
         cache.set(cache_key, deepcopy(result), timeout=STATUS_CONTEXT_CACHE_TIMEOUT_SECONDS)
+    # update the StatusCache model too
+    StatusCache.objects.update_or_create(
+        user=user,
+        device=device,
+        defaults={'cache_data': deepcopy(result)},
+    )
     return result
 
 
@@ -659,6 +663,7 @@ def backfill_status_processing_context_from_db_if_missing(
     status_processing_context,
     user,
     device,
+    status_types,
     last_raw_data,
     as_of_time=None,
 ):
@@ -678,7 +683,8 @@ def backfill_status_processing_context_from_db_if_missing(
     db_context = build_status_processing_context(
         user,
         device,
-        last_raw_data,
+        status_types,
+        last_raw_data.data if isinstance(last_raw_data, RawData) else last_raw_data,
         as_of_time=as_of_time,
     )
     db_existing_statuses = db_context.get('existing_statuses', {})
@@ -761,9 +767,11 @@ def record_status_in_context(status_processing_context, target_type, status_mode
 
 def get_existing_status_data_for_today(user, device, last_raw_data, as_of_time=None):
 
+    status_types = get_status_types_for_device(user, device)
     status_processing_context = build_status_processing_context(
         user,
         device,
+        status_types,
         last_raw_data,
         as_of_time=as_of_time,
     )
@@ -800,9 +808,9 @@ def get_status_processing_context_from_status_cache(status_type, device, last_ra
 
     queryset = StatusCache.objects.all()
     if device is not None:
-        queryset = queryset.filter(device=device, status_type__name=status_type.name)
+        queryset = queryset.filter(device=device)
     else:
-        queryset = queryset.filter(user=status_type.user, status_type__name=status_type.name)
+        queryset = queryset.filter(user=status_type.user)
 
     cache_record = queryset.order_by('-updated_at').first()
     if cache_record is None or not cache_record.cache_data:
@@ -851,15 +859,15 @@ def _sanitize_status_cache_payload(value):
     return value
 
 
-def save_status_processing_context_to_status_cache(status_processing_context, user, device, status_type):
-    if status_processing_context is None or status_type is None:
+def save_status_processing_context_to_status_cache(status_processing_context, user, device):
+    if status_processing_context is None:
         return None
 
     record_queryset = StatusCache.objects.all()
     if device is not None:
-        record_queryset = record_queryset.filter(device=device, status_type__name=status_type.name)
+        record_queryset = record_queryset.filter(device=device)
     else:
-        record_queryset = record_queryset.filter(user=user, status_type__name=status_type.name)
+        record_queryset = record_queryset.filter(user=user)
 
     record_candidates = list(record_queryset.order_by('-updated_at'))
     record = record_candidates[0] if record_candidates else None
@@ -876,7 +884,7 @@ def save_status_processing_context_to_status_cache(status_processing_context, us
     payload.pop('field_window_snapshots', None)
 
     if record is None:
-        record = StatusCache(status_type=status_type, device=device, user=user)
+        record = StatusCache(device=device, user=user)
     else:
         record.device = device
         record.user = user
@@ -912,7 +920,6 @@ def get_status_types_for_device(user, device):
         queryset = StatusType.objects.filter(
             device=device
         )
-
     status_types = list(queryset)
     if cache_key is not None:
         cache.set(cache_key, status_types, timeout=STATUS_TYPES_CACHE_TIMEOUT_SECONDS)
@@ -1212,7 +1219,6 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     if "apiKey" in message_data:
         message_data.pop("apiKey")
 
-    last_raw_data = get_latest_raw_data(device, True)
     raw_data = RawData(
         device=device,
         channel=channel,
@@ -1221,14 +1227,13 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
         data=message_data
     )
     raw_data.save()
-
     other_data = merge_device_other_data(device, {
         "last_data_sync_time": data_arrival_time.strftime(settings.TIME_FORMAT_STRING)
     })
-
     if _is_status_raw_data_type(data_type):
         logger.info("Status data received, skipping meter data processing.")
         return ""
+    last_raw_data = get_latest_raw_data(device, raw_data.data)
 
     if is_device_status_replay_locked(device):
         logger.info("Replay lock active, deferring live processing after raw data ingest.")
@@ -1305,8 +1310,7 @@ def update_user_and_device_statuses(
     status_types=None,
     status_processing_context=None,
     min_status_interval_minutes=10,
-    enforce_min_status_interval=False,
-    use_status_cache=True,
+    enforce_min_status_interval=False
 ):
     set_device_for_logger(logger, device.ip_address or str(device.id))
 
@@ -1341,7 +1345,8 @@ def update_user_and_device_statuses(
         status_processing_context = build_status_processing_context(
             user,
             device,
-            last_raw_data,
+            status_types,
+            last_raw_data.data if isinstance(last_raw_data, RawData) else last_raw_data,
             as_of_time=status_created_at,
         )
     else:
@@ -1355,19 +1360,15 @@ def update_user_and_device_statuses(
             status_processing_context,
             user,
             device,
+            status_types,
             last_raw_data,
             as_of_time=status_created_at,
         )
 
-    existing_statuses = status_processing_context.get('existing_statuses', {})
     current_raw_data = (
         status_processing_context.get('current_raw_data')
         or normalized_raw_data
         or {}
-    )
-    last_status_models_by_target = status_processing_context.setdefault(
-        'last_status_models_by_target',
-        {},
     )
     calculated_alarm_status_data = {}
 
@@ -1380,28 +1381,6 @@ def update_user_and_device_statuses(
         # context was already built for this ingest. That path is much more expensive
         # than the actual schema translation work for a single incoming payload.
         type_context = status_processing_context
-        if use_status_cache and status_processing_context is None:
-            type_context = get_status_processing_context_from_status_cache(
-                status_type,
-                device,
-                last_raw_data,
-                as_of_time=status_created_at,
-            ) or status_processing_context
-
-        refresh_status_processing_context_boundaries(
-            type_context,
-            device,
-            status_created_at,
-        )
-        merge_raw_into_status_context(type_context, normalized_raw_data)
-        backfill_status_processing_context_from_db_if_missing(
-            type_context,
-            user,
-            device,
-            last_raw_data,
-            as_of_time=status_created_at,
-        )
-
         type_existing_statuses = type_context.get('existing_statuses', {})
         type_current_raw_data = (
             type_context.get('current_raw_data')
@@ -1473,8 +1452,7 @@ def update_user_and_device_statuses(
                 save_status_processing_context_to_status_cache(
                     type_context,
                     user,
-                    device,
-                    status_type,
+                    device
                 )
 
             if status_type.target_type == StatusType.STATUS_TARGET_DEVICE:
@@ -1592,8 +1570,7 @@ def replay_stored_raw_data(
                 status_types=status_types,
                 status_processing_context=status_processing_context,
                 min_status_interval_minutes=replay_status_interval_minutes,
-                enforce_min_status_interval=True,
-                use_status_cache=False,
+                enforce_min_status_interval=True
             )
             return True
 
