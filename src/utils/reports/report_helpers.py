@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 
 import pytz
@@ -5,6 +6,8 @@ from django.conf import settings
 from django.utils import timezone
 
 from device.models import AssetStatus, DeviceProperty, StatusType
+
+logger = logging.getLogger('django') 
 
 
 REPORT_PERIOD_TO_LEGACY_NAME = {
@@ -185,7 +188,11 @@ def _get_latest_running_status_payload(device, status_names):
             continue
         if latest_status is None or status_entry.created_at > latest_status.created_at:
             latest_status = status_entry
-    return latest_status.status if latest_status is not None else {}
+    latest_status_data = latest_status.status if latest_status is not None else {}
+    if status_name in latest_status_data:
+        latest_status_data = latest_status_data.get(status_name)
+    logger.info("Latest running status for device %s: %s", device.alias, latest_status_data)
+    return latest_status_data
 
 
 def _get_currency_and_rate(device, latest_running_status):
@@ -256,6 +263,7 @@ def _finalize_report_payload(report_payload):
 
 def _calculate_yesterday_report(device):
     device_timezone = _get_device_timezone(device)
+    logger.info("Building yesterday's report for device %s, device timezone: %s", device.alias, device_timezone)
     local_now = timezone.now().astimezone(device_timezone)
     today_start_local = device_timezone.localize(datetime.combine(local_now.date(), datetime.min.time()))
     yesterday_start_local = today_start_local - timedelta(days=1)
@@ -264,6 +272,7 @@ def _calculate_yesterday_report(device):
     from_utc, to_utc = _to_local_window_utc(from_local, to_local)
 
     status_names = _get_running_status_names_for_device(device)
+    logger.info("Status names for device %s: %s", device.alias, status_names)
     latest_running_status = _get_latest_running_status_payload(device, status_names)
     seven_day_windows = _build_day_windows(device_timezone, (yesterday_start_local - timedelta(days=6)).date(), 7)
     by_time = {}
@@ -274,10 +283,10 @@ def _calculate_yesterday_report(device):
         if status_payload is not None:
             active_days += 1
         by_time[day_date.strftime('%Y-%m-%d')] = _build_meter_row(
-            imported=energy_point['energy_imported_this_day'],
-            exported=energy_point['energy_exported_this_day'],
-            generated=energy_point['energy_generated_this_day'],
-            consumed=energy_point['energy_consumed_this_day'],
+            imported=energy_point['imported'],
+            exported=energy_point['exported'],
+            generated=energy_point['generated'],
+            consumed=energy_point['consumed'],
         )
 
     summary = _build_summary_from_rows(by_time)
@@ -293,6 +302,7 @@ def _calculate_yesterday_report(device):
 
 def _calculate_week_report(device):
     device_timezone = _get_device_timezone(device)
+    logger.info("Building week report for device %s, device timezone: %s", device.alias, device_timezone)
     local_now = timezone.now().astimezone(device_timezone)
     current_week_start_local = device_timezone.localize(
         datetime.combine(local_now.date() - timedelta(days=local_now.weekday()), datetime.min.time())
@@ -301,6 +311,7 @@ def _calculate_week_report(device):
     from_utc, to_utc = _to_local_window_utc(last_week_start_local, current_week_start_local)
 
     status_names = _get_running_status_names_for_device(device)
+    logger.info("Status names for device %s: %s", device.alias, status_names)
     latest_running_status = _get_latest_running_status_payload(device, status_names)
     by_time = {}
     active_windows = 0
@@ -316,10 +327,10 @@ def _calculate_week_report(device):
         for _, day_start_utc, day_end_utc in daily_windows:
             status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
             energy_point = _extract_energy_point(status_payload)
-            imported += energy_point['energy_imported_this_day']
-            exported += energy_point['energy_exported_this_day']
-            generated += energy_point['energy_generated_this_day']
-            consumed += energy_point['energy_consumed_this_day']
+            imported += energy_point['imported']
+            exported += energy_point['exported']
+            generated += energy_point['generated']
+            consumed += energy_point['consumed']
             if status_payload is not None:
                 has_data = True
         if has_data:
@@ -348,12 +359,14 @@ def _previous_month_start(month_start_local):
 
 def _calculate_month_report(device):
     device_timezone = _get_device_timezone(device)
+    logger.info("Building month report for device %s, device timezone: %s", device.alias, device_timezone)
     local_now = timezone.now().astimezone(device_timezone)
     current_month_start_local = _month_start(local_now)
     last_month_start_local = _previous_month_start(current_month_start_local)
     from_utc, to_utc = _to_local_window_utc(last_month_start_local, current_month_start_local)
 
     status_names = _get_running_status_names_for_device(device)
+    logger.info("Status names for device %s: %s", device.alias, status_names)
     latest_running_status = _get_latest_running_status_payload(device, status_names)
     by_time = {}
     active_windows = 0
@@ -377,10 +390,10 @@ def _calculate_month_report(device):
         for _, day_start_utc, day_end_utc in daily_windows:
             status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
             energy_point = _extract_energy_point(status_payload)
-            imported += energy_point['energy_imported_this_day']
-            exported += energy_point['energy_exported_this_day']
-            generated += energy_point['energy_generated_this_day']
-            consumed += energy_point['energy_consumed_this_day']
+            imported += energy_point['imported']
+            exported += energy_point['exported']
+            generated += energy_point['generated']
+            consumed += energy_point['consumed']
             if status_payload is not None:
                 has_data = True
         if has_data:
