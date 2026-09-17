@@ -182,7 +182,7 @@ def _get_latest_running_status_payload(device, status_names):
     for status_name in status_names:
         status_entry = AssetStatus.objects.filter(
             device=device,
-            name=status_name,
+            name="device",
         ).order_by('-created_at').first()
         if status_entry is None or status_entry.status is None:
             continue
