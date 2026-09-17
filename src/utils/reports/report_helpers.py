@@ -135,17 +135,19 @@ def _extract_energy_point(status_payload):
     }
 
 
-def _get_latest_status_for_window(device, status_names, start_utc, end_utc):
-    for status_name in status_names:
-        status_entry = AssetStatus.objects.filter(
-            device=device,
-            name=status_name,
-            created_at__gte=start_utc,
-            created_at__lt=end_utc,
-        ).order_by('-created_at').first()
-        if status_entry is not None and status_entry.status is not None:
-            return status_entry.status
-    return None
+def _get_latest_status_for_window(device, status_name, start_utc, end_utc):
+    latest_status = AssetStatus.objects.filter(
+        device=device,
+        name="device",
+        created_at__gte=start_utc,
+        created_at__lt=end_utc,
+    ).order_by('-created_at').first()
+
+    latest_status_data = latest_status.status if latest_status is not None else {}
+    if status_name in latest_status_data:
+        latest_status_data = latest_status_data.get(status_name, {})
+    logger.info("Latest running status for device %s in time range %s - %s: %s", device.alias, start_utc, end_utc, latest_status_data)
+    return latest_status_data
 
 
 def _build_meter_row(imported, exported, generated=0.0, consumed=0.0):
@@ -177,17 +179,11 @@ def _build_summary_from_rows(rows):
     return totals
 
 
-def _get_latest_running_status_payload(device, status_names):
-    latest_status = None
-    for status_name in status_names:
-        status_entry = AssetStatus.objects.filter(
-            device=device,
-            name="device",
-        ).order_by('-created_at').first()
-        if status_entry is None or status_entry.status is None:
-            continue
-        if latest_status is None or status_entry.created_at > latest_status.created_at:
-            latest_status = status_entry
+def _get_latest_running_status_payload(device, status_name):
+    latest_status = AssetStatus.objects.filter(
+        device=device,
+        name="device",
+    ).order_by('-created_at').first()
     latest_status_data = latest_status.status if latest_status is not None else {}
     if status_name in latest_status_data:
         latest_status_data = latest_status_data.get(status_name)
@@ -271,14 +267,12 @@ def _calculate_yesterday_report(device):
     to_local = today_start_local
     from_utc, to_utc = _to_local_window_utc(from_local, to_local)
 
-    status_names = _get_running_status_names_for_device(device)
-    logger.info("Status names for device %s: %s", device.alias, status_names)
-    latest_running_status = _get_latest_running_status_payload(device, status_names)
+    latest_running_status = _get_latest_running_status_payload(device, AssetStatus.DAILY_STATUS)
     seven_day_windows = _build_day_windows(device_timezone, (yesterday_start_local - timedelta(days=6)).date(), 7)
     by_time = {}
     active_days = 0
     for day_date, day_start_utc, day_end_utc in seven_day_windows:
-        status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
+        status_payload = _get_latest_status_for_window(device, AssetStatus.DAILY_STATUS, day_start_utc, day_end_utc)
         energy_point = _extract_energy_point(status_payload)
         if status_payload is not None:
             active_days += 1
@@ -310,14 +304,11 @@ def _calculate_week_report(device):
     last_week_start_local = current_week_start_local - timedelta(days=7)
     from_utc, to_utc = _to_local_window_utc(last_week_start_local, current_week_start_local)
 
-    status_names = _get_running_status_names_for_device(device)
-    logger.info("Status names for device %s: %s", device.alias, status_names)
-    latest_running_status = _get_latest_running_status_payload(device, status_names)
+    latest_running_status = _get_latest_running_status_payload(device, AssetStatus.DAILY_STATUS)
     by_time = {}
     active_windows = 0
     for weeks_back in range(4, 0, -1):
         week_start_local = current_week_start_local - timedelta(days=7 * weeks_back)
-        week_end_local = week_start_local + timedelta(days=7)
         daily_windows = _build_day_windows(device_timezone, week_start_local.date(), 7)
         imported = 0.0
         exported = 0.0
@@ -325,7 +316,7 @@ def _calculate_week_report(device):
         consumed = 0.0
         has_data = False
         for _, day_start_utc, day_end_utc in daily_windows:
-            status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
+            status_payload = _get_latest_status_for_window(device, AssetStatus.DAILY_STATUS, day_start_utc, day_end_utc)
             energy_point = _extract_energy_point(status_payload)
             imported += energy_point['imported']
             exported += energy_point['exported']
@@ -365,9 +356,7 @@ def _calculate_month_report(device):
     last_month_start_local = _previous_month_start(current_month_start_local)
     from_utc, to_utc = _to_local_window_utc(last_month_start_local, current_month_start_local)
 
-    status_names = _get_running_status_names_for_device(device)
-    logger.info("Status names for device %s: %s", device.alias, status_names)
-    latest_running_status = _get_latest_running_status_payload(device, status_names)
+    latest_running_status = _get_latest_running_status_payload(device, AssetStatus.DAILY_STATUS)
     by_time = {}
     active_windows = 0
     pointer = current_month_start_local
@@ -388,7 +377,7 @@ def _calculate_month_report(device):
         consumed = 0.0
         has_data = False
         for _, day_start_utc, day_end_utc in daily_windows:
-            status_payload = _get_latest_status_for_window(device, status_names, day_start_utc, day_end_utc)
+            status_payload = _get_latest_status_for_window(device, AssetStatus.DAILY_STATUS, day_start_utc, day_end_utc)
             energy_point = _extract_energy_point(status_payload)
             imported += energy_point['imported']
             exported += energy_point['exported']
