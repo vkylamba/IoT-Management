@@ -637,19 +637,22 @@ def extract_calculated_data(
     first_today = _normalize_snapshot(existing_statuses.get("firstToday", {}))
     last_today = _normalize_snapshot(existing_statuses.get("lastToday", {}))
     last_yesterday = _normalize_snapshot(existing_statuses.get("lastYesterday", {}))
+    first_this_month = _normalize_snapshot(existing_statuses.get("firstThisMonth", {}))
     last_previous_month = _normalize_snapshot(existing_statuses.get("lastPreviousMonth", {}))
-    last_status_root = _normalize_snapshot(last_today.get(schema_target, {}))
-    first_status_root = _normalize_snapshot(first_today.get(schema_target, {}))
-    last_yesterday_status_root = _normalize_snapshot(last_yesterday.get(schema_target, {}))
-    last_previous_month_status_root = _normalize_snapshot(last_previous_month.get(schema_target, {}))
-    last_status_data = _resolve_status_scope(last_status_root, target_name)
-    first_status_data = _resolve_status_scope(first_status_root, target_name)
-    last_yesterday_status_data = _resolve_status_scope(last_yesterday_status_root, target_name)
-    last_previous_month_status_data = _resolve_status_scope(last_previous_month_status_root, target_name)
+    last_status_root_today = _normalize_snapshot(last_today.get(schema_target, {}))
+    first_status_root_today = _normalize_snapshot(first_today.get(schema_target, {}))
+    last_status_root_yesterday = _normalize_snapshot(last_yesterday.get(schema_target, {}))
+    first_status_root_this_month = _normalize_snapshot(first_this_month.get(schema_target, {}))
+    last_status_root_previous_month = _normalize_snapshot(last_previous_month.get(schema_target, {}))
+    first_status_data_today = _resolve_status_scope(first_status_root_today, target_name)
+    last_status_data_today = _resolve_status_scope(last_status_root_today, target_name)
+    first_status_data_this_month = _resolve_status_scope(first_status_root_this_month, target_name)
+    last_status_data_yesterday = _resolve_status_scope(last_status_root_yesterday, target_name)
+    last_status_data_previous_month = _resolve_status_scope(last_status_root_previous_month, target_name)
     first_raw_data = _normalize_snapshot(first_today.get("raw", {}))
     last_raw_data = _normalize_snapshot(last_today.get("raw", {}))
-    last_yesterday_raw_data = _normalize_snapshot(last_yesterday.get("raw", {}))
-    last_previous_month_raw_data = _normalize_snapshot(last_previous_month.get("raw", {}))
+    last_raw_data_yesterday = _normalize_snapshot(last_yesterday.get("raw", {}))
+    last_raw_data_previous_month = _normalize_snapshot(last_previous_month.get("raw", {}))
     current_target_fields = _normalize_snapshot(current_target_fields)
     for field_or_operator in fields_and_operators:
         operator = None
@@ -658,14 +661,32 @@ def extract_calculated_data(
         next_value = None
         if field_or_operator.startswith("lastValue__"):
             field_name = field_or_operator.replace("lastValue__", "")
-            value_source = "last_status_scope"
-            next_value = extract_data(field_name, last_status_data, 1, 0)
+            value_source = "last_status_scope_today"
+            next_value = extract_data(field_name, last_status_data_today, 1, 0)
             if next_value is None:
-                value_source = "last_status_root"
-                next_value = extract_data(field_name, last_status_root, 1, 0)
+                value_source = "first_status_data_today"
+                next_value = extract_data(field_name, first_status_data_today, 1, 0)
             if next_value is None:
-                value_source = "last_raw"
+                value_source = "last_status_data_yesterday"
+                next_value = extract_data(field_name, last_status_data_yesterday, 1, 0)
+            if next_value is None:
+                value_source = "first_status_data_this_month"
+                next_value = extract_data(field_name, first_status_data_this_month, 1, 0)
+            if next_value is None:
+                value_source = "last_status_data_previous_month"
+                next_value = extract_data(field_name, last_status_data_previous_month, 1, 0)
+            if next_value is None:
+                value_source = "last_raw_data"
                 next_value = extract_data(field_name, last_raw_data, 1, 0)
+            if next_value is None:
+                value_source = "first_raw_data"
+                next_value = extract_data(field_name, first_raw_data, 1, 0)
+            if next_value is None:
+                value_source = "last_raw_data_yesterday"
+                next_value = extract_data(field_name, last_raw_data_yesterday, 1, 0)
+            if next_value is None:
+                value_source = "last_raw_data_previous_month"
+                next_value = extract_data(field_name, last_raw_data_previous_month, 1, 0)
             value_already_fetched = True
             if next_value is None:
                 next_value = 0
@@ -729,23 +750,23 @@ def extract_calculated_data(
                 field_resolver(field_name)
                 value_now = extract_data(field_name, current_target_fields, multiplier, offset)
                 value_now_source = "current_status_fields"
-            value_first = extract_data(field_name, last_yesterday_raw_data, 1, 0)
             value_first_source = "last_yesterday_raw"
+            value_first = extract_data(field_name, last_raw_data_yesterday, 1, 0)
             if value_first is None:
-                value_first_source = "last_yesterday_status_scope"
-                value_first = extract_data(field_name, last_yesterday_status_data, 1, 0)
+                value_first_source = "first_status_scope_today"
+                value_first = extract_data(field_name, first_status_data_today, 1, 0)
             if value_first is None:
-                value_first_source = "last_yesterday_status_root"
-                value_first = extract_data(field_name, last_yesterday_status_root, 1, 0)
+                value_first_source = "last_status_scope_yesterday"
+                value_first = extract_data(field_name, last_status_data_yesterday, 1, 0)
+            if value_first is None:
+                value_first_source = "first_status_data_this_month"
+                value_first = extract_data(field_name, first_status_data_this_month, 1, 0)
+            if value_first is None:
+                value_first_source = "last_status_data_previous_month"
+                value_first = extract_data(field_name, last_status_data_previous_month, 1, 0)
             if value_first is None:
                 value_first = extract_data(field_name, first_raw_data, 1, 0)
                 value_first_source = "first_raw"
-            if value_first is None:
-                value_first_source = "first_status_scope"
-                value_first = extract_data(field_name, first_status_data, 1, 0)
-            if value_first is None:
-                value_first_source = "first_status_root"
-                value_first = extract_data(field_name, first_status_root, 1, 0)
             if value_first is None:
                 remembered_value = _as_number(value_now)
                 value_first = remembered_value
@@ -790,10 +811,6 @@ def extract_calculated_data(
                 })
         elif field_or_operator.startswith("changeThisMonth__"):
             field_name = field_or_operator.replace("changeThisMonth__", "")
-            first_this_month = _normalize_snapshot(existing_statuses.get("firstThisMonth", {}))
-            first_month_status_root = _normalize_snapshot(first_this_month.get(schema_target, {}))
-            first_month_status_data = _resolve_status_scope(first_month_status_root, target_name)
-            first_month_raw_data = _normalize_snapshot(first_this_month.get("raw", {}))
             value_now_source = "current_raw"
             value_now = extract_data(field_name, data, multiplier, offset)
             if value_now is None:
@@ -808,23 +825,14 @@ def extract_calculated_data(
                 field_resolver(field_name)
                 value_now = extract_data(field_name, current_target_fields, multiplier, offset)
                 value_now_source = "current_status_fields"
-            value_first = extract_data(field_name, last_previous_month_raw_data, 1, 0)
-            value_first_source = "last_previous_month_raw"
+            value_first_source = "last_raw_data_previous_month"
+            value_first = extract_data(field_name, last_raw_data_previous_month, 1, 0)
             if value_first is None:
-                value_first_source = "last_previous_month_status_scope"
-                value_first = extract_data(field_name, last_previous_month_status_data, 1, 0)
+                value_first_source = "last_status_data_previous_month"
+                value_first = extract_data(field_name, last_status_data_previous_month, 1, 0)
             if value_first is None:
-                value_first_source = "last_previous_month_status_root"
-                value_first = extract_data(field_name, last_previous_month_status_root, 1, 0)
-            if value_first is None:
-                value_first = extract_data(field_name, first_month_raw_data, 1, 0)
-                value_first_source = "first_month_raw"
-            if value_first is None:
-                value_first_source = "first_month_status_scope"
-                value_first = extract_data(field_name, first_month_status_data, 1, 0)
-            if value_first is None:
-                value_first_source = "first_month_status_root"
-                value_first = extract_data(field_name, first_month_status_root, 1, 0)
+                value_first_source = "first_status_data_this_month"
+                value_first = extract_data(field_name, first_status_data_this_month, 1, 0)
             if value_first is None:
                 remembered_value = _as_number(value_now)
                 value_first = remembered_value
@@ -913,8 +921,8 @@ def extract_calculated_data(
                 "resolved_expression": equation,
                 "resolved_tokens": resolved_tokens,
                 "current_status_fields": current_target_fields,
-                "first_status_scope": first_status_data,
-                "last_status_scope": last_status_data,
+                "first_status_scope": first_status_data_today,
+                "last_status_scope": last_status_data_today,
             },
         }
     return value
