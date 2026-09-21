@@ -732,6 +732,7 @@ METER_TYPE_CHOICES = (
     ('WEATHER_METER', 'WEATHER_METER'),
     ('IMPORT_ENERGY_METER', 'IMPORT_ENERGY_METER'),
     ('EXPORT_ENERGY_METER', 'EXPORT_ENERGY_METER'),
+    ('NET_ENERGY_METER', 'NET_ENERGY_METER'),
 )
 
 
@@ -749,6 +750,7 @@ class Meter(models.Model):
     WEATHER_METER = 'WEATHER_METER'
     IMPORT_ENERGY_METER = 'IMPORT_ENERGY_METER'
     EXPORT_ENERGY_METER = 'EXPORT_ENERGY_METER'
+    NET_ENERGY_METER = 'NET_ENERGY_METER'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=1024)

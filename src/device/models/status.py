@@ -4,12 +4,26 @@ from django.db import models
 from django_celery_beat.models import CrontabSchedule
 
 
+USER_DEVICE_TYPE_CHOICES = (
+    ('IOT_GATEWAY_GENERIC', 'IOT_GATEWAY_GENERIC'),
+    ('IOT_GATEWAY_ENERGY', 'IOT_GATEWAY_ENERGY'),
+)
 class UserDeviceType(models.Model):
     """
         To store user specific device type details.
     """
 
+    DEVICE_TYPE_IOT_GATEWAY_GENERIC = 'IOT_GATEWAY_GENERIC'
+    DEVICE_TYPE_IOT_GATEWAY_ENERGY = 'IOT_GATEWAY_ENERGY'
+
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device_type = models.CharField(
+        max_length=255,
+        choices=USER_DEVICE_TYPE_CHOICES,
+        help_text='Device type',
+        default=USER_DEVICE_TYPE_CHOICES[0][0]
+    )
     name = models.CharField(
         max_length=255,
         help_text='Type name'

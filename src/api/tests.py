@@ -516,8 +516,8 @@ class SchemaTranslationTests(SimpleTestCase):
 				{"target": "net_meter_power_factor", "type": "raw", "source": "meter_3.powerFactor", "multiplier": 1, "offset": 0},
 				{"target": "system_temperature", "type": "raw", "source": "dht.temperature", "multiplier": 1, "offset": 0},
 				{"target": "system_humidity", "type": "raw", "source": "dht.humidity", "multiplier": 1, "offset": 0},
-				{"target": "system_status", "type": "calculated", "source": "\"Exporting\" if .net_meter_power_factor < 0 else \"Importing\"", "multiplier": 1, "offset": 0},
-				{"target": "net_meter_status", "type": "calculated", "source": "meter_3.power if .net_meter_power_factor < 0 else -1 * meter_3.power", "multiplier": 1, "offset": 0},
+				{"target": "system_status", "type": "calculated", "source": "\"Importing\" if .net_meter_power_factor < 0 else \"Exporting\"", "multiplier": 1, "offset": 0},
+				{"target": "net_meter_status", "type": "calculated", "source": "meter_3.power if .net_meter_power_factor > 0 else -1 * meter_3.power", "multiplier": 1, "offset": 0},
 				{"target": "energy_imported", "type": "calculated", "source": "lastValue__energy_imported + (-1 * .net_meter_status if .net_meter_status < 0 else 0) * 120 / 3600000", "multiplier": 1, "offset": 0},
 				{"target": "energy_exported", "type": "calculated", "source": "lastValue__energy_exported + (1 * .net_meter_status if .net_meter_status > 0 else 0) * 120 / 3600000", "multiplier": 1, "offset": 0},
 				{"target": "energy_exported_this_day", "type": "calculated", "source": "changeToday__energy_exported", "multiplier": 1, "offset": 0},
@@ -532,26 +532,12 @@ class SchemaTranslationTests(SimpleTestCase):
 
 		fixture_path = Path(__file__).resolve().parent.parent / "device_schemas" / "schemas" / "sample-raw-data.json"
 		raw_samples = json.loads(fixture_path.read_text())
-		meter_sample = next(
+		meter_sample = [
 			record["data"]
 			for record in raw_samples
 			if record.get("data_type") == "meters-data"
-		)
+		]
 
-		base_data = {
-			"meter_3": {
-				"power": meter_sample.get("meter_3", {}).get("power", 360),
-				"powerFactor": meter_sample.get("meter_3", {}).get("powerFactor", 0.56),
-			},
-			"meter_4": {
-				"power": meter_sample.get("meter_4", {}).get("power", 0),
-			},
-			"dht": {
-				"temperature": meter_sample.get("dht", {}).get("temperature", 26.5),
-				"humidity": meter_sample.get("dht", {}).get("humidity", 61),
-			},
-			"timeUTC": meter_sample.get("timeUTC", "2026-09-10T10:00:00Z"),
-		}
 		existing_statuses = {
 			"firstToday": {
 				"device": {"DAILY_STATUS": {"energy_exported": 3.0, "energy_imported": 4.0}},
@@ -568,71 +554,52 @@ class SchemaTranslationTests(SimpleTestCase):
 		}
 		data_cache = {"weather": {"condition": "cloudy"}}
 
-		exporting_data = {
-			**base_data,
-			"meter_3": {
-				"power": base_data["meter_3"]["power"],
-				"powerFactor": -abs(base_data["meter_3"]["powerFactor"]),
-			},
-		}
-		exporting_status = translate_data_from_schema(
-			schema,
-			exporting_data,
-			existing_statuses,
-			data_cache,
-		)["DAILY_STATUS"]
+		for raw_data in meter_sample:
+			exporting_status_last_today = existing_statuses["lastToday"]["device"]["DAILY_STATUS"]
+			exporting_status = translate_data_from_schema(
+				schema,
+				raw_data,
+				existing_statuses,
+				data_cache,
+			)["DAILY_STATUS"]
 
-		self.assertEqual(exporting_status["pay_per_unit"], 10)
-		self.assertEqual(exporting_status["load_status"], base_data["meter_3"]["power"])
-		self.assertEqual(exporting_status["car_charging_status"], base_data["meter_4"]["power"])
-		self.assertEqual(exporting_status["weather"], {"condition": "cloudy"})
-		self.assertEqual(exporting_status["system_temperature"], base_data["dht"]["temperature"])
-		self.assertEqual(exporting_status["system_humidity"], base_data["dht"]["humidity"])
-		self.assertEqual(exporting_status["system_status"], "Exporting")
-		self.assertEqual(exporting_status["net_meter_status"], base_data["meter_3"]["power"])
-		self.assertAlmostEqual(exporting_status["energy_imported"], 8.0, places=6)
-		self.assertAlmostEqual(
-			exporting_status["energy_exported"],
-			7.0 + base_data["meter_3"]["power"] * 120 / 3600000,
-			places=6,
-		)
-		self.assertAlmostEqual(
-			exporting_status["energy_exported_this_day"],
-			exporting_status["energy_exported"] - 3.0,
-			places=6,
-		)
-		self.assertAlmostEqual(
-			exporting_status["energy_exported_this_month"],
-			exporting_status["energy_exported"] - 2.0,
-			places=6,
-		)
-		self.assertAlmostEqual(exporting_status["energy_imported_this_day"], 4.0, places=6)
-		self.assertAlmostEqual(exporting_status["energy_imported_this_month"], 7.0, places=6)
-		self.assertAlmostEqual(exporting_status["monthly_bill_amount"], 70.0, places=6)
-		self.assertEqual(exporting_status["timeUTC"], base_data["timeUTC"])
+			self.assertEqual(exporting_status["pay_per_unit"], 10)
+			self.assertEqual(exporting_status["load_status"], raw_data["meter_3"]["power"])
+			self.assertEqual(exporting_status["car_charging_status"], raw_data["meter_4"]["power"])
+			self.assertEqual(exporting_status["weather"], {"condition": "cloudy"})
+			self.assertEqual(exporting_status["system_temperature"], raw_data["dht"]["temperature"])
+			self.assertEqual(exporting_status["system_humidity"], raw_data["dht"]["humidity"])
+			self.assertEqual(exporting_status["system_status"], "Exporting")
+			self.assertEqual(exporting_status["net_meter_status"], raw_data["meter_3"]["power"])
+			self.assertAlmostEqual(exporting_status["energy_imported"], 8.0, places=6)
+			self.assertAlmostEqual(
+				exporting_status["energy_exported"],
+				exporting_status_last_today["energy_exported"] + raw_data["meter_3"]["power"] * 120 / 3600000,
+				places=6,
+			)
+			self.assertAlmostEqual(
+				exporting_status["energy_exported_this_day"],
+				exporting_status["energy_exported"] - existing_statuses["firstToday"]["device"]["DAILY_STATUS"]["energy_exported"],
+				places=6,
+			)
+			self.assertAlmostEqual(
+				exporting_status["energy_exported_this_month"],
+				exporting_status["energy_exported"] - existing_statuses["firstThisMonth"]["device"]["DAILY_STATUS"]["energy_exported"],
+				places=6,
+			)
+			self.assertAlmostEqual(exporting_status["energy_imported_this_day"], 4.0, places=6)
+			self.assertAlmostEqual(exporting_status["energy_imported_this_month"], 7.0, places=6)
+			self.assertAlmostEqual(exporting_status["monthly_bill_amount"], 70.0, places=6)
+			self.assertEqual(exporting_status["timeUTC"], raw_data["timeUTC"])
 
-		importing_data = {
-			**base_data,
-			"meter_3": {
-				"power": base_data["meter_3"]["power"],
-				"powerFactor": abs(base_data["meter_3"]["powerFactor"]),
-			},
-		}
-		importing_status = translate_data_from_schema(
-			schema,
-			importing_data,
-			existing_statuses,
-			data_cache,
-		)["DAILY_STATUS"]
-
-		self.assertEqual(importing_status["system_status"], "Importing")
-		self.assertEqual(importing_status["net_meter_status"], -base_data["meter_3"]["power"])
-		self.assertAlmostEqual(importing_status["energy_exported"], 7.0, places=6)
-		self.assertAlmostEqual(
-			importing_status["energy_imported"],
-			8.0 + base_data["meter_3"]["power"] * 120 / 3600000,
-			places=6,
-		)
+			if raw_data["meter_3"]["powerFactor"] < 0:
+				self.assertEqual(exporting_status["system_status"], "Importing")
+				self.assertEqual(exporting_status["net_meter_status"], -raw_data["meter_3"]["power"])
+				self.assertAlmostEqual(
+					exporting_status["energy_imported"],
+					exporting_status_last_today["energy_imported"] + raw_data["meter_3"]["power"] * 120 / 3600000,
+					places=6,
+				)
 
 
 class StatusProcessingContextTests(TestCase):
@@ -826,7 +793,12 @@ class StatusProcessingContextTests(TestCase):
 	@patch("api.utils.cache.get")
 	@patch("api.utils.cache.set")
 	@patch("api.utils.get_status_types_for_device")
-	def test_build_status_processing_context_cache_hit_avoids_db_rebuild(self, cache_set_mock, cache_get_mock, get_status_types_for_device_mock):
+	def test_build_status_processing_context_cache_hit_avoids_db_rebuild(
+		self,
+		get_status_types_for_device_mock,
+		cache_set_mock,
+		cache_get_mock,
+	):
 		device = Mock()
 		device.pk = 42
 		device.get_timezone.return_value = pytz.utc
