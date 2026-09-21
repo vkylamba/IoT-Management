@@ -858,7 +858,7 @@ def extract_calculated_data(
                     "value_now_source": value_now_source,
                     "value_first_source": value_first_source,
                 })
-        elif "." in field_or_operator:
+        elif not field_or_operator.isdigit() and "." in field_or_operator:
             field_name = field_or_operator
         else:
             operator = field_or_operator
