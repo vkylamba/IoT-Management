@@ -20,13 +20,27 @@ from api.utils import (
 	set_device_status_replay_lock,
 	_submit_background_device_enrichment,
 )
-from api.viewsets.device_details_views import _get_report_event_marker, _sync_report_events_for_device
+from api.viewsets.device_details_views import (
+	_get_report_event_marker,
+	_build_device_monthly_report_cache_path,
+	_sync_report_events_for_device,
+)
 from api.viewsets.device_views import _normalize_favorite_device_ids
 from device.models import AssetStatus, Device, Meter, RawData, StatusCache, StatusType
 from event.models import Action, DeviceEvent, EventType
 from event.tasks import daily_energy_report
 from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
 from utils.reports.report_helpers import get_report_status_type_for_period
+
+
+class SolarReportCacheTests(SimpleTestCase):
+	def test_monthly_report_cache_path_uses_device_and_month(self):
+		path = _build_device_monthly_report_cache_path('0.0.0.18', '2026-09')
+		self.assertTrue(str(path).endswith('0.0.0.18/2026-09.html'))
+
+	def test_monthly_report_cache_path_uses_default_month_when_missing(self):
+		path = _build_device_monthly_report_cache_path('0.0.0.18', None)
+		self.assertTrue(str(path).endswith('0.0.0.18/' + datetime.utcnow().strftime('%Y-%m') + '.html'))
 
 
 class EventEquationTests(SimpleTestCase):

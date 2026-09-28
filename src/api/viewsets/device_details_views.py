@@ -6,6 +6,7 @@ import threading
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from time import perf_counter
 
 import pytz
@@ -47,6 +48,8 @@ from api.viewsets.common_utils import device_admin, is_device_admin
 PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
 logger = logging.getLogger('django')
+
+from utils.solar.solar_day_html import build_summary as build_solar_summary, render_html as render_solar_html
 
 REPROCESS_JOB_STATUS_DIR = os.path.join(
     tempfile.gettempdir(),
@@ -94,6 +97,14 @@ REPORT_PERIOD_TO_EVENT_CONFIG = {
 }
 
 REPORT_EVENT_MARKER_PREFIX = 'AUTO_REPORT_STATUS'
+
+
+def _build_device_monthly_report_cache_path(device_id, report_month=None):
+    normalized_device = str(device_id or 'unknown').strip().replace('/', '_').replace('\\', '_')
+    normalized_month = str(report_month or datetime.utcnow().strftime('%Y-%m')).strip()
+    if not normalized_month:
+        normalized_month = datetime.utcnow().strftime('%Y-%m')
+    return Path(settings.MEDIA_ROOT) / 'device-reports' / normalized_device / f'{normalized_month}.html'
 
 
 def _get_report_event_marker(report_period):
@@ -1668,6 +1679,107 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         # )
 
         return Response(report_data)
+
+    def get_monthly_report_html(self, request, device_id):
+        dev_user = request.user
+        device = dev_user.device_list(return_objects=True, device_id=device_id)
+
+        if isinstance(device, list):
+            device = [
+                x for x in device if x.ip_address == device_id
+            ]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            device = device[0]
+
+        report_month = (request.GET.get('month') or request.data.get('month') if isinstance(request.data, dict) else '').strip()
+        if report_month and not __import__('re').match(r'^\d{4}-\d{2}$', report_month):
+            return Response({'error': 'month must be in YYYY-MM format.'}, status=status.HTTP_400_BAD_REQUEST)
+        report_month = report_month or datetime.utcnow().strftime('%Y-%m')
+
+        force_refresh = str(request.GET.get('force', request.data.get('force', '')) or '').lower() in {'1', 'true', 'yes', 'y'}
+        report_path = _build_device_monthly_report_cache_path(device.ip_address or str(device.id), report_month)
+        report_url = request.build_absolute_uri(f"{settings.MEDIA_URL}device-reports/{report_path.parent.name}/{report_path.name}")
+
+        if report_path.exists() and not force_refresh:
+            return Response({
+                'success': True,
+                'month': report_month,
+                'cached': True,
+                'generated': False,
+                'url': report_url,
+                'device_id': device.ip_address,
+            }, status=status.HTTP_200_OK)
+
+        if build_solar_summary is None or render_solar_html is None:
+            return Response({'error': 'Monthly solar report template is unavailable.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        year, month = map(int, report_month.split('-'))
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+        records_queryset = RawData.objects.filter(
+            device=device,
+            data_type='meters-data',
+            data_arrival_time__gte=month_start,
+            data_arrival_time__lt=month_end,
+        ).order_by('data_arrival_time')
+
+        weather_queryset = RawData.objects.filter(
+            device=device,
+            data_type='weather',
+            data_arrival_time__gte=month_start,
+            data_arrival_time__lt=month_end,
+        ).order_by('data_arrival_time')
+
+        report_records = []
+        for record in list(records_queryset) + list(weather_queryset):
+            report_records.append({
+                'id': str(record.id),
+                'device_ip': record.device.ip_address,
+                'channel': record.channel,
+                'data_type': record.data_type,
+                'data_arrival_time': record.data_arrival_time.isoformat().replace('+00:00', 'Z') if timezone.is_aware(record.data_arrival_time) else record.data_arrival_time.isoformat(),
+                'data': record.data or {},
+            })
+
+        if not report_records:
+            return Response({'error': f'No meter data found for {report_month}.'}, status=status.HTTP_404_NOT_FOUND)
+
+        summary = build_solar_summary(report_records)
+        site = summary.get('site') or {}
+        lat = device.latitude()
+        lon = device.longitude()
+        if lat not in [None, '', 'None'] and lon not in [None, '', 'None']:
+            site.update({
+                'name': device.alias or device.name or device.ip_address,
+                'lat': float(lat),
+                'lon': float(lon),
+            })
+        summary['site'] = site
+
+        plant = summary.get('plant') or {}
+        plant.update({
+            'solarDcKw': float(plant.get('solarDcKw') or 3.2),
+            'inverterAcKw': float(plant.get('inverterAcKw') or 5.0),
+            'householdLoadKw': float(plant.get('householdLoadKw') or 5.0),
+        })
+        summary['plant'] = plant
+
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(render_solar_html(summary), encoding='utf-8')
+
+        return Response({
+            'success': True,
+            'month': report_month,
+            'cached': False,
+            'generated': True,
+            'url': report_url,
+            'device_id': device.ip_address,
+        }, status=status.HTTP_200_OK)
 
     @device_admin
     def recalculate_reports(self, request, device_id):
