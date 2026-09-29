@@ -44,9 +44,9 @@ class SolarReportCacheTests(SimpleTestCase):
 		path = _build_device_monthly_report_cache_path('0.0.0.18', None)
 		self.assertTrue(str(path).endswith('0.0.0.18/' + datetime.utcnow().strftime('%Y-%m') + '.html'))
 
-	@patch('api.viewsets.device_details_views.threading.Thread')
-	@patch('api.viewsets.device_details_views._generate_device_monthly_report_job')
-	def test_get_monthly_report_html_queues_background_job(self, background_job_mock, thread_mock):
+	@patch('api.viewsets.device_details_views._enqueue_monthly_report_job')
+	def test_get_monthly_report_html_queues_background_job(self, enqueue_job_mock):
+		enqueue_job_mock.return_value = 'job-123'
 		request = Mock()
 		request.GET = {'month': '2026-09'}
 		request.data = {}
@@ -62,7 +62,7 @@ class SolarReportCacheTests(SimpleTestCase):
 		self.assertEqual(response.status_code, 202)
 		self.assertIn('job_id', response.data)
 		self.assertEqual(response.data['status'], 'queued')
-		thread_mock.assert_called_once()
+		enqueue_job_mock.assert_called_once_with(request.user.device_list.return_value, '2026-09', force_refresh=False)
 
 
 class LoadDetectionTests(SimpleTestCase):

@@ -15,6 +15,7 @@ from api.permissions import IsDevice, IsDeviceUser
 from api.serializers import StatusTypeSerializer
 from api.utils import get_existing_status_data_for_today, get_or_create_user_device, get_status_processing_context_from_status_cache, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from django.conf import settings
+from django_redis import get_redis_connection
 from utils.reports.report_helpers import calculate_report_status_for_period, get_latest_report_data_for_period
 
 if getattr(settings, 'CLICKHOUSE_ENABLED', False):
@@ -318,6 +319,50 @@ def _write_monthly_report_job_status(job_id, data):
         json.dump(serialized_data, handle)
     os.replace(temp_path, status_path)
     return serialized_data
+
+
+def _enqueue_monthly_report_job(device, report_month, force_refresh=False):
+    if device is None or get_redis_connection is None:
+        return None
+
+    from api.utils import DEVICE_MONTHLY_REPORT_QUEUE_KEY, DEVICE_MONTHLY_REPORT_QUEUE_MAX_LENGTH
+
+    job_id = uuid.uuid4().hex
+    queue_entry = {
+        'job_id': job_id,
+        'device_id': str(getattr(device, 'pk', None) or getattr(device, 'id', '')),
+        'device_identifier': device.ip_address or device.alias or str(device.id),
+        'report_month': report_month,
+        'force_refresh': bool(force_refresh),
+        'queued_at': timezone.now().isoformat(),
+    }
+
+    try:
+        redis_connection = get_redis_connection('default')
+        payload = json.dumps(queue_entry)
+        pipeline = redis_connection.pipeline()
+        pipeline.rpush(DEVICE_MONTHLY_REPORT_QUEUE_KEY, payload)
+        pipeline.ltrim(
+            DEVICE_MONTHLY_REPORT_QUEUE_KEY,
+            -DEVICE_MONTHLY_REPORT_QUEUE_MAX_LENGTH,
+            -1,
+        )
+        pipeline.execute()
+    except Exception as exc:
+        logger.exception('Failed to enqueue monthly report job for device %s: %s', getattr(device, 'ip_address', 'unknown'), exc)
+        return None
+
+    _write_monthly_report_job_status(job_id, {
+        'job_id': job_id,
+        'status': 'queued',
+        'message': 'Monthly report generation queued.',
+        'month': report_month,
+        'device_id': str(getattr(device, 'pk', None) or getattr(device, 'id', '')),
+        'device_identifier': device.ip_address or device.alias or str(device.id),
+        'progress_percent': 0,
+        'queued_at': timezone.now().isoformat(),
+    })
+    return job_id
 
 
 def _update_monthly_report_job_status(job_id, patch):
@@ -1878,30 +1923,9 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 'device_id': device.ip_address,
             }, status=status.HTTP_200_OK)
 
-        job_id = uuid.uuid4().hex
-        _write_monthly_report_job_status(job_id, {
-            'job_id': job_id,
-            'status': 'queued',
-            'message': 'Monthly report generation queued.',
-            'month': report_month,
-            'device_id': str(device.pk),
-            'device_identifier': device.ip_address or device.alias or str(device.id),
-            'progress_percent': 0,
-            'queued_at': timezone.now().isoformat(),
-            'url': report_url,
-        })
-
-        report_thread = threading.Thread(
-            target=_generate_device_monthly_report_job,
-            kwargs={
-                'job_id': job_id,
-                'device_pk': device.pk,
-                'report_month': report_month,
-                'force_refresh': force_refresh,
-            },
-            daemon=True,
-        )
-        report_thread.start()
+        job_id = _enqueue_monthly_report_job(device, report_month, force_refresh=force_refresh)
+        if job_id is None:
+            return Response({'error': 'Monthly report queue is unavailable.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         return Response({
             'job_id': job_id,
