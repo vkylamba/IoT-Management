@@ -21,10 +21,20 @@ class Command(BaseCommand):
             default=5,
             help='Seconds to wait for a queued job before checking again.',
         )
+        parser.add_argument(
+            '--purge',
+            action='store_true',
+            help='Delete all queued monthly report jobs and exit without starting the worker loop.',
+        )
 
     def handle(self, *args, **options):
         poll_timeout = max(1, int(options.get('poll_timeout') or 5))
         redis_connection = get_redis_connection('default')
+
+        if options.get('purge'):
+            deleted = redis_connection.delete(DEVICE_MONTHLY_REPORT_QUEUE_KEY)
+            self.stdout.write(self.style.SUCCESS(f'Monthly report queue purged. Removed {deleted} item(s).'))
+            return
 
         self.stdout.write(self.style.SUCCESS('Monthly report queue worker started'))
         try:
