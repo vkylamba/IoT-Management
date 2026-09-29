@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime
 
 from datascience.train_machine import Train
 from device.models import Device, Meter
@@ -24,6 +25,44 @@ else:
         return None
 
 
+def _coerce_datetime(value):
+    if isinstance(value, str):
+        value = value.strip()
+        if value.endswith('Z'):
+            value = value[:-1] + '+00:00'
+        try:
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except ValueError:
+            logger.warning('Unable to parse data_arrival_time for load detection: %s', value)
+            return None
+    return value
+
+
+def _coerce_model_prediction_count(prediction):
+    if prediction is None:
+        return 0
+
+    if hasattr(prediction, 'tolist'):
+        prediction = prediction.tolist()
+
+    if isinstance(prediction, (list, tuple)):
+        if not prediction:
+            return 0
+        prediction = prediction[0]
+
+    try:
+        return int(prediction)
+    except (TypeError, ValueError):
+        try:
+            return int(float(prediction))
+        except (TypeError, ValueError):
+            logger.warning('Unable to coerce ML prediction to integer: %r', prediction)
+            return 0
+
+
 def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidity, wind_speed):
     """
         Method to find out appliances list based on the data.
@@ -32,15 +71,19 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
 
     if isinstance(data_point, dict):
         power = data_point.get("power", 0)
-        data_arrival_time = data_point["data_arrival_time"]
+        data_arrival_time = _coerce_datetime(data_point.get("data_arrival_time"))
 
         temperature = data_point.get("temperature", temperature)
         humidity = data_point.get("humidity", humidity)
-        wind_speed = data_point.get("humidity", wind_speed)
+        wind_speed = data_point.get("wind_speed", wind_speed)
 
     else:
         power = data_point.power
-        data_arrival_time = data_point.data_arrival_time
+        data_arrival_time = _coerce_datetime(getattr(data_point, 'data_arrival_time', None))
+
+    if data_arrival_time is None:
+        logger.warning('Skipping load detection because data_arrival_time is missing or invalid: %s', data_point)
+        return equipments
 
     input_data_list = [
         # float(data_point.device.latitude()),
@@ -63,13 +106,13 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
                 
                 # Handle sklearn version compatibility issues
                 try:
-                    number = int(model.predict([input_data_list]))
+                    number = _coerce_model_prediction_count(model.predict([input_data_list]))
                 except AttributeError as attr_ex:
                     if "'LinearRegression' object has no attribute 'positive'" in str(attr_ex):
                         # Add the missing positive attribute for compatibility
                         if not hasattr(model, 'positive'):
                             model.positive = False
-                        number = int(model.predict([input_data_list]))
+                        number = _coerce_model_prediction_count(model.predict([input_data_list]))
                     else:
                         raise attr_ex
                 

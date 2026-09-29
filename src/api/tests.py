@@ -21,6 +21,7 @@ from api.utils import (
 	_submit_background_device_enrichment,
 )
 from api.viewsets.device_details_views import (
+	DeviceDetailsViewSet,
 	_get_report_event_marker,
 	_build_device_monthly_report_cache_path,
 	_sync_report_events_for_device,
@@ -30,6 +31,7 @@ from device.models import AssetStatus, Device, Meter, RawData, StatusCache, Stat
 from event.models import Action, DeviceEvent, EventType
 from event.tasks import daily_energy_report
 from device_schemas.schema import get_status_expression_helper_content, translate_data_from_schema
+from utils.load_detection import get_load_data_ai
 from utils.reports.report_helpers import get_report_status_type_for_period
 
 
@@ -41,6 +43,58 @@ class SolarReportCacheTests(SimpleTestCase):
 	def test_monthly_report_cache_path_uses_default_month_when_missing(self):
 		path = _build_device_monthly_report_cache_path('0.0.0.18', None)
 		self.assertTrue(str(path).endswith('0.0.0.18/' + datetime.utcnow().strftime('%Y-%m') + '.html'))
+
+	@patch('api.viewsets.device_details_views.threading.Thread')
+	@patch('api.viewsets.device_details_views._generate_device_monthly_report_job')
+	def test_get_monthly_report_html_queues_background_job(self, background_job_mock, thread_mock):
+		request = Mock()
+		request.GET = {'month': '2026-09'}
+		request.data = {}
+		request.build_absolute_uri.return_value = 'http://example.com/media/device-reports/0.0.0.18/2026-09.html'
+		request.user = Mock()
+		request.user.device_list.return_value = Mock(
+			ip_address='0.0.0.18',
+			id='device-123',
+		)
+
+		response = DeviceDetailsViewSet().get_monthly_report_html(request, '0.0.0.18')
+
+		self.assertEqual(response.status_code, 202)
+		self.assertIn('job_id', response.data)
+		self.assertEqual(response.data['status'], 'queued')
+		thread_mock.assert_called_once()
+
+
+class LoadDetectionTests(SimpleTestCase):
+	@patch("utils.load_detection.load_model")
+	def test_get_load_data_ai_accepts_iso_string_timestamps(self, load_model_mock):
+		load_model_mock.targets = {
+			"Fan": Mock(predict=Mock(return_value=[1])),
+		}
+		load = Mock()
+		load.equipment = Mock()
+		load.equipment.name = "Fan"
+		load.equipment.max_power = 50
+		load.equipment.min_power = 20
+		result = get_load_data_ai(
+			device=Mock(),
+			data_point={
+				"power": 100,
+				"data_arrival_time": "2026-09-28T18:08:37.564823665Z",
+				"temperature": 25,
+				"humidity": 50,
+				"wind_speed": 8,
+			},
+			sorted_equipments=[load],
+			temperature=25,
+			humidity=50,
+			wind_speed=8,
+		)
+
+		self.assertEqual(len(result), 1)
+		self.assertEqual(result[0]["name"], "Fan")
+		self.assertEqual(result[0]["qty"], 1)
+		self.assertAlmostEqual(result[0]["power"], 35)
 
 
 class EventEquationTests(SimpleTestCase):

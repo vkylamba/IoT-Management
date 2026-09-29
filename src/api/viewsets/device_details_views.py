@@ -56,6 +56,11 @@ REPROCESS_JOB_STATUS_DIR = os.path.join(
     'iot-management-reprocess-jobs',
 )
 REPROCESS_JOB_STATUS_TTL_SECONDS = 6 * 60 * 60
+MONTHLY_REPORT_JOB_STATUS_DIR = os.path.join(
+    tempfile.gettempdir(),
+    'iot-management-monthly-report-jobs',
+)
+MONTHLY_REPORT_JOB_STATUS_TTL_SECONDS = 12 * 60 * 60
 
 REPORT_PERIOD_TO_EVENT_CONFIG = {
     'yesterday': {
@@ -246,6 +251,11 @@ def _get_reprocess_job_status_path(job_id):
     return os.path.join(REPROCESS_JOB_STATUS_DIR, f'{job_id}.json')
 
 
+def _get_monthly_report_job_status_path(job_id):
+    os.makedirs(MONTHLY_REPORT_JOB_STATUS_DIR, exist_ok=True)
+    return os.path.join(MONTHLY_REPORT_JOB_STATUS_DIR, f'{job_id}.json')
+
+
 def _load_reprocess_job_status(job_id):
     status_path = _get_reprocess_job_status_path(job_id)
     if not os.path.exists(status_path):
@@ -256,6 +266,22 @@ def _load_reprocess_job_status(job_id):
             os.remove(status_path)
         except OSError:
             logger.warning('Failed to remove expired reprocess job state: %s', status_path)
+        return None
+
+    with open(status_path, 'r', encoding='utf-8') as handle:
+        return json.load(handle)
+
+
+def _load_monthly_report_job_status(job_id):
+    status_path = _get_monthly_report_job_status_path(job_id)
+    if not os.path.exists(status_path):
+        return None
+
+    if timezone.now().timestamp() - os.path.getmtime(status_path) > MONTHLY_REPORT_JOB_STATUS_TTL_SECONDS:
+        try:
+            os.remove(status_path)
+        except OSError:
+            logger.warning('Failed to remove expired monthly report job state: %s', status_path)
         return None
 
     with open(status_path, 'r', encoding='utf-8') as handle:
@@ -279,6 +305,25 @@ def _update_reprocess_job_status(job_id, patch):
     current_data = _load_reprocess_job_status(job_id) or {}
     current_data.update(patch)
     return _write_reprocess_job_status(job_id, current_data)
+
+
+def _write_monthly_report_job_status(job_id, data):
+    status_path = _get_monthly_report_job_status_path(job_id)
+    serialized_data = _serialize_reprocess_job_value({
+        **data,
+        'updated_at': timezone.now().isoformat(),
+    })
+    temp_path = f'{status_path}.tmp'
+    with open(temp_path, 'w', encoding='utf-8') as handle:
+        json.dump(serialized_data, handle)
+    os.replace(temp_path, status_path)
+    return serialized_data
+
+
+def _update_monthly_report_job_status(job_id, patch):
+    current_data = _load_monthly_report_job_status(job_id) or {}
+    current_data.update(patch)
+    return _write_monthly_report_job_status(job_id, current_data)
 
 
 def _invalidate_device_static_data_cache(device, requested_device_id):
@@ -316,6 +361,128 @@ def _build_reprocess_response(
         'start_time': result['start_time'].isoformat(),
         'end_time': result['end_time'].isoformat(),
     }
+
+
+def _generate_device_monthly_report_job(job_id, device_pk, report_month, force_refresh):
+    close_old_connections()
+    try:
+        device = Device.objects.filter(pk=device_pk).first()
+        if device is None:
+            raise ValueError('Device not found.')
+
+        report_path = _build_device_monthly_report_cache_path(device.ip_address or str(device.id), report_month)
+        report_url = f"{settings.MEDIA_URL}device-reports/{report_path.parent.name}/{report_path.name}"
+
+        _update_monthly_report_job_status(job_id, {
+            'status': 'running',
+            'message': 'Monthly report generation queued.',
+            'month': report_month,
+            'device_id': str(device.pk),
+            'device_identifier': device.ip_address or device.alias or str(device.id),
+            'progress_percent': 0,
+            'url': report_url,
+        })
+
+        if report_path.exists() and not force_refresh:
+            _update_monthly_report_job_status(job_id, {
+                'status': 'completed',
+                'message': 'Monthly report already cached.',
+                'progress_percent': 100,
+                'cached': True,
+                'generated': False,
+                'url': report_url,
+                'finished_at': timezone.now().isoformat(),
+            })
+            return
+
+        year, month = map(int, report_month.split('-'))
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if month == 12 else datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+        report_records = []
+        total_days = (month_end - month_start).days
+        day_cursor = month_start
+        for day_index in range(total_days):
+            day_start = day_cursor
+            day_end = day_start + timedelta(days=1)
+            day_records = list(
+                RawData.objects.filter(
+                    device=device,
+                    data_arrival_time__gte=day_start,
+                    data_arrival_time__lt=day_end,
+                ).order_by('data_arrival_time')
+            )
+            for record in day_records:
+                if record.data_type not in {'meters-data', 'weather'}:
+                    continue
+                report_records.append({
+                    'id': str(record.id),
+                    'device_ip': record.device.ip_address,
+                    'channel': record.channel,
+                    'data_type': record.data_type,
+                    'data_arrival_time': record.data_arrival_time.isoformat().replace('+00:00', 'Z') if timezone.is_aware(record.data_arrival_time) else record.data_arrival_time.isoformat(),
+                    'data': record.data or {},
+                })
+
+            progress = min(100, int(((day_index + 1) / total_days) * 100)) if total_days else 100
+            _update_monthly_report_job_status(job_id, {
+                'status': 'running',
+                'message': f'Loaded day {day_index + 1} of {total_days} for {report_month}.',
+                'progress_percent': progress,
+                'records_collected': len(report_records),
+            })
+            day_cursor = day_end
+            close_old_connections()
+
+        if not report_records:
+            raise ValueError(f'No meter data found for {report_month}.')
+
+        if build_solar_summary is None or render_solar_html is None:
+            raise ValueError('Monthly solar report template is unavailable.')
+
+        summary = build_solar_summary(report_records)
+        site = summary.get('site') or {}
+        lat = device.latitude()
+        lon = device.longitude()
+        if lat not in [None, '', 'None'] and lon not in [None, '', 'None']:
+            site.update({
+                'name': device.alias or device.name or device.ip_address,
+                'lat': float(lat),
+                'lon': float(lon),
+            })
+        summary['site'] = site
+        plant = summary.get('plant') or {}
+        plant.update({
+            'solarDcKw': float(plant.get('solarDcKw') or 3.2),
+            'inverterAcKw': float(plant.get('inverterAcKw') or 5.0),
+            'householdLoadKw': float(plant.get('householdLoadKw') or 5.0),
+        })
+        summary['plant'] = plant
+
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(render_solar_html(summary), encoding='utf-8')
+
+        _update_monthly_report_job_status(job_id, {
+            'status': 'completed',
+            'message': 'Monthly report generated successfully.',
+            'month': report_month,
+            'cached': False,
+            'generated': True,
+            'progress_percent': 100,
+            'url': report_url,
+            'finished_at': timezone.now().isoformat(),
+        })
+    except Exception as exc:
+        logger.exception('Failed to generate monthly report job %s', job_id)
+        _update_monthly_report_job_status(job_id, {
+            'status': 'failed',
+            'message': str(exc),
+            'error': str(exc),
+            'progress_percent': 100,
+            'finished_at': timezone.now().isoformat(),
+        })
+    finally:
+        close_old_connections()
 
 
 def _run_reprocess_job(
@@ -1711,75 +1878,51 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 'device_id': device.ip_address,
             }, status=status.HTTP_200_OK)
 
-        if build_solar_summary is None or render_solar_html is None:
-            return Response({'error': 'Monthly solar report template is unavailable.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        year, month = map(int, report_month.split('-'))
-        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-        if month == 12:
-            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-        else:
-            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
-
-        records_queryset = RawData.objects.filter(
-            device=device,
-            data_type='meters-data',
-            data_arrival_time__gte=month_start,
-            data_arrival_time__lt=month_end,
-        ).order_by('data_arrival_time')
-
-        weather_queryset = RawData.objects.filter(
-            device=device,
-            data_type='weather',
-            data_arrival_time__gte=month_start,
-            data_arrival_time__lt=month_end,
-        ).order_by('data_arrival_time')
-
-        report_records = []
-        for record in list(records_queryset) + list(weather_queryset):
-            report_records.append({
-                'id': str(record.id),
-                'device_ip': record.device.ip_address,
-                'channel': record.channel,
-                'data_type': record.data_type,
-                'data_arrival_time': record.data_arrival_time.isoformat().replace('+00:00', 'Z') if timezone.is_aware(record.data_arrival_time) else record.data_arrival_time.isoformat(),
-                'data': record.data or {},
-            })
-
-        if not report_records:
-            return Response({'error': f'No meter data found for {report_month}.'}, status=status.HTTP_404_NOT_FOUND)
-
-        summary = build_solar_summary(report_records)
-        site = summary.get('site') or {}
-        lat = device.latitude()
-        lon = device.longitude()
-        if lat not in [None, '', 'None'] and lon not in [None, '', 'None']:
-            site.update({
-                'name': device.alias or device.name or device.ip_address,
-                'lat': float(lat),
-                'lon': float(lon),
-            })
-        summary['site'] = site
-
-        plant = summary.get('plant') or {}
-        plant.update({
-            'solarDcKw': float(plant.get('solarDcKw') or 3.2),
-            'inverterAcKw': float(plant.get('inverterAcKw') or 5.0),
-            'householdLoadKw': float(plant.get('householdLoadKw') or 5.0),
+        job_id = uuid.uuid4().hex
+        _write_monthly_report_job_status(job_id, {
+            'job_id': job_id,
+            'status': 'queued',
+            'message': 'Monthly report generation queued.',
+            'month': report_month,
+            'device_id': str(device.pk),
+            'device_identifier': device.ip_address or device.alias or str(device.id),
+            'progress_percent': 0,
+            'queued_at': timezone.now().isoformat(),
+            'url': report_url,
         })
-        summary['plant'] = plant
 
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(render_solar_html(summary), encoding='utf-8')
+        report_thread = threading.Thread(
+            target=_generate_device_monthly_report_job,
+            kwargs={
+                'job_id': job_id,
+                'device_pk': device.pk,
+                'report_month': report_month,
+                'force_refresh': force_refresh,
+            },
+            daemon=True,
+        )
+        report_thread.start()
 
         return Response({
-            'success': True,
+            'job_id': job_id,
+            'status': 'queued',
+            'message': 'Monthly report generation queued. Poll status with the job_id.',
             'month': report_month,
-            'cached': False,
-            'generated': True,
-            'url': report_url,
             'device_id': device.ip_address,
-        }, status=status.HTTP_200_OK)
+            'url': report_url,
+        }, status=status.HTTP_202_ACCEPTED)
+
+    @device_admin
+    def get_monthly_report_status(self, request, device_id, job_id):
+        device, _ = is_device_admin(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        job_data = _load_monthly_report_job_status(job_id)
+        if job_data is None or job_data.get('device_id') != str(device.id):
+            return Response({'error': 'Monthly report job not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(job_data)
 
     @device_admin
     def recalculate_reports(self, request, device_id):
