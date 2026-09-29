@@ -42,7 +42,7 @@ class Command(BaseCommand):
                 except Exception as exc:
                     logger.exception('Dropping invalid monthly report job payload: %s', exc)
                     continue
-
+                logger.info('Processing monthly report job: %s', payload)
                 self._process_job(payload)
         except KeyboardInterrupt:
             self.stdout.write(self.style.WARNING('Monthly report queue worker stopped'))
