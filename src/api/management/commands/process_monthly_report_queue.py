@@ -1,12 +1,14 @@
 import json
 import logging
-from datetime import datetime
 
 from api.utils import DEVICE_MONTHLY_REPORT_QUEUE_KEY
-from api.viewsets.device_details_views import _generate_device_monthly_report_job
+from api.viewsets.device_details_views import _update_monthly_report_job_status
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
+from django.utils import timezone
 from django_redis import get_redis_connection
+from utils.solar.monthly_report_job import generate_device_monthly_report_job
 
 logger = logging.getLogger('django')
 
@@ -70,8 +72,70 @@ class Command(BaseCommand):
             return
 
         try:
-            _generate_device_monthly_report_job(job_id, device_id, report_month, force_refresh)
+            _update_monthly_report_job_status(job_id, {
+                'status': 'running',
+                'message': 'Monthly report generation queued.',
+                'month': report_month,
+                'progress_percent': 0,
+            })
+
+            result = generate_device_monthly_report_job(
+                device_pk=device_id,
+                report_month=report_month,
+                force_refresh=force_refresh,
+                progress_callback=lambda progress_patch: _update_monthly_report_job_status(
+                    job_id,
+                    {
+                        'status': 'running',
+                        **progress_patch,
+                    },
+                ),
+            )
+
+            device = result['device']
+            report_path = result['report_path']
+            report_url = f"{settings.MEDIA_URL}device-reports/{report_path.parent.name}/{report_path.name}"
+
+            if result['cached'] and not force_refresh:
+                _update_monthly_report_job_status(job_id, {
+                    'status': 'completed',
+                    'message': 'Monthly report already cached.',
+                    'month': report_month,
+                    'device_id': str(device.pk),
+                    'device_identifier': device.ip_address or device.alias or str(device.id),
+                    'progress_percent': 100,
+                    'cached': True,
+                    'generated': False,
+                    'url': report_url,
+                    'daily_reports_generated': 0,
+                    'missing_days': [],
+                    'finished_at': timezone.now().isoformat(),
+                })
+                return
+
+            _update_monthly_report_job_status(job_id, {
+                'status': 'completed',
+                'message': 'Monthly report generated successfully.',
+                'month': report_month,
+                'device_id': str(device.pk),
+                'device_identifier': device.ip_address or device.alias or str(device.id),
+                'cached': False,
+                'generated': True,
+                'progress_percent': 100,
+                'url': report_url,
+                'daily_reports_generated': result['daily_reports_generated'],
+                'missing_days': result['missing_days'],
+                'records_collected': result['records_collected'],
+                'finished_at': timezone.now().isoformat(),
+            })
         except Exception as exc:
             logger.exception('Monthly report job failed for device %s: %s', device_id, exc)
+            _update_monthly_report_job_status(job_id, {
+                'status': 'failed',
+                'message': str(exc),
+                'error': str(exc),
+                'progress_percent': 100,
+                'finished_at': timezone.now().isoformat(),
+            })
         finally:
             close_old_connections()

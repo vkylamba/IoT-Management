@@ -50,7 +50,10 @@ PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
 logger = logging.getLogger('django')
 
-from utils.solar.solar_day_html import build_summary as build_solar_summary, render_html as render_solar_html
+from utils.solar.monthly_report_job import (
+    build_device_monthly_report_cache_path,
+    generate_device_monthly_report_job,
+)
 
 REPROCESS_JOB_STATUS_DIR = os.path.join(
     tempfile.gettempdir(),
@@ -106,11 +109,7 @@ REPORT_EVENT_MARKER_PREFIX = 'AUTO_REPORT_STATUS'
 
 
 def _build_device_monthly_report_cache_path(device_id, report_month=None):
-    normalized_device = str(device_id or 'unknown').strip().replace('/', '_').replace('\\', '_')
-    normalized_month = str(report_month or datetime.utcnow().strftime('%Y-%m')).strip()
-    if not normalized_month:
-        normalized_month = datetime.utcnow().strftime('%Y-%m')
-    return Path(settings.MEDIA_ROOT) / 'device-reports' / normalized_device / f'{normalized_month}.html'
+    return build_device_monthly_report_cache_path(device_id, report_month)
 
 
 def _get_report_event_marker(report_period):
@@ -411,110 +410,60 @@ def _build_reprocess_response(
 def _generate_device_monthly_report_job(job_id, device_pk, report_month, force_refresh):
     close_old_connections()
     try:
-        device = Device.objects.filter(pk=device_pk).first()
-        if device is None:
-            raise ValueError('Device not found.')
-
-        report_path = _build_device_monthly_report_cache_path(device.ip_address or str(device.id), report_month)
-        report_url = f"{settings.MEDIA_URL}device-reports/{report_path.parent.name}/{report_path.name}"
-
         _update_monthly_report_job_status(job_id, {
             'status': 'running',
             'message': 'Monthly report generation queued.',
             'month': report_month,
-            'device_id': str(device.pk),
-            'device_identifier': device.ip_address or device.alias or str(device.id),
             'progress_percent': 0,
-            'url': report_url,
         })
 
-        if report_path.exists() and not force_refresh:
+        result = generate_device_monthly_report_job(
+            device_pk=device_pk,
+            report_month=report_month,
+            force_refresh=force_refresh,
+            progress_callback=lambda progress_patch: _update_monthly_report_job_status(
+                job_id,
+                {
+                    'status': 'running',
+                    **progress_patch,
+                },
+            ),
+        )
+
+        device = result['device']
+        report_path = result['report_path']
+        report_url = f"{settings.MEDIA_URL}device-reports/{report_path.parent.name}/{report_path.name}"
+
+        if result['cached'] and not force_refresh:
             _update_monthly_report_job_status(job_id, {
                 'status': 'completed',
                 'message': 'Monthly report already cached.',
+                'month': report_month,
+                'device_id': str(device.pk),
+                'device_identifier': device.ip_address or device.alias or str(device.id),
                 'progress_percent': 100,
                 'cached': True,
                 'generated': False,
                 'url': report_url,
+                'daily_reports_generated': 0,
+                'missing_days': [],
                 'finished_at': timezone.now().isoformat(),
             })
             return
-
-        year, month = map(int, report_month.split('-'))
-        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-        month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if month == 12 else datetime(year, month + 1, 1, tzinfo=timezone.utc)
-
-        report_records = []
-        total_days = (month_end - month_start).days
-        day_cursor = month_start
-        for day_index in range(total_days):
-            day_start = day_cursor
-            day_end = day_start + timedelta(days=1)
-            day_records = list(
-                RawData.objects.filter(
-                    device=device,
-                    data_arrival_time__gte=day_start,
-                    data_arrival_time__lt=day_end,
-                ).order_by('data_arrival_time')
-            )
-            for record in day_records:
-                if record.data_type not in {'meters-data', 'weather'}:
-                    continue
-                report_records.append({
-                    'id': str(record.id),
-                    'device_ip': record.device.ip_address,
-                    'channel': record.channel,
-                    'data_type': record.data_type,
-                    'data_arrival_time': record.data_arrival_time.isoformat().replace('+00:00', 'Z') if timezone.is_aware(record.data_arrival_time) else record.data_arrival_time.isoformat(),
-                    'data': record.data or {},
-                })
-
-            progress = min(100, int(((day_index + 1) / total_days) * 100)) if total_days else 100
-            _update_monthly_report_job_status(job_id, {
-                'status': 'running',
-                'message': f'Loaded day {day_index + 1} of {total_days} for {report_month}.',
-                'progress_percent': progress,
-                'records_collected': len(report_records),
-            })
-            day_cursor = day_end
-            close_old_connections()
-
-        if not report_records:
-            raise ValueError(f'No meter data found for {report_month}.')
-
-        if build_solar_summary is None or render_solar_html is None:
-            raise ValueError('Monthly solar report template is unavailable.')
-
-        summary = build_solar_summary(report_records)
-        site = summary.get('site') or {}
-        lat = device.latitude()
-        lon = device.longitude()
-        if lat not in [None, '', 'None'] and lon not in [None, '', 'None']:
-            site.update({
-                'name': device.alias or device.name or device.ip_address,
-                'lat': float(lat),
-                'lon': float(lon),
-            })
-        summary['site'] = site
-        plant = summary.get('plant') or {}
-        plant.update({
-            'solarDcKw': float(plant.get('solarDcKw') or 3.2),
-            'inverterAcKw': float(plant.get('inverterAcKw') or 5.0),
-            'householdLoadKw': float(plant.get('householdLoadKw') or 5.0),
-        })
-        summary['plant'] = plant
-
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(render_solar_html(summary), encoding='utf-8')
 
         _update_monthly_report_job_status(job_id, {
             'status': 'completed',
             'message': 'Monthly report generated successfully.',
             'month': report_month,
+            'device_id': str(device.pk),
+            'device_identifier': device.ip_address or device.alias or str(device.id),
             'cached': False,
             'generated': True,
             'progress_percent': 100,
             'url': report_url,
+            'daily_reports_generated': result['daily_reports_generated'],
+            'missing_days': result['missing_days'],
+            'records_collected': result['records_collected'],
             'finished_at': timezone.now().isoformat(),
         })
     except Exception as exc:

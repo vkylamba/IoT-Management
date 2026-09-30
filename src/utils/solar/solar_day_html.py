@@ -831,6 +831,25 @@ def fetch_day_records(device_ip: str, day: datetime, token: str) -> list[dict[st
         raise NoDayData(f"no records for {device_ip} on {start.date().isoformat()}")
     return records
 
+def process_monthly_report(month_str: str, raw_dir) -> Path:
+    year, month = parse_month(month_str)
+    summaries: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for day in month_dates(year, month):
+        stamp = day.isoformat()
+        html_path = Path("reports") / f"grid-solar-day-{stamp}.html"
+        try:
+            records = load_local_day(raw_dir, stamp)
+            summaries.append(process_day(records, html_path))
+        except NoDayData as exc:
+            missing.append(stamp)
+            print(f"skipped {stamp}: {exc}")
+    if not summaries:
+        raise SystemExit(f"no days with meter data in {raw_dir} for {month_str}")
+    out = Path(raw_dir) / f"grid-solar-month-{year:04d}-{month:02d}.html"
+    write_html(out, render_month_html(year, month, summaries, missing))
+    return out
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render a canvas-matching HTML report from daily meter JSON.")
@@ -864,22 +883,7 @@ def main() -> None:
         parser.error("-o and --save-json apply to a single day; omit them when using --days")
 
     if args.month:
-        year, month = parse_month(args.month)
-        summaries: list[dict[str, Any]] = []
-        missing: list[str] = []
-        for day in month_dates(year, month):
-            stamp = day.isoformat()
-            html_path = Path("reports") / f"grid-solar-day-{stamp}.html"
-            try:
-                records = load_local_day(args.raw_dir, stamp)
-                summaries.append(process_day(records, html_path))
-            except NoDayData as exc:
-                missing.append(stamp)
-                print(f"skipped {stamp}: {exc}")
-        if not summaries:
-            raise SystemExit(f"no days with meter data in {args.raw_dir} for {args.month}")
-        out = args.output or Path("reports") / f"grid-solar-month-{year:04d}-{month:02d}.html"
-        write_html(out, render_month_html(year, month, summaries, missing))
+        process_monthly_report(args.month, args.raw_dir)
         return
 
     if args.input is not None:
