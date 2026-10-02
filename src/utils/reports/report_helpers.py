@@ -6,12 +6,14 @@ from django.conf import settings
 from django.utils import timezone
 
 from device.models import AssetStatus, DeviceProperty, StatusType
+from utils.solar.monthly_report_job import get_or_generate_device_day_summary
+from utils.solar.solar_day_html import NoDayData
 
 logger = logging.getLogger('django') 
 
 
 REPORT_PERIOD_TO_LEGACY_NAME = {
-    'yesterday': AssetStatus.LAST_DAY_REPORT,
+    'day': AssetStatus.LAST_DAY_REPORT,
     'week': AssetStatus.LAST_WEEK_REPORT,
     'month': AssetStatus.LAST_MONTH_REPORT,
 }
@@ -21,9 +23,17 @@ def _normalize_report_period(report_period):
     if report_period is None:
         return None
     normalized_period = str(report_period).strip().lower()
+    if normalized_period == 'yesterday':
+        return 'day'
     if normalized_period in REPORT_PERIOD_TO_LEGACY_NAME:
         return normalized_period
     return None
+
+
+def _status_type_period_candidates(normalized_period):
+    if normalized_period == 'day':
+        return ['day', 'yesterday']
+    return [normalized_period]
 
 
 def get_report_status_type_for_period(device, report_period):
@@ -31,22 +41,24 @@ def get_report_status_type_for_period(device, report_period):
     if normalized_period is None:
         return None
 
-    query = {
-        'target_type': StatusType.STATUS_TARGET_REPORT,
-        'report_period': normalized_period,
-    }
+    period_candidates = _status_type_period_candidates(normalized_period)
+    for period_candidate in period_candidates:
+        query = {
+            'target_type': StatusType.STATUS_TARGET_REPORT,
+            'report_period': period_candidate,
+        }
 
-    status_type = StatusType.objects.filter(device=device, **query).order_by('-created_at')
-    for candidate in status_type:
-        if getattr(candidate, 'active', False):
-            return candidate
-
-    device_type = getattr(device, 'type', None)
-    if device_type is not None:
-        status_type = StatusType.objects.filter(device_type=device_type, **query).order_by('-created_at')
+        status_type = StatusType.objects.filter(device=device, **query).order_by('-created_at')
         for candidate in status_type:
             if getattr(candidate, 'active', False):
                 return candidate
+
+        device_type = getattr(device, 'type', None)
+        if device_type is not None:
+            status_type = StatusType.objects.filter(device_type=device_type, **query).order_by('-created_at')
+            for candidate in status_type:
+                if getattr(candidate, 'active', False):
+                    return candidate
 
     return None
 
@@ -110,53 +122,54 @@ def _get_running_status_names_for_device(device):
     return names
 
 
-def _build_day_windows(device_timezone, start_local_date, day_count):
+def _build_day_windows(start_local_date, day_count):
     windows = []
     for day_offset in range(day_count):
-        current_date = start_local_date + timedelta(days=day_offset)
-        day_start_local = device_timezone.localize(datetime.combine(current_date, datetime.min.time()))
-        day_end_local = day_start_local + timedelta(days=1)
-        day_start_utc, day_end_utc = _to_local_window_utc(day_start_local, day_end_local)
-        windows.append((current_date, day_start_utc, day_end_utc))
+        windows.append(start_local_date + timedelta(days=day_offset))
     return windows
 
 
-def _extract_energy_point(status_payload):
-    status_payload = status_payload or {}
-    imported = float(status_payload.get('energy_imported_this_day', 0) or 0)
-    exported = float(status_payload.get('energy_exported_this_day', 0) or 0)
-    generated = float(status_payload.get('energy_generated_this_day', 0) or 0)
-    consumed = float(status_payload.get('energy_consumed_this_day', 0) or 0)
-    return {
-        'imported': imported,
-        'exported': exported,
-        'generated': generated,
-        'consumed': consumed,
-    }
-
-
-def _get_latest_status_for_window(device, status_name, start_utc, end_utc):
-    latest_status = AssetStatus.objects.filter(
-        device=device,
-        name="device",
-        created_at__gte=start_utc,
-        created_at__lt=end_utc,
-    ).order_by('-created_at').first()
-
-    latest_status_data = latest_status.status if latest_status is not None else {}
-    if status_name in latest_status_data:
-        latest_status_data = latest_status_data.get(status_name, {})
-    logger.info("Latest running status for device %s in time range %s - %s: %s", device.alias, start_utc, end_utc, latest_status_data)
-    return latest_status_data
-
-
-def _build_meter_row(imported, exported, generated=0.0, consumed=0.0):
+def _build_meter_row(imported, exported, generated=0.0, consumed=0.0, report_html_path='', report_html_url=''):
     return {
         'solar_meter': float(generated),
         'load_meter': float(consumed),
         'import_energy_meter': float(imported),
         'export_energy_meter': float(exported),
+        'report_html_path': report_html_path,
+        'report_html_url': report_html_url,
     }
+
+
+def _report_day_html_url(device, day_date):
+    normalized_device = str(device.ip_address or device.id).strip().replace('/', '_').replace('\\', '_')
+    day_stamp = day_date.strftime('%Y-%m-%d')
+    media_root = str(settings.MEDIA_ROOT).rstrip('/')
+    relative_path = f'device-reports/{normalized_device}/grid-solar-day-{day_stamp}.html'
+    return {
+        'path': f'{media_root}/{relative_path}',
+        'url': f"{settings.MEDIA_URL.rstrip('/')}/{relative_path}",
+    }
+
+
+def _parse_report_selection(normalized_period, selection):
+    selection = selection or {}
+    if normalized_period == 'day':
+        day_value = (selection.get('day') or '').strip()
+        if not day_value:
+            return {}
+        return {'day': datetime.strptime(day_value, '%Y-%m-%d').date()}
+
+    if normalized_period == 'week':
+        week_start_value = (selection.get('week_start') or '').strip()
+        if not week_start_value:
+            return {}
+        return {'week_start': datetime.strptime(week_start_value, '%Y-%m-%d').date()}
+
+    month_value = (selection.get('month') or '').strip()
+    if not month_value:
+        return {}
+    month_start = datetime.strptime(month_value, '%Y-%m').date().replace(day=1)
+    return {'month_start': month_start, 'month': month_value}
 
 
 def _build_summary_from_rows(rows):
@@ -178,19 +191,6 @@ def _build_summary_from_rows(rows):
     totals['energy_exported'] = totals['exported']
     return totals
 
-
-def _get_latest_running_status_payload(device, status_name):
-    latest_status = AssetStatus.objects.filter(
-        device=device,
-        name="device",
-    ).order_by('-created_at').first()
-    latest_status_data = latest_status.status if latest_status is not None else {}
-    if status_name in latest_status_data:
-        latest_status_data = latest_status_data.get(status_name)
-    logger.info("Latest running status for device %s: %s", device.alias, latest_status_data)
-    return latest_status_data
-
-
 def _get_currency_and_rate(device, latest_running_status):
     latest_running_status = latest_running_status or {}
     currency_property = DeviceProperty.objects.filter(device=device, name='currency').first()
@@ -208,37 +208,16 @@ def _get_currency_and_rate(device, latest_running_status):
     if rate in [None, '']:
         rate = 0
 
+    rate_value = rate if isinstance(rate, (int, float, str)) else 0
     try:
-        rate = float(rate)
+        rate = float(rate_value)
     except (TypeError, ValueError):
         rate = 0.0
     return currency, rate
 
 
-def _append_financial_fields(report_payload, summary, latest_running_status):
-    currency, rate = _get_currency_and_rate(report_payload['device_obj'], latest_running_status)
-    imported = summary['imported']
-    exported = summary['exported']
-
-    consumption_bill = imported * rate
-    net_bill = (imported - exported) * rate
-
-    report_payload.update({
-        'currency': currency,
-        'consumption_rate': rate,
-        'consumption_bill': consumption_bill,
-        'net_bill': net_bill,
-        'savings': consumption_bill - net_bill,
-        'energy_generated': summary['generated'],
-        'energy_consumed': summary['consumed'],
-        'energy_imported': imported,
-        'energy_exported': exported,
-    })
-
-
 def _base_report_payload(device, from_utc, to_utc):
     payload = {
-        'device_obj': device,
         'device': device.alias,
         'device_ip_address': device.ip_address,
         'report_generation_time': timezone.now().strftime(settings.TIME_FORMAT_STRING),
@@ -252,169 +231,116 @@ def _base_report_payload(device, from_utc, to_utc):
     return payload
 
 
-def _finalize_report_payload(report_payload):
-    report_payload.pop('device_obj', None)
+def _load_latest_running_status(device):
+    for status_name in _get_running_status_names_for_device(device):
+        latest_status = AssetStatus.objects.filter(
+            device=device,
+            name=status_name,
+        ).order_by('-created_at').first()
+        if latest_status and latest_status.status:
+            return latest_status.status
+    return {}
+
+
+def _report_window_for_period(device_timezone, normalized_period, selection=None):
+    parsed_selection = _parse_report_selection(normalized_period, selection)
+    local_now = timezone.now().astimezone(device_timezone)
+    today_start_local = device_timezone.localize(datetime.combine(local_now.date(), datetime.min.time()))
+
+    if normalized_period == 'day':
+        selected_day = parsed_selection.get('day')
+        if selected_day is not None:
+            from_local = device_timezone.localize(datetime.combine(selected_day, datetime.min.time()))
+            return from_local, from_local + timedelta(days=1), parsed_selection
+        from_local = today_start_local - timedelta(days=1)
+        to_local = today_start_local
+        return from_local, to_local, parsed_selection
+
+    if normalized_period == 'week':
+        week_start = parsed_selection.get('week_start')
+        if week_start is not None:
+            from_local = device_timezone.localize(datetime.combine(week_start, datetime.min.time()))
+            return from_local, from_local + timedelta(days=7), parsed_selection
+        from_local = today_start_local - timedelta(days=7)
+        to_local = today_start_local
+        return from_local, to_local, parsed_selection
+
+    month_start = parsed_selection.get('month_start')
+    if month_start is not None:
+        from_local = device_timezone.localize(datetime.combine(month_start, datetime.min.time()))
+        next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        to_local = device_timezone.localize(datetime.combine(next_month, datetime.min.time()))
+        return from_local, to_local, parsed_selection
+
+    month_start_local = device_timezone.localize(datetime.combine(local_now.date().replace(day=1), datetime.min.time()))
+    return month_start_local, today_start_local, parsed_selection
+
+
+def _calculate_report_from_raw_data(device, normalized_period, selection=None):
+    device_timezone = _get_device_timezone(device)
+    from_local, to_local, parsed_selection = _report_window_for_period(device_timezone, normalized_period, selection=selection)
+    from_utc, to_utc = _to_local_window_utc(from_local, to_local)
+
+    by_time = {}
+    active_data_days = 0
+    day_count = max(1, (to_local.date() - from_local.date()).days)
+    day_windows = _build_day_windows(from_local.date(), day_count)
+
+    for day_date in day_windows:
+        try:
+            day_result = get_or_generate_device_day_summary(device, day_date, force_refresh=False)
+            summary = day_result['summary']
+            totals = summary.get('totals', {})
+            report_link = _report_day_html_url(device, day_date)
+            generated = float(totals.get('estimatedGenKwh') or totals.get('idealSolarKwh') or 0)
+            consumed = float(totals.get('loadKwh') or 0)
+            imported = float(totals.get('importKwh') or 0)
+            exported = float(totals.get('exportKwh') or 0)
+            day_row = _build_meter_row(
+                imported,
+                exported,
+                generated,
+                consumed,
+                report_html_path=report_link['path'],
+                report_html_url=report_link['url'],
+            )
+            by_time[day_date.strftime('%Y-%m-%d')] = day_row
+            active_data_days += 1
+        except NoDayData:
+            report_link = _report_day_html_url(device, day_date)
+            day_row = _build_meter_row(0, 0, 0, 0, report_html_path=report_link['path'], report_html_url=report_link['url'])
+            by_time[day_date.strftime('%Y-%m-%d')] = day_row
+        except Exception:
+            logger.exception('Failed to build solar summary for %s (%s)', device.ip_address, day_date)
+            report_link = _report_day_html_url(device, day_date)
+            day_row = _build_meter_row(0, 0, 0, 0, report_html_path=report_link['path'], report_html_url=report_link['url'])
+            by_time[day_date.strftime('%Y-%m-%d')] = day_row
+
+    summary = _build_summary_from_rows(by_time)
+    report_payload = _base_report_payload(device, from_utc, to_utc)
+    report_payload['active_data_days'] = active_data_days
+    report_payload['per_day_energy_statistics'] = {
+        'by_time': by_time,
+        'summary': summary
+    }
+    if parsed_selection.get('day') is not None:
+        report_payload['selected_day'] = parsed_selection['day'].isoformat()
+    if parsed_selection.get('week_start') is not None:
+        report_payload['selected_week_start'] = parsed_selection['week_start'].isoformat()
+    if parsed_selection.get('month') is not None:
+        report_payload['selected_month'] = parsed_selection['month']
     return report_payload
 
 
-def _calculate_yesterday_report(device):
-    device_timezone = _get_device_timezone(device)
-    logger.info("Building yesterday's report for device %s, device timezone: %s", device.alias, device_timezone)
-    local_now = timezone.now().astimezone(device_timezone)
-    today_start_local = device_timezone.localize(datetime.combine(local_now.date(), datetime.min.time()))
-    yesterday_start_local = today_start_local - timedelta(days=1)
-    from_local = yesterday_start_local
-    to_local = today_start_local
-    from_utc, to_utc = _to_local_window_utc(from_local, to_local)
-
-    latest_running_status = _get_latest_running_status_payload(device, AssetStatus.DAILY_STATUS)
-    seven_day_windows = _build_day_windows(device_timezone, (yesterday_start_local - timedelta(days=6)).date(), 7)
-    by_time = {}
-    active_days = 0
-    for day_date, day_start_utc, day_end_utc in seven_day_windows:
-        status_payload = _get_latest_status_for_window(device, AssetStatus.DAILY_STATUS, day_start_utc, day_end_utc)
-        energy_point = _extract_energy_point(status_payload)
-        if status_payload is not None:
-            active_days += 1
-        by_time[day_date.strftime('%Y-%m-%d')] = _build_meter_row(
-            imported=energy_point['imported'],
-            exported=energy_point['exported'],
-            generated=energy_point['generated'],
-            consumed=energy_point['consumed'],
-        )
-
-    summary = _build_summary_from_rows(by_time)
-    report_payload = _base_report_payload(device, from_utc, to_utc)
-    report_payload['active_data_days'] = active_days
-    report_payload['per_day_energy_statistics'] = {
-        'by_time': by_time,
-        'summary': summary,
-    }
-    _append_financial_fields(report_payload, summary, latest_running_status)
-    return _finalize_report_payload(report_payload)
-
-
-def _calculate_week_report(device):
-    device_timezone = _get_device_timezone(device)
-    logger.info("Building week report for device %s, device timezone: %s", device.alias, device_timezone)
-    local_now = timezone.now().astimezone(device_timezone)
-    current_week_start_local = device_timezone.localize(
-        datetime.combine(local_now.date() - timedelta(days=local_now.weekday()), datetime.min.time())
-    )
-    last_week_start_local = current_week_start_local - timedelta(days=7)
-    from_utc, to_utc = _to_local_window_utc(last_week_start_local, current_week_start_local)
-
-    latest_running_status = _get_latest_running_status_payload(device, AssetStatus.DAILY_STATUS)
-    by_time = {}
-    active_windows = 0
-    for weeks_back in range(4, 0, -1):
-        week_start_local = current_week_start_local - timedelta(days=7 * weeks_back)
-        daily_windows = _build_day_windows(device_timezone, week_start_local.date(), 7)
-        imported = 0.0
-        exported = 0.0
-        generated = 0.0
-        consumed = 0.0
-        has_data = False
-        for _, day_start_utc, day_end_utc in daily_windows:
-            status_payload = _get_latest_status_for_window(device, AssetStatus.DAILY_STATUS, day_start_utc, day_end_utc)
-            energy_point = _extract_energy_point(status_payload)
-            imported += energy_point['imported']
-            exported += energy_point['exported']
-            generated += energy_point['generated']
-            consumed += energy_point['consumed']
-            if status_payload is not None:
-                has_data = True
-        if has_data:
-            active_windows += 1
-        label = f"week_{week_start_local.strftime('%Y-%m-%d')}"
-        by_time[label] = _build_meter_row(imported, exported, generated, consumed)
-
-    summary = _build_summary_from_rows(by_time)
-    report_payload = _base_report_payload(device, from_utc, to_utc)
-    report_payload['active_data_days'] = active_windows * 7
-    report_payload['per_day_energy_statistics'] = {
-        'by_time': by_time,
-        'summary': summary,
-    }
-    _append_financial_fields(report_payload, summary, latest_running_status)
-    return _finalize_report_payload(report_payload)
-
-
-def _month_start(dt):
-    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def _previous_month_start(month_start_local):
-    return (month_start_local - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def _calculate_month_report(device):
-    device_timezone = _get_device_timezone(device)
-    logger.info("Building month report for device %s, device timezone: %s", device.alias, device_timezone)
-    local_now = timezone.now().astimezone(device_timezone)
-    current_month_start_local = _month_start(local_now)
-    last_month_start_local = _previous_month_start(current_month_start_local)
-    from_utc, to_utc = _to_local_window_utc(last_month_start_local, current_month_start_local)
-
-    latest_running_status = _get_latest_running_status_payload(device, AssetStatus.DAILY_STATUS)
-    by_time = {}
-    active_windows = 0
-    pointer = current_month_start_local
-    monthly_windows = []
-    for _ in range(3):
-        month_end = pointer
-        month_start = _previous_month_start(month_end)
-        monthly_windows.append((month_start, month_end))
-        pointer = month_start
-    monthly_windows.reverse()
-
-    for month_start_local, month_end_local in monthly_windows:
-        day_count = (month_end_local.date() - month_start_local.date()).days
-        daily_windows = _build_day_windows(device_timezone, month_start_local.date(), day_count)
-        imported = 0.0
-        exported = 0.0
-        generated = 0.0
-        consumed = 0.0
-        has_data = False
-        for _, day_start_utc, day_end_utc in daily_windows:
-            status_payload = _get_latest_status_for_window(device, AssetStatus.DAILY_STATUS, day_start_utc, day_end_utc)
-            energy_point = _extract_energy_point(status_payload)
-            imported += energy_point['imported']
-            exported += energy_point['exported']
-            generated += energy_point['generated']
-            consumed += energy_point['consumed']
-            if status_payload is not None:
-                has_data = True
-        if has_data:
-            active_windows += 1
-        label = month_start_local.strftime('%Y-%m')
-        by_time[label] = _build_meter_row(imported, exported, generated, consumed)
-
-    summary = _build_summary_from_rows(by_time)
-    report_payload = _base_report_payload(device, from_utc, to_utc)
-    report_payload['active_data_days'] = active_windows * 30
-    report_payload['per_day_energy_statistics'] = {
-        'by_time': by_time,
-        'summary': summary,
-    }
-    _append_financial_fields(report_payload, summary, latest_running_status)
-    return _finalize_report_payload(report_payload)
-
-
-def calculate_report_status_for_period(device, report_period):
+def calculate_report_status_for_period(device, report_period, selection=None, persist=True):
     normalized_period = _normalize_report_period(report_period)
     if normalized_period is None:
         return None
 
-    if normalized_period == 'yesterday':
-        report_payload = _calculate_yesterday_report(device)
-    elif normalized_period == 'week':
-        report_payload = _calculate_week_report(device)
-    else:
-        report_payload = _calculate_month_report(device)
+    report_payload = _calculate_report_from_raw_data(device, normalized_period, selection=selection)
 
     report_name = get_report_status_name_for_period(device, normalized_period)
-    if report_name is None:
+    if report_name is None or not persist:
         return report_payload
 
     AssetStatus.objects.create(

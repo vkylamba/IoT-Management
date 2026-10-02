@@ -1,13 +1,12 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import simplejson as json
 from device.models import Device, RawData
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
-from utils.solar.solar_day_html import build_summary as build_solar_summary, render_html as render_solar_html
+from utils.solar.solar_day_html import NoDayData, load_local_day, process_day
 from utils.solar.solar_month import month_dates, render_month_html
 
 
@@ -27,6 +26,11 @@ def build_device_monthly_report_raw_day_path(device_id, day_stamp):
 def build_device_monthly_report_day_html_path(device_id, day_stamp):
     normalized_device = str(device_id or 'unknown').strip().replace('/', '_').replace('\\', '_')
     return Path(settings.MEDIA_ROOT) / 'device-reports' / normalized_device / f'grid-solar-day-{day_stamp}.html'
+
+
+def build_device_monthly_report_raw_dir(device_id):
+    normalized_device = str(device_id or 'unknown').strip().replace('/', '_').replace('\\', '_')
+    return Path(settings.MEDIA_ROOT) / 'device-reports' / normalized_device / 'raw-data'
 
 
 def apply_device_defaults_to_solar_summary(summary, device):
@@ -49,6 +53,60 @@ def apply_device_defaults_to_solar_summary(summary, device):
     })
     summary['plant'] = plant
     return summary
+
+
+def _query_day_records_from_db(device, day_start, day_end):
+    query_records = list(
+        RawData.objects.filter(
+            device=device,
+            data_arrival_time__gte=day_start,
+            data_arrival_time__lt=day_end,
+            data_type__in=['meters-data', 'weather'],
+        ).order_by('data_arrival_time')
+    )
+    day_records = []
+    for record in query_records:
+        if record.data_arrival_time is None:
+            continue
+        day_records.append({
+            'id': str(record.id),
+            'device_ip': record.device.ip_address,
+            'channel': record.channel,
+            'data_type': record.data_type,
+            'data_arrival_time': record.data_arrival_time.isoformat().replace('+00:00', 'Z') if timezone.is_aware(record.data_arrival_time) else record.data_arrival_time.isoformat(),
+            'data': record.data or {},
+        })
+    return day_records
+
+
+def get_or_generate_device_day_summary(device, day, force_refresh=False):
+    day_stamp = day.isoformat()
+    day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+
+    raw_dir = build_device_monthly_report_raw_dir(device.ip_address or str(device.id))
+    raw_day_path = build_device_monthly_report_raw_day_path(device.ip_address or str(device.id), day_stamp)
+    daily_html_path = build_device_monthly_report_day_html_path(device.ip_address or str(device.id), day_stamp)
+
+    records = None
+    if not force_refresh:
+        try:
+            records = load_local_day(raw_dir, day_stamp)
+        except NoDayData:
+            records = None
+
+    if records is None:
+        records = _query_day_records_from_db(device, day_start, day_end)
+
+    summary = process_day(records, daily_html_path, raw_day_path)
+    summary = apply_device_defaults_to_solar_summary(summary, device)
+    return {
+        'summary': summary,
+        'records_count': len(records),
+        'day_stamp': day_stamp,
+        'raw_path': raw_day_path,
+        'html_path': daily_html_path,
+    }
 
 
 def generate_device_monthly_report_job(device_pk, report_month, force_refresh=False, progress_callback=None):
@@ -80,55 +138,14 @@ def generate_device_monthly_report_job(device_pk, report_month, force_refresh=Fa
         total_records_loaded = 0
 
         for day_index, day in enumerate(day_list):
-            day_stamp = day.isoformat()
-            day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-            day_end = day_start + timedelta(days=1)
-            raw_day_path = build_device_monthly_report_raw_day_path(device.ip_address or str(device.id), day_stamp)
-            daily_html_path = build_device_monthly_report_day_html_path(device.ip_address or str(device.id), day_stamp)
-
-            day_records = None
-            if raw_day_path.exists() and not force_refresh:
-                try:
-                    day_records = json.loads(raw_day_path.read_text(encoding='utf-8'))
-                except Exception:
-                    day_records = None
-
-            if day_records is None:
-                query_records = list(
-                    RawData.objects.filter(
-                        device=device,
-                        data_arrival_time__gte=day_start,
-                        data_arrival_time__lt=day_end,
-                        data_type__in=['meters-data', 'weather'],
-                    ).order_by('data_arrival_time')
-                )
-                day_records = []
-                for record in query_records:
-                    if record.data_arrival_time is None:
-                        continue
-                    day_records.append({
-                        'id': str(record.id),
-                        'device_ip': record.device.ip_address,
-                        'channel': record.channel,
-                        'data_type': record.data_type,
-                        'data_arrival_time': record.data_arrival_time.isoformat().replace('+00:00', 'Z') if timezone.is_aware(record.data_arrival_time) else record.data_arrival_time.isoformat(),
-                        'data': record.data or {},
-                    })
-                raw_day_path.parent.mkdir(parents=True, exist_ok=True)
-                raw_day_path.write_text(json.dumps(day_records), encoding='utf-8')
-
-            total_records_loaded += len(day_records)
-
             try:
-                day_summary = build_solar_summary(day_records)
-                day_summary = apply_device_defaults_to_solar_summary(day_summary, device)
-                daily_html_path.parent.mkdir(parents=True, exist_ok=True)
-                daily_html_path.write_text(render_solar_html(day_summary), encoding='utf-8')
-                summaries.append(day_summary)
-            except SystemExit:
-                missing_days.append(day_stamp)
+                day_result = get_or_generate_device_day_summary(device, day, force_refresh=force_refresh)
+                summaries.append(day_result['summary'])
+                total_records_loaded += day_result['records_count']
+            except NoDayData:
+                missing_days.append(day.isoformat())
             except Exception:
-                missing_days.append(day_stamp)
+                missing_days.append(day.isoformat())
 
             if progress_callback is not None:
                 progress = min(95, int(((day_index + 1) / total_days) * 95)) if total_days else 95

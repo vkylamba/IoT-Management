@@ -1831,7 +1831,28 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 return Response(status=status.HTTP_404_NOT_FOUND)
             device = device[0]
 
-        report_data = get_latest_report_data_for_period(device, report_type)
+        selection = {
+            'day': (request.query_params.get('day') or '').strip(),
+            'week_start': (request.query_params.get('week_start') or '').strip(),
+            'month': (request.query_params.get('month') or '').strip(),
+        }
+
+        has_selection = any(selection.values())
+        if has_selection:
+            try:
+                report_data = calculate_report_status_for_period(
+                    device,
+                    report_type,
+                    selection=selection,
+                    persist=False,
+                )
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid report selection. day/week_start must be YYYY-MM-DD and month must be YYYY-MM.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            report_data = get_latest_report_data_for_period(device, report_type)
 
         # Get weekly/monthly energy consumption data by appliance.
         # x, consumption_data_by_appaliance = data_report.get_data_with_apaliances(
@@ -1853,7 +1874,10 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 return Response(status=status.HTTP_404_NOT_FOUND)
             device = device[0]
 
-        report_month = (request.GET.get('month') or request.data.get('month') if isinstance(request.data, dict) else '').strip()
+        report_month_source = request.GET.get('month')
+        if not report_month_source and isinstance(request.data, dict):
+            report_month_source = request.data.get('month')
+        report_month = str(report_month_source or '').strip()
         if report_month and not __import__('re').match(r'^\d{4}-\d{2}$', report_month):
             return Response({'error': 'month must be in YYYY-MM format.'}, status=status.HTTP_400_BAD_REQUEST)
         report_month = report_month or datetime.utcnow().strftime('%Y-%m')
@@ -1903,14 +1927,14 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if device is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        requested_periods = (request.data or {}).get('periods', ['yesterday', 'week', 'month'])
+        requested_periods = (request.data or {}).get('periods', ['day', 'week', 'month'])
         if not isinstance(requested_periods, list):
             return Response(
                 {'error': 'periods must be a list.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        allowed_periods = ['yesterday', 'week', 'month']
+        allowed_periods = ['day', 'week', 'month']
         normalized_periods = []
         for report_period in requested_periods:
             normalized_period = str(report_period).strip().lower()
@@ -1922,9 +1946,26 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             if normalized_period not in normalized_periods:
                 normalized_periods.append(normalized_period)
 
+        selection = {
+            'day': str((request.data or {}).get('day', '') or '').strip(),
+            'week_start': str((request.data or {}).get('week_start', '') or '').strip(),
+            'month': str((request.data or {}).get('month', '') or '').strip(),
+        }
+
         refreshed_reports = {}
         for report_period in normalized_periods:
-            refreshed_payload = calculate_report_status_for_period(device, report_period)
+            try:
+                refreshed_payload = calculate_report_status_for_period(
+                    device,
+                    report_period,
+                    selection=selection,
+                    persist=True,
+                )
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid report selection. day/week_start must be YYYY-MM-DD and month must be YYYY-MM.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             refreshed_reports[report_period] = refreshed_payload
 
         return Response(
