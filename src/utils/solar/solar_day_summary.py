@@ -100,6 +100,23 @@ def signed_grid_export_w(meter_3: dict[str, Any]) -> float:
     return mag if pf < 0 else -mag
 
 
+def _meter_keys_from_type_map(
+    meter_types_by_name: dict[str, str] | None,
+    meter_type: str,
+) -> list[str]:
+    if not meter_types_by_name:
+        return []
+    wanted = str(meter_type or "").strip().upper()
+    keys: list[str] = []
+    for meter_name, configured_type in meter_types_by_name.items():
+        if str(configured_type or "").strip().upper() != wanted:
+            continue
+        meter_key = str(meter_name or "").strip()
+        if meter_key:
+            keys.append(meter_key)
+    return keys
+
+
 def weather_kind(entry: dict[str, Any]) -> str:
     main = str(entry.get("main") or "")
     desc = str(entry.get("description") or "")
@@ -244,7 +261,12 @@ def island_patches(flags: list[bool]) -> list[tuple[int, int]]:
     return patches
 
 
-def build_summary(records: list[dict[str, Any]], lat_deg: float | None = None, lon_deg: float | None = None) -> dict[str, Any]:
+def build_summary(
+    records: list[dict[str, Any]],
+    lat_deg: float | None = None,
+    lon_deg: float | None = None,
+    meter_types_by_name: dict[str, str] | None = None,
+) -> dict[str, Any]:
     meters = [r for r in records if r.get("data_type") == "meters-data" and r.get("data_arrival_time")]
     weather = [r for r in records if r.get("data_type") == "weather" and r.get("data_arrival_time")]
     if not meters:
@@ -271,13 +293,42 @@ def build_summary(records: list[dict[str, Any]], lat_deg: float | None = None, l
     dht_temp: dict[datetime, list[float]] = defaultdict(list)
     dht_hum: dict[datetime, list[float]] = defaultdict(list)
 
+    net_meter_names = _meter_keys_from_type_map(meter_types_by_name, "NET_ENERGY_METER")
+    load_meter_names = _meter_keys_from_type_map(meter_types_by_name, "LOAD_AC_METER")
+    fallback_to_legacy_meter_names = not meter_types_by_name
+
     for rec in meters:
         t = bucket_floor(parse_utc(rec["data_arrival_time"]))
         data = rec.get("data") or {}
-        m3 = data.get("meter_3") or {}
-        m4 = data.get("meter_4") or {}
-        grid_b[t].append(signed_grid_export_w(m3) / 1000.0)
-        charger_b[t].append(float(m4.get("power") or 0.0) / 1000.0)
+
+        grid_meter_payload = None
+        for meter_name in net_meter_names:
+            meter_payload = data.get(meter_name)
+            if isinstance(meter_payload, dict):
+                grid_meter_payload = meter_payload
+                break
+        if grid_meter_payload is None and fallback_to_legacy_meter_names:
+            legacy_grid_meter = data.get("meter_3")
+            if isinstance(legacy_grid_meter, dict):
+                grid_meter_payload = legacy_grid_meter
+        if isinstance(grid_meter_payload, dict):
+            grid_b[t].append(signed_grid_export_w(grid_meter_payload) / 1000.0)
+
+        load_meter_kw_total = 0.0
+        load_meter_found = False
+        for meter_name in load_meter_names:
+            meter_payload = data.get(meter_name)
+            if not isinstance(meter_payload, dict):
+                continue
+            load_meter_found = True
+            load_meter_kw_total += float(meter_payload.get("power") or 0.0) / 1000.0
+
+        if load_meter_found:
+            charger_b[t].append(load_meter_kw_total)
+        elif fallback_to_legacy_meter_names:
+            legacy_load_meter = data.get("meter_4") or {}
+            charger_b[t].append(float(legacy_load_meter.get("power") or 0.0) / 1000.0)
+
         dht = data.get("dht") or {}
         if dht.get("state") == 3:
             if dht.get("temperature") is not None:
@@ -338,6 +389,9 @@ def build_summary(records: list[dict[str, Any]], lat_deg: float | None = None, l
     load_kw: list[float | None] = []
     for present, g, c, gen, ideal in zip(has_meter, grid_kw, charger_kw, gen_kw, ideal_kw):
         if not present or g is None:
+            load_kw.append(None)
+            continue
+        if gen is None:
             load_kw.append(None)
             continue
         charger = c or 0.0
@@ -521,7 +575,7 @@ def build_summary(records: list[dict[str, Any]], lat_deg: float | None = None, l
         "peaks": {
             "exportKw": grid_kw[peak_exp_i],
             "exportClock": local_clock_from_utc_minutes(peak_exp_i * STEP_MIN),
-            "importKw": abs(grid_kw[peak_imp_i]),
+            "importKw": abs(grid_kw[peak_imp_i] or 0.0),
             "importClock": local_clock_from_utc_minutes(peak_imp_i * STEP_MIN),
             "idealKw": ideal_kw[peak_ideal_i],
             "idealClock": local_clock_from_utc_minutes(peak_ideal_i * STEP_MIN),

@@ -185,12 +185,12 @@ PAGE_TEMPLATE = r"""<!DOCTYPE html>
     </table>
 
     <h2>Estimated running load</h2>
-    <p class="muted">Load is inferred as weather-adjusted generation minus net grid flow. Gaps on the purple line are intervals where export exceeded the __SOLAR_DC__ kW DC model — likely battery discharge or extra array not in the nameplate. Night islanding (grid ≈ 0) uses the observed overnight standby of __NIGHT_KW__ kW. Peak inferred load __PEAK_LOAD__ kW at __PEAK_LOAD_CLOCK__ __TZ_LABEL__, consistent with AC plus house circuits; the EV charger pulse is on meter 4.</p>
+    <p class="muted">Load is inferred as weather-adjusted generation minus net grid flow. Gaps on the purple line are intervals where export exceeded the __SOLAR_DC__ kW DC model — likely battery discharge or extra array not in the nameplate. Night islanding (grid ≈ 0) uses the observed overnight standby of __NIGHT_KW__ kW. Peak inferred load __PEAK_LOAD__ kW at __PEAK_LOAD_CLOCK__ __TZ_LABEL__, consistent with AC plus house circuits; load-side activity is aggregated from configured LOAD_AC_METER inputs.</p>
     <div class="grid-4">
       <div><div class="stat-value">__LOAD_KWH__ kWh</div><div class="stat-label">Inferred load energy</div></div>
       <div><div class="stat-value">__PEAK_LOAD__ kW</div><div class="stat-label">Peak inferred load · __PEAK_LOAD_CLOCK__ __TZ_LABEL__</div></div>
       <div><div class="stat-value">__NIGHT_KW__ kW</div><div class="stat-label">Night standby (islanded)</div></div>
-      <div><div class="stat-value">__CHARGER_KWH__ kWh</div><div class="stat-label">EV charger energy</div></div>
+      <div><div class="stat-value">__CHARGER_KWH__ kWh</div><div class="stat-label">Load-meter energy</div></div>
     </div>
     <h2>Missed utilization from grid unavailability</h2>
     <p class="muted">Tan bands are daytime stretches with meter samples, no export, and only a small house load. Grey bands are missing samples and are not counted as missed utilization. Missed kWh is weather-adjusted generation minus the small load that was still served, using only buckets that actually arrived.</p>
@@ -384,7 +384,7 @@ PAGE_TEMPLATE = r"""<!DOCTYPE html>
       el("line", { x1: xAt(chargerMin), x2: xAt(chargerMin), y1: pad.top, y2: height-pad.bottom,
         stroke: COLORS.accent, "stroke-dasharray": "4 4", opacity: 0.7 }, svg);
       const ct = el("text", { x: xAt(chargerMin)+6, y: pad.top + innerH*0.12, fill: COLORS.accent, "font-size": 10, "font-family": "inherit" }, svg);
-      ct.textContent = "EV charger";
+      ct.textContent = "Load meter";
     }
     WEATHER.forEach(wx => {
       const x = xAt(wx.minutesFromStart);
@@ -749,11 +749,17 @@ def process_day(
     raw_path: Path | None = None,
     lat_deg: float | None = None,
     lon_deg: float | None = None,
+  meter_types_by_name: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if raw_path is not None:
         write_json(raw_path, records)
     try:
-        summary = build_summary(records, lat_deg=lat_deg, lon_deg=lon_deg)
+      summary = build_summary(
+        records,
+        lat_deg=lat_deg,
+        lon_deg=lon_deg,
+        meter_types_by_name=meter_types_by_name,
+      )
     except SystemExit as exc:
         raise NoDayData(str(exc)) from exc
     write_html(html_path, render_html(summary))

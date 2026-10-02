@@ -91,6 +91,16 @@ def _device_coordinates(device):
     return lat, lon
 
 
+def _device_meter_types_by_name(device):
+    meter_types = {}
+    for meter in device.get_meters():
+        meter_name = str(getattr(meter, 'name', '') or '').strip()
+        if not meter_name:
+            continue
+        meter_types[meter_name] = str(getattr(meter, 'meter_type', '') or '').strip()
+    return meter_types
+
+
 def get_or_generate_device_day_summary(device, day, force_refresh=False):
     day_stamp = day.isoformat()
     day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
@@ -111,7 +121,15 @@ def get_or_generate_device_day_summary(device, day, force_refresh=False):
         records = _query_day_records_from_db(device, day_start, day_end)
 
     lat_deg, lon_deg = _device_coordinates(device)
-    summary = process_day(records, daily_html_path, raw_day_path, lat_deg=lat_deg, lon_deg=lon_deg)
+    meter_types_by_name = _device_meter_types_by_name(device)
+    summary = process_day(
+        records,
+        daily_html_path,
+        raw_day_path,
+        lat_deg=lat_deg,
+        lon_deg=lon_deg,
+        meter_types_by_name=meter_types_by_name,
+    )
     summary = apply_device_defaults_to_solar_summary(summary, device)
     return {
         'summary': summary,
