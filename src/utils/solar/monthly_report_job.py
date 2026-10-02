@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
+from device.models.device import DeviceProperty
 from utils.solar.solar_day_html import NoDayData, load_local_day, process_day
 from utils.solar.solar_month import month_dates, render_month_html
 
@@ -79,6 +80,17 @@ def _query_day_records_from_db(device, day_start, day_end):
     return day_records
 
 
+def _device_coordinates(device):
+    lat = device.latitude()
+    lon = device.longitude()
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return None, None
+    return lat, lon
+
+
 def get_or_generate_device_day_summary(device, day, force_refresh=False):
     day_stamp = day.isoformat()
     day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
@@ -98,7 +110,8 @@ def get_or_generate_device_day_summary(device, day, force_refresh=False):
     if records is None:
         records = _query_day_records_from_db(device, day_start, day_end)
 
-    summary = process_day(records, daily_html_path, raw_day_path)
+    lat_deg, lon_deg = _device_coordinates(device)
+    summary = process_day(records, daily_html_path, raw_day_path, lat_deg=lat_deg, lon_deg=lon_deg)
     summary = apply_device_defaults_to_solar_summary(summary, device)
     return {
         'summary': summary,

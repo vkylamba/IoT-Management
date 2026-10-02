@@ -751,6 +751,7 @@ class Meter(models.Model):
     IMPORT_ENERGY_METER = 'IMPORT_ENERGY_METER'
     EXPORT_ENERGY_METER = 'EXPORT_ENERGY_METER'
     NET_ENERGY_METER = 'NET_ENERGY_METER'
+    UNKNOWN_METER = 'UNKNOWN_METER'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=1024)

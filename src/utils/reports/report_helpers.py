@@ -129,7 +129,17 @@ def _build_day_windows(start_local_date, day_count):
     return windows
 
 
-def _build_meter_row(imported, exported, generated=0.0, consumed=0.0, report_html_path='', report_html_url=''):
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _build_meter_row(imported, exported, generated=0.0, consumed=0.0, report_html_path='', report_html_url='', summary=None):
+    totals = (summary or {}).get('totals') or {}
+    peaks = (summary or {}).get('peaks') or {}
+    site = (summary or {}).get('site') or {}
     return {
         'solar_meter': float(generated),
         'load_meter': float(consumed),
@@ -137,6 +147,22 @@ def _build_meter_row(imported, exported, generated=0.0, consumed=0.0, report_htm
         'export_energy_meter': float(exported),
         'report_html_path': report_html_path,
         'report_html_url': report_html_url,
+        'ideal_solar_kwh': _safe_float(totals.get('idealSolarKwh'), 0.0),
+        'estimated_gen_kwh': _safe_float(totals.get('estimatedGenKwh'), 0.0),
+        'charger_kwh': _safe_float(totals.get('chargerKwh'), 0.0),
+        'missed_util_kwh': _safe_float(totals.get('missedUtilKwh'), 0.0),
+        'island_minutes': _safe_float(totals.get('islandMinutes'), 0.0),
+        'missing_minutes': _safe_float(totals.get('missingMinutes'), 0.0),
+        'daily_bill_inr': _safe_float(totals.get('dailyBillInr'), 0.0),
+        'co2_net_kg': _safe_float(totals.get('co2NetKg'), 0.0),
+        'peak_export_kw': _safe_float(peaks.get('exportKw'), 0.0),
+        'peak_export_clock': peaks.get('exportClock'),
+        'peak_load_kw': _safe_float(peaks.get('loadKw'), 0.0),
+        'peak_load_clock': peaks.get('loadClock'),
+        'meter_samples': int((summary or {}).get('meterSamples') or 0),
+        'weather_samples': int((summary or {}).get('weatherSamples') or 0),
+        'sunrise_local': site.get('sunriseLocal'),
+        'sunset_local': site.get('sunsetLocal'),
     }
 
 
@@ -189,31 +215,52 @@ def _build_summary_from_rows(rows):
     totals['energy_consumed'] = totals['consumed']
     totals['energy_imported'] = totals['imported']
     totals['energy_exported'] = totals['exported']
+    totals['ideal_solar_kwh'] = sum(_safe_float(row.get('ideal_solar_kwh'), 0) for row in rows.values())
+    totals['estimated_gen_kwh'] = sum(_safe_float(row.get('estimated_gen_kwh'), 0) for row in rows.values())
+    totals['missed_util_kwh'] = sum(_safe_float(row.get('missed_util_kwh'), 0) for row in rows.values())
+    totals['island_minutes'] = sum(_safe_float(row.get('island_minutes'), 0) for row in rows.values())
+    totals['missing_minutes'] = sum(_safe_float(row.get('missing_minutes'), 0) for row in rows.values())
+    totals['co2_net_kg'] = sum(_safe_float(row.get('co2_net_kg'), 0) for row in rows.values())
+    totals['daily_bill_inr'] = sum(_safe_float(row.get('daily_bill_inr'), 0) for row in rows.values())
     return totals
 
-def _get_currency_and_rate(device, latest_running_status):
-    latest_running_status = latest_running_status or {}
-    currency_property = DeviceProperty.objects.filter(device=device, name='currency').first()
-    rate_property = DeviceProperty.objects.filter(device=device, name='pay_per_unit').first()
 
-    currency = latest_running_status.get('currency')
-    if currency in [None, ''] and currency_property:
-        currency = currency_property.get_value()
-    if currency in [None, '']:
-        currency = '$'
+def _build_period_insights(by_time):
+    best_export_day = None
+    highest_import_day = None
+    highest_missed_util_day = None
 
-    rate = latest_running_status.get('pay_per_unit')
-    if rate in [None, ''] and rate_property:
-        rate = rate_property.get_value()
-    if rate in [None, '']:
-        rate = 0
+    for day_stamp, row in by_time.items():
+        export_kwh = _safe_float(row.get('export_energy_meter'), 0.0)
+        import_kwh = _safe_float(row.get('import_energy_meter'), 0.0)
+        missed_kwh = _safe_float(row.get('missed_util_kwh'), 0.0)
 
-    rate_value = rate if isinstance(rate, (int, float, str)) else 0
-    try:
-        rate = float(rate_value)
-    except (TypeError, ValueError):
-        rate = 0.0
-    return currency, rate
+        if best_export_day is None or export_kwh > best_export_day['export_kwh']:
+            best_export_day = {
+                'day': day_stamp,
+                'export_kwh': export_kwh,
+                'report_html_url': row.get('report_html_url'),
+            }
+
+        if highest_import_day is None or import_kwh > highest_import_day['import_kwh']:
+            highest_import_day = {
+                'day': day_stamp,
+                'import_kwh': import_kwh,
+                'report_html_url': row.get('report_html_url'),
+            }
+
+        if highest_missed_util_day is None or missed_kwh > highest_missed_util_day['missed_util_kwh']:
+            highest_missed_util_day = {
+                'day': day_stamp,
+                'missed_util_kwh': missed_kwh,
+                'report_html_url': row.get('report_html_url'),
+            }
+
+    return {
+        'best_export_day': best_export_day,
+        'highest_import_day': highest_import_day,
+        'highest_missed_util_day': highest_missed_util_day,
+    }
 
 
 def _base_report_payload(device, from_utc, to_utc):
@@ -240,6 +287,48 @@ def _load_latest_running_status(device):
         if latest_status and latest_status.status:
             return latest_status.status
     return {}
+
+
+def _get_currency_and_rate(device, latest_running_status):
+    latest_running_status = latest_running_status or {}
+    currency_property = DeviceProperty.objects.filter(device=device, name='currency').first()
+    rate_property = DeviceProperty.objects.filter(device=device, name='pay_per_unit').first()
+
+    currency = latest_running_status.get('currency')
+    if currency in [None, ''] and currency_property:
+        currency = currency_property.get_value()
+    if currency in [None, '']:
+        currency = '$'
+
+    rate = latest_running_status.get('pay_per_unit')
+    if rate in [None, ''] and rate_property:
+        rate = rate_property.get_value()
+    rate = _safe_float(rate, 0.0)
+    return currency, rate
+
+
+def _append_financial_fields(report_payload, summary, device):
+    latest_running_status = _load_latest_running_status(device)
+    currency, rate = _get_currency_and_rate(device, latest_running_status)
+
+    imported = _safe_float(summary.get('energy_imported', summary.get('imported', 0.0)), 0.0)
+    exported = _safe_float(summary.get('energy_exported', summary.get('exported', 0.0)), 0.0)
+
+    consumption_bill = imported * rate
+    savings = exported * rate
+
+    report_payload.update({
+        'currency': currency,
+        'consumption_rate': rate,
+        'energy_generated': _safe_float(summary.get('energy_generated', summary.get('generated', 0.0)), 0.0),
+        'energy_consumed': _safe_float(summary.get('energy_consumed', summary.get('consumed', 0.0)), 0.0),
+        'energy_imported': imported,
+        'energy_exported': exported,
+        'consumption_bill': consumption_bill,
+        'savings': savings,
+        'net_bill': consumption_bill - savings,
+    })
+    return report_payload
 
 
 def _report_window_for_period(device_timezone, normalized_period, selection=None):
@@ -283,6 +372,7 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None):
 
     by_time = {}
     active_data_days = 0
+    first_day_summary = None
     day_count = max(1, (to_local.date() - from_local.date()).days)
     day_windows = _build_day_windows(from_local.date(), day_count)
 
@@ -303,8 +393,11 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None):
                 consumed,
                 report_html_path=report_link['path'],
                 report_html_url=report_link['url'],
+                summary=summary,
             )
             by_time[day_date.strftime('%Y-%m-%d')] = day_row
+            if first_day_summary is None:
+                first_day_summary = summary
             active_data_days += 1
         except NoDayData:
             report_link = _report_day_html_url(device, day_date)
@@ -323,6 +416,13 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None):
         'by_time': by_time,
         'summary': summary
     }
+    report_payload['period_insights'] = _build_period_insights(by_time)
+    report_payload = _append_financial_fields(report_payload, summary, device)
+    if first_day_summary is not None:
+        report_payload['site'] = first_day_summary.get('site') or {}
+        report_payload['plant'] = first_day_summary.get('plant') or {}
+        report_payload['tariff'] = first_day_summary.get('tariff') or {}
+        report_payload['co2_kg_per_kwh'] = first_day_summary.get('co2KgPerKwh')
     if parsed_selection.get('day') is not None:
         report_payload['selected_day'] = parsed_selection['day'].isoformat()
     if parsed_selection.get('week_start') is not None:

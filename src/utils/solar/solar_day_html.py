@@ -747,11 +747,13 @@ def process_day(
     records: list[dict[str, Any]],
     html_path: Path,
     raw_path: Path | None = None,
+    lat_deg: float | None = None,
+    lon_deg: float | None = None,
 ) -> dict[str, Any]:
     if raw_path is not None:
         write_json(raw_path, records)
     try:
-        summary = build_summary(records)
+        summary = build_summary(records, lat_deg=lat_deg, lon_deg=lon_deg)
     except SystemExit as exc:
         raise NoDayData(str(exc)) from exc
     write_html(html_path, render_html(summary))

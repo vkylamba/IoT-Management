@@ -127,19 +127,19 @@ def equation_of_time_min(doy: int) -> float:
     return 9.87 * math.sin(2 * b) - 7.53 * math.cos(b) - 1.5 * math.sin(b)
 
 
-def solar_time_hours(dt: datetime) -> float:
+def solar_time_hours(dt: datetime, lon_deg: float = LON_DEG) -> float:
     doy = day_of_year(dt)
     eot = equation_of_time_min(doy)
     lstm = 15.0 * TZ_OFFSET_H
-    tc = 4.0 * (LON_DEG - lstm) + eot
+    tc = 4.0 * (lon_deg - lstm) + eot
     clock = dt.hour + dt.minute / 60.0 + dt.second / 3600.0 + TZ_OFFSET_H
     return (clock + tc / 60.0) % 24.0
 
 
-def zenith_azimuth(dt: datetime) -> tuple[float, float]:
-    lat = math.radians(LAT_DEG)
+def zenith_azimuth(dt: datetime, lat_deg: float = LAT_DEG, lon_deg: float = LON_DEG) -> tuple[float, float]:
+    lat = math.radians(lat_deg)
     dec = declination_rad(day_of_year(dt))
-    hour_angle = math.radians(15.0 * (solar_time_hours(dt) - 12.0))
+    hour_angle = math.radians(15.0 * (solar_time_hours(dt, lon_deg=lon_deg) - 12.0))
     cos_zen = math.sin(lat) * math.sin(dec) + math.cos(lat) * math.cos(dec) * math.cos(hour_angle)
     cos_zen = max(-1.0, min(1.0, cos_zen))
     zen = math.acos(cos_zen)
@@ -189,8 +189,8 @@ def angle_of_incidence(zen: float, az: float) -> float:
     )
 
 
-def plane_of_array_wm2(dt: datetime) -> float:
-    zen, az = zenith_azimuth(dt)
+def plane_of_array_wm2(dt: datetime, lat_deg: float = LAT_DEG, lon_deg: float = LON_DEG) -> float:
+    zen, az = zenith_azimuth(dt, lat_deg=lat_deg, lon_deg=lon_deg)
     if zen >= math.radians(90.0):
         return 0.0
     ghi, dhi, dni = clear_sky_ghi_dhi_dni(zen)
@@ -202,8 +202,8 @@ def plane_of_array_wm2(dt: datetime) -> float:
     return max(0.0, beam + sky + ground)
 
 
-def ideal_ac_kw(dt: datetime) -> float:
-    poa = plane_of_array_wm2(dt)
+def ideal_ac_kw(dt: datetime, lat_deg: float = LAT_DEG, lon_deg: float = LON_DEG) -> float:
+    poa = plane_of_array_wm2(dt, lat_deg=lat_deg, lon_deg=lon_deg)
     dc = SOLAR_DC_KW * (poa / 1000.0)
     ac = dc * PERFORMANCE_RATIO
     return min(INVERTER_AC_KW, max(0.0, ac))
@@ -244,11 +244,14 @@ def island_patches(flags: list[bool]) -> list[tuple[int, int]]:
     return patches
 
 
-def build_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+def build_summary(records: list[dict[str, Any]], lat_deg: float | None = None, lon_deg: float | None = None) -> dict[str, Any]:
     meters = [r for r in records if r.get("data_type") == "meters-data" and r.get("data_arrival_time")]
     weather = [r for r in records if r.get("data_type") == "weather" and r.get("data_arrival_time")]
     if not meters:
         raise SystemExit("no meters-data records")
+
+    site_lat = float(lat_deg) if lat_deg is not None else LAT_DEG
+    site_lon = float(lon_deg) if lon_deg is not None else LON_DEG
 
     meters.sort(key=lambda r: r["data_arrival_time"])
     first = parse_utc(meters[0]["data_arrival_time"])
@@ -318,7 +321,7 @@ def build_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         g = round(mean(grid_b[key]), 2) if present else None
         c = round(mean(charger_b[key]), 3) if present else None
         mid = key + timedelta(minutes=STEP_MIN / 2)
-        ideal = round(ideal_ac_kw(mid), 2)
+        ideal = round(ideal_ac_kw(mid, lat_deg=site_lat, lon_deg=site_lon), 2)
         # Overcast still has diffuse light; fully cloudy ≈ 25% of clear-sky POA.
         gen = round(ideal * (1.0 - 0.75 * cloud_fraction_at(mid)), 2) if present else None
         has_meter.append(present)
@@ -457,8 +460,8 @@ def build_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "device": device_id(records),
         "site": {
             "name": "Chidawa",
-            "lat": LAT_DEG,
-            "lon": LON_DEG,
+            "lat": site_lat,
+            "lon": site_lon,
             "sunriseLocal": sunrise,
             "sunsetLocal": sunset,
         },
