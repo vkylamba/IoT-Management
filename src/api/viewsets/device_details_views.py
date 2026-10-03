@@ -1927,6 +1927,11 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         if device is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        force_value = (request.data or {}).get('force', '')
+        if force_value in [None, '', 'None']:
+            force_value = request.query_params.get('force', '')
+        force_refresh = str(force_value or '').strip().lower() in {'1', 'true', 'yes', 'y'}
+
         requested_periods = (request.data or {}).get('periods', ['day', 'week', 'month'])
         if not isinstance(requested_periods, list):
             return Response(
@@ -1960,6 +1965,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                     report_period,
                     selection=selection,
                     persist=True,
+                    force_refresh=force_refresh,
                 )
             except ValueError:
                 return Response(

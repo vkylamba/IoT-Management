@@ -365,7 +365,7 @@ def _report_window_for_period(device_timezone, normalized_period, selection=None
     return month_start_local, today_start_local, parsed_selection
 
 
-def _calculate_report_from_raw_data(device, normalized_period, selection=None):
+def _calculate_report_from_raw_data(device, normalized_period, selection=None, force_refresh=False):
     device_timezone = _get_device_timezone(device)
     from_local, to_local, parsed_selection = _report_window_for_period(device_timezone, normalized_period, selection=selection)
     from_utc, to_utc = _to_local_window_utc(from_local, to_local)
@@ -378,7 +378,7 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None):
 
     for day_date in day_windows:
         try:
-            day_result = get_or_generate_device_day_summary(device, day_date, force_refresh=False)
+            day_result = get_or_generate_device_day_summary(device, day_date, force_refresh=force_refresh)
             summary = day_result['summary']
             totals = summary.get('totals', {})
             report_link = _report_day_html_url(device, day_date)
@@ -432,12 +432,17 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None):
     return report_payload
 
 
-def calculate_report_status_for_period(device, report_period, selection=None, persist=True):
+def calculate_report_status_for_period(device, report_period, selection=None, persist=True, force_refresh=False):
     normalized_period = _normalize_report_period(report_period)
     if normalized_period is None:
         return None
 
-    report_payload = _calculate_report_from_raw_data(device, normalized_period, selection=selection)
+    report_payload = _calculate_report_from_raw_data(
+        device,
+        normalized_period,
+        selection=selection,
+        force_refresh=force_refresh,
+    )
 
     report_name = get_report_status_name_for_period(device, normalized_period)
     if report_name is None or not persist:
