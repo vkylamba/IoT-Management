@@ -1462,10 +1462,35 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
                 continue
             if key == 'properties' and isinstance(val, dict):
                 # DeviceProperty model fields (string or float) — upsert as rows
-                DEVICE_PROPERTY_KEYS = {'currency', 'pay_per_unit', 'total_investment', 'total_recovery_amount'}
+                DEVICE_PROPERTY_TEXT_KEYS = {
+                    'currency',
+                    'site_name',
+                    'plant_battery_type',
+                    'plant_azimuth',
+                    'tariff_notes',
+                }
+                DEVICE_PROPERTY_FLOAT_KEYS = {
+                    'pay_per_unit',
+                    'total_investment',
+                    'total_recovery_amount',
+                    'site_lat',
+                    'site_lon',
+                    'plant_solar_dc_kw',
+                    'plant_inverter_ac_kw',
+                    'plant_household_load_kw',
+                    'plant_battery_ah',
+                    'plant_battery_age_years',
+                    'plant_tilt_deg',
+                    'plant_performance_ratio',
+                    'tariff_import_inr_per_kwh',
+                    'tariff_export_inr_per_kwh',
+                    'tariff_fixed_inr_per_month',
+                    'co2_kg_per_kwh',
+                }
+                DEVICE_PROPERTY_KEYS = DEVICE_PROPERTY_TEXT_KEYS | DEVICE_PROPERTY_FLOAT_KEYS
                 for prop_key, prop_val in val.items():
                     if prop_key in DEVICE_PROPERTY_KEYS:
-                        val_type = DeviceProperty.STRING if prop_key == 'currency' else DeviceProperty.FLOAT
+                        val_type = DeviceProperty.STRING if prop_key in DEVICE_PROPERTY_TEXT_KEYS else DeviceProperty.FLOAT
                         DeviceProperty.objects.update_or_create(
                             device=device, name=prop_key,
                             defaults={'value': str(prop_val), 'val_type': val_type}

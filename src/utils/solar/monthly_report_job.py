@@ -34,25 +34,92 @@ def build_device_monthly_report_raw_dir(device_id):
     return Path(settings.MEDIA_ROOT) / 'device-reports' / normalized_device / 'raw-data'
 
 
+def _safe_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _device_report_properties(device):
+    properties = {}
+    device_properties = ((getattr(device, 'other_data', None) or {}).get('device_properties') or {})
+    if isinstance(device_properties, dict):
+        properties.update(device_properties)
+
+    for prop in DeviceProperty.objects.filter(device=device):
+        try:
+            properties[prop.name] = prop.get_value()
+        except Exception:
+            properties[prop.name] = prop.value
+    return properties
+
+
 def apply_device_defaults_to_solar_summary(summary, device):
+    report_properties = _device_report_properties(device)
+
     site = summary.get('site') or {}
-    lat = device.latitude()
-    lon = device.longitude()
-    if lat not in [None, '', 'None'] and lon not in [None, '', 'None']:
-        site.update({
-            'name': device.alias or device.name or device.ip_address,
-            'lat': float(lat),
-            'lon': float(lon),
-        })
+    site_name = report_properties.get('site_name') or device.alias or device.name or device.ip_address
+    site_lat = _safe_float(report_properties.get('site_lat'), None)
+    site_lon = _safe_float(report_properties.get('site_lon'), None)
+    if site_lat is None or site_lon is None:
+        lat = device.latitude()
+        lon = device.longitude()
+        lat_from_device = _safe_float(lat, None)
+        lon_from_device = _safe_float(lon, None)
+        if site_lat is None:
+            site_lat = lat_from_device
+        if site_lon is None:
+            site_lon = lon_from_device
+
+    site.update({'name': site_name})
+    if site_lat is not None:
+        site['lat'] = site_lat
+    if site_lon is not None:
+        site['lon'] = site_lon
     summary['site'] = site
 
     plant = summary.get('plant') or {}
-    plant.update({
-        'solarDcKw': float(plant.get('solarDcKw') or 3.2),
-        'inverterAcKw': float(plant.get('inverterAcKw') or 5.0),
-        'householdLoadKw': float(plant.get('householdLoadKw') or 5.0),
-    })
+    plant_value_overrides = {
+        'solarDcKw': _safe_float(report_properties.get('plant_solar_dc_kw'), None),
+        'inverterAcKw': _safe_float(report_properties.get('plant_inverter_ac_kw'), None),
+        'householdLoadKw': _safe_float(report_properties.get('plant_household_load_kw'), None),
+        'batteryAh': _safe_float(report_properties.get('plant_battery_ah'), None),
+        'batteryAgeYears': _safe_float(report_properties.get('plant_battery_age_years'), None),
+        'tiltDeg': _safe_float(report_properties.get('plant_tilt_deg'), None),
+        'performanceRatio': _safe_float(report_properties.get('plant_performance_ratio'), None),
+    }
+    for key, value in plant_value_overrides.items():
+        if value is not None:
+            plant[key] = value
+
+    if report_properties.get('plant_battery_type') not in [None, '']:
+        plant['batteryType'] = report_properties.get('plant_battery_type')
+    if report_properties.get('plant_azimuth') not in [None, '']:
+        plant['azimuth'] = report_properties.get('plant_azimuth')
+
+    plant['solarDcKw'] = float(plant.get('solarDcKw') or 3.2)
+    plant['inverterAcKw'] = float(plant.get('inverterAcKw') or 5.0)
+    plant['householdLoadKw'] = float(plant.get('householdLoadKw') or 5.0)
     summary['plant'] = plant
+
+    tariff = summary.get('tariff') or {}
+    tariff_value_overrides = {
+        'importInrPerKwh': _safe_float(report_properties.get('tariff_import_inr_per_kwh'), None),
+        'exportInrPerKwh': _safe_float(report_properties.get('tariff_export_inr_per_kwh'), None),
+        'fixedInrPerMonth': _safe_float(report_properties.get('tariff_fixed_inr_per_month'), None),
+    }
+    for key, value in tariff_value_overrides.items():
+        if value is not None:
+            tariff[key] = value
+    if report_properties.get('tariff_notes') not in [None, '']:
+        tariff['notes'] = report_properties.get('tariff_notes')
+    summary['tariff'] = tariff
+
+    co2_kg_per_kwh = _safe_float(report_properties.get('co2_kg_per_kwh'), None)
+    if co2_kg_per_kwh is not None:
+        summary['co2KgPerKwh'] = co2_kg_per_kwh
+
     return summary
 
 
