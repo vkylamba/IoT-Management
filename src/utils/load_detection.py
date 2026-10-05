@@ -137,9 +137,6 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
     """
     Method to find the loads connected to a meter and store in the MeterLoad table.
     """
-    if not CLICKHOUSE_ENABLED:
-        return {}
-
     all_equipments = device.get_all_equipments()
 
     weather_data_now = get_weather_data_cached(
@@ -154,17 +151,18 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
         "weather": weather_data_now
     }
     if weather_data_now is not None and len(weather_data_now.keys()) > 0:
-        create_model_instance(
-            WeatherData,
-            {
-                "device": device.id,
-                "data_arrival_time": data_arrival_time,
-                "temperature": (temperature - 273) * 100,
-                "humidity": humidity * 100,
-                "wind_speed": wind_speed * 100,
-                "more_data": json.dumps(weather_data_now)
-            }
-        )
+        if CLICKHOUSE_ENABLED and WeatherData is not None:
+            create_model_instance(
+                WeatherData,
+                {
+                    "device": device.id,
+                    "data_arrival_time": data_arrival_time,
+                    "temperature": (temperature - 273) * 100,
+                    "humidity": humidity * 100,
+                    "wind_speed": wind_speed * 100,
+                    "more_data": json.dumps(weather_data_now)
+                }
+            )
 
     for meter_and_data in meters_and_data:
 
@@ -186,18 +184,21 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
                 wind_speed * 3.6 # convert from m/s to kh/h
             )
 
-            meter_loads = [
-                MeterLoad(
-                    equipment_name=load['name'],
-                    device=device.id,
-                    data_point=data_point["id"] if isinstance(data_point, dict) else data_point.id,
-                    count=load['qty'],
-                    power=load['power'],
-                    data_arrival_time=data_point["data_arrival_time"] if isinstance(data_point, dict) else data_point.data_arrival_time
-                ) for load in loads
-            ]
+            logger.info(f"Detected loads for device {device.ip_address}: {loads}")
 
-            MeterLoad.objects.bulk_create(meter_loads)
+            if CLICKHOUSE_ENABLED and MeterLoad is not None:
+                meter_loads = [
+                    MeterLoad(
+                        equipment_name=load['name'],
+                        device=device.id,
+                        data_point=data_point["id"] if isinstance(data_point, dict) else data_point.id,
+                        count=load['qty'],
+                        power=load['power'],
+                        data_arrival_time=data_point["data_arrival_time"] if isinstance(data_point, dict) else data_point.data_arrival_time
+                    ) for load in loads
+                ]
+
+                MeterLoad.objects.bulk_create(meter_loads)
 
             data["loads"] = loads
     return data

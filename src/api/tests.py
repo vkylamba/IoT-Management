@@ -912,6 +912,33 @@ class StatusProcessingContextTests(TestCase):
 		self.assertEqual(submit_mock.call_count, 1)
 		self.assertEqual(update_status_mock.call_count, 1)
 
+	@patch("api.utils.CLICKHOUSE_ENABLED", False)
+	@patch("api.utils.update_user_and_device_statuses")
+	@patch("api.utils.detect_and_save_meter_loads")
+	@patch("api.utils._submit_background_device_enrichment")
+	def test_process_raw_data_detects_loads_inline_without_clickhouse(self, submit_mock, detect_loads_mock, update_status_mock):
+		detect_loads_mock.return_value = {
+			"weather": {"main": {"temp": 299}},
+			"loads": [{"name": "Fan", "qty": 1, "power": 40}],
+		}
+
+		device = Device.objects.create(ip_address="192.168.1.79", alias="inline-load-device", other_data={"device_load_detection_on": True})
+		message_data = {
+			"last_update_time": "2026-09-13T12:00:00+00:00",
+			"meter_0": {"power": 42},
+		}
+
+		result = process_raw_data(device, message_data, channel="api", data_type="data", user=None)
+
+		self.assertEqual(result, "")
+		detect_loads_mock.assert_called_once()
+		submit_mock.assert_not_called()
+		self.assertEqual(update_status_mock.call_count, 1)
+		self.assertEqual(
+			update_status_mock.call_args.args[4],
+			detect_loads_mock.return_value,
+		)
+
 	@patch("api.utils.get_redis_connection")
 	def test_submit_background_device_enrichment_enqueues_job(self, redis_conn_mock):
 		device = Device.objects.create(ip_address="192.168.1.78", alias="queue-device", other_data={"device_load_detection_on": True})

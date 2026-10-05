@@ -1277,10 +1277,10 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
                     MeterData,
                     meter_data
                 )
-                meters_and_data.append({
-                    "meter": meter,
-                    "data": meter_data
-                })
+            meters_and_data.append({
+                "meter": meter,
+                "data": meter_data
+            })
         except TypeError as e:
             logger.exception(e)
 
@@ -1290,11 +1290,18 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
     if load_detection_enabled and has_meter_payload:
         # Skip if only status meter data is there.
         if not(len(meters_names_found) == 1 and meters_names_found[0] == "status_meter"):
-            logger.info(
-                'Scheduling background weather/load enrichment for device %s',
-                device.ip_address,
-            )
-            _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
+            if CLICKHOUSE_ENABLED:
+                logger.info(
+                    'Scheduling background weather/load enrichment for device %s',
+                    device.ip_address,
+                )
+                _submit_background_device_enrichment(device, meters_and_data, data_arrival_time)
+            else:
+                logger.info(
+                    'Running inline weather/load enrichment for device %s because ClickHouse is disabled',
+                    device.ip_address,
+                )
+                weather_and_loads_data = detect_and_save_meter_loads(device, meters_and_data, data_arrival_time) or {}
 
     try:
         update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)
@@ -1417,6 +1424,17 @@ def update_user_and_device_statuses(
 
         logger.info(f"Validated data for schema {status_type.name} is: {validated_data}")
         validated_status_data = validated_data.get(status_type.name, {})
+        if (
+            not CLICKHOUSE_ENABLED
+            and status_type.target_type == StatusType.STATUS_TARGET_DEVICE
+            and status_type.name == AssetStatus.DAILY_STATUS
+            and isinstance(validated_status_data, dict)
+        ):
+            detected_loads = (weather_and_loads_data or {}).get('loads')
+            if isinstance(detected_loads, list) and len(detected_loads) > 0:
+                validated_status_data['loads'] = detected_loads
+                validated_data[status_type.name] = validated_status_data
+
         if isinstance(validated_status_data, dict):
             calculated_alarm_status_data.update(validated_status_data)
         if any(validated_status_data):
