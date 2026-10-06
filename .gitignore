@@ -51,3 +51,8 @@ static/
 
 # Env file
 .env
+
+# Miscellaneous
+media/
+settings.json
+root_ca.crt

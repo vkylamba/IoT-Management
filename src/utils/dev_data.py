@@ -519,8 +519,7 @@ class DataReports(object):
         device_equipments = [eqp.equipment.name for eqp in self.device.get_all_equipments()]
 
         if len(device_equipments) > 0:
-            load_list = MeterLoad.objects.filter(
-                device=self.device.id,
+            load_queryset = MeterLoad.objects.filter(
                 equipment_name__in=device_equipments
             ).filter(
                 data_arrival_time__gte=date_today,
@@ -528,6 +527,14 @@ class DataReports(object):
             ).order_by(
                 'data_arrival_time'
             )
+
+            if CLICKHOUSE_ENABLED:
+                load_list = [
+                    load for load in load_queryset
+                    if str(getattr(load, 'device', '')) == str(self.device.id)
+                ]
+            else:
+                load_list = load_queryset.filter(device=self.device.id)
         else:
             load_list = []
 
