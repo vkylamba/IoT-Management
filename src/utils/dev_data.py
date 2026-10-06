@@ -25,9 +25,10 @@ if CLICKHOUSE_ENABLED:
     from django_clickhouse.configuration import config
     from django_clickhouse.database import connections
 else:
+    from device.models import MeterLoad
+
     DerivedData = None
     MeterData = None
-    MeterLoad = None
     WeatherData = None
     config = None
     connections = None
@@ -502,6 +503,9 @@ class DataReports(object):
         return data_weather
 
     def get_appliances_current_day(self):
+        if MeterLoad is None:
+            return {}
+
         time_now = self.get_device_local_time()
         time_now_zero_hour = datetime.datetime(
             year=time_now.year,
@@ -516,6 +520,7 @@ class DataReports(object):
 
         if len(device_equipments) > 0:
             load_list = MeterLoad.objects.filter(
+                device=self.device.id,
                 equipment_name__in=device_equipments
             ).filter(
                 data_arrival_time__gte=date_today,
@@ -577,6 +582,9 @@ class DataReports(object):
             Input: power data, current time, weather temperature. List of equipments.
             Output: List of equipments that could be running.
         """
+        if MeterLoad is None:
+            return []
+
         data = self.device.get_latest_data(meter_type=[Meter.LOAD_AC_METER])
         if data is None:
             return []

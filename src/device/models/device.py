@@ -806,3 +806,28 @@ class RawData(models.Model):
 
     def __str__(self) -> str:
         return f"{self.device.ip_address}-{self.data_arrival_time.strftime(settings.TIME_FORMAT_STRING)}"
+
+
+class MeterLoad(models.Model):
+    """
+    Relational fallback model for detected loads when ClickHouse is disabled.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    equipment_name = models.CharField(max_length=255)
+    device = models.ForeignKey('Device', on_delete=models.DO_NOTHING, db_index=True)
+    data_point = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    count = models.IntegerField()
+    power = models.DecimalField(max_digits=8, decimal_places=3)
+    data_arrival_time = models.DateTimeField(db_index=True)
+
+    class Meta:
+        app_label = "device"
+        verbose_name = "MeterLoad"
+        verbose_name_plural = "MeterLoads"
+        indexes = [
+            models.Index(fields=['device', '-data_arrival_time']),
+            models.Index(fields=['equipment_name', '-data_arrival_time']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.device.ip_address}-{self.equipment_name}-{self.data_arrival_time.strftime(settings.TIME_FORMAT_STRING)}"

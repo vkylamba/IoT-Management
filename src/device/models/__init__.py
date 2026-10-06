@@ -9,6 +9,7 @@ from .device import (
     AssetDocument,
     AssetStatus,
     Meter,
+    MeterLoad,
     RawData,
     Subnet,
     get_image_path
@@ -34,6 +35,7 @@ __all__ = (
     'AssetDocument',
     'RawData',
     'Meter',
+    'MeterLoad',
     'DeviceConfig',
     'DeviceFirmware',
     'Subnet',

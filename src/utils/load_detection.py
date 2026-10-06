@@ -18,7 +18,8 @@ if CLICKHOUSE_ENABLED:
     from device.clickhouse_models import (MeterLoad, WeatherData,
                                           create_model_instance)
 else:
-    MeterLoad = None
+    from device.models import MeterLoad
+
     WeatherData = None
 
     def create_model_instance(*args, **kwargs):
@@ -63,7 +64,22 @@ def _coerce_model_prediction_count(prediction):
             return 0
 
 
-def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidity, wind_speed):
+def _normalize_power_for_load_detection(power, meter_type=None):
+    try:
+        normalized_power = float(power)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if meter_type == Meter.NET_ENERGY_METER:
+        # Net meter import is represented as negative power.
+        if normalized_power >= 0:
+            return 0.0
+        return abs(normalized_power)
+
+    return normalized_power
+
+
+def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidity, wind_speed, meter_type=None):
     """
         Method to find out appliances list based on the data.
     """
@@ -85,6 +101,8 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
         logger.warning('Skipping load detection because data_arrival_time is missing or invalid: %s', data_point)
         return equipments
 
+    detection_power = _normalize_power_for_load_detection(power, meter_type=meter_type)
+
     input_data_list = [
         # float(data_point.device.latitude()),
         # float(data_point.device.longitude()),
@@ -92,14 +110,14 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
         data_arrival_time.day,
         data_arrival_time.weekday(),
         data_arrival_time.hour,
-        power,
+        detection_power,
         temperature,
         humidity,
         wind_speed,
     ]
 
     for load in sorted_equipments:
-        input_data_list[4] = power
+        input_data_list[4] = detection_power
         if load.equipment.name in load_model.targets:
             try:
                 model = load_model.targets[load.equipment.name]
@@ -117,16 +135,16 @@ def get_load_data_ai(device, data_point, sorted_equipments, temperature, humidit
                         raise attr_ex
                 
                 equipment_avg_power = (load.equipment.max_power + load.equipment.min_power) / 2
-                if number > 0 and equipment_avg_power <= power:
+                if number > 0 and equipment_avg_power <= detection_power:
                     # Find the suitable number.
-                    while number * equipment_avg_power > power:
+                    while number * equipment_avg_power > detection_power:
                         number -= 1
                     load_data = {
                         'name': load.equipment.name,
                         'qty': number,
                         'power': equipment_avg_power * number,
                     }
-                    power -= equipment_avg_power * number
+                    detection_power -= equipment_avg_power * number
                     equipments.append(load_data)
             except Exception as ex:
                 logger.exception(f"Exception occurred while checking for load {load.equipment.name}: %s", str(ex))
@@ -168,7 +186,7 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
 
         meter = meter_and_data["meter"]
         
-        if meter.meter_type == Meter.LOAD_AC_METER:
+        if meter.meter_type in [Meter.LOAD_AC_METER, Meter.NET_ENERGY_METER]:
             data_point = meter_and_data["data"]
 
             meter_equipments = [x for x in all_equipments if x.meter_id == str(meter.id)]
@@ -181,17 +199,19 @@ def detect_and_save_meter_loads(device: Device, meters_and_data, data_arrival_ti
                 meter_equipments,
                 (temperature - 273) * 10, # Convert from kelvin to degrees * 10
                 humidity,
-                wind_speed * 3.6 # convert from m/s to kh/h
+                wind_speed * 3.6, # convert from m/s to kh/h
+                meter_type=meter.meter_type,
             )
 
             logger.info(f"Detected loads for device {device.ip_address}: {loads}")
 
-            if CLICKHOUSE_ENABLED and MeterLoad is not None:
+            if MeterLoad is not None:
+                data_point_id = data_point.get("id") if isinstance(data_point, dict) else getattr(data_point, "id", None)
                 meter_loads = [
                     MeterLoad(
                         equipment_name=load['name'],
                         device=device.id,
-                        data_point=data_point["id"] if isinstance(data_point, dict) else data_point.id,
+                        data_point=str(data_point_id) if data_point_id is not None else None,
                         count=load['qty'],
                         power=load['power'],
                         data_arrival_time=data_point["data_arrival_time"] if isinstance(data_point, dict) else data_point.data_arrival_time

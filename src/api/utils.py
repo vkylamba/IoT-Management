@@ -1302,6 +1302,9 @@ def process_raw_data(device, message_data, channel='unknown', data_type='unknown
                     device.ip_address,
                 )
                 weather_and_loads_data = detect_and_save_meter_loads(device, meters_and_data, data_arrival_time) or {}
+                logger.info(
+                    f'Weather/load enrichment completed for device {device.ip_address}: {weather_and_loads_data}',
+                )
 
     try:
         update_user_and_device_statuses(user, device, raw_data, last_raw_data, weather_and_loads_data)

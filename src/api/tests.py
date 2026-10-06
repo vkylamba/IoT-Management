@@ -96,6 +96,37 @@ class LoadDetectionTests(SimpleTestCase):
 		self.assertEqual(result[0]["qty"], 1)
 		self.assertAlmostEqual(result[0]["power"], 35)
 
+	@patch("utils.load_detection.load_model")
+	def test_get_load_data_ai_treats_negative_net_meter_power_as_import_load(self, load_model_mock):
+		load_model_mock.targets = {
+			"Fan": Mock(predict=Mock(return_value=[1])),
+		}
+		load = Mock()
+		load.equipment = Mock()
+		load.equipment.name = "Fan"
+		load.equipment.max_power = 50
+		load.equipment.min_power = 20
+		result = get_load_data_ai(
+			device=Mock(),
+			data_point={
+				"power": -100,
+				"data_arrival_time": "2026-09-28T18:08:37.564823665Z",
+				"temperature": 25,
+				"humidity": 50,
+				"wind_speed": 8,
+			},
+			sorted_equipments=[load],
+			temperature=25,
+			humidity=50,
+			wind_speed=8,
+			meter_type=Meter.NET_ENERGY_METER,
+		)
+
+		self.assertEqual(len(result), 1)
+		self.assertEqual(result[0]["name"], "Fan")
+		self.assertEqual(result[0]["qty"], 1)
+		self.assertAlmostEqual(result[0]["power"], 35)
+
 
 class EventEquationTests(SimpleTestCase):
 	def test_eval_equation_returns_true_for_none_equation(self):

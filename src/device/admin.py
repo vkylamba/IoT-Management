@@ -113,6 +113,13 @@ class MeterAdmin(SafeDeviceAdminMixin):
         return obj.device
 
 
+class MeterLoadAdmin(SafeDeviceAdminMixin):
+    ordering = ('-data_arrival_time',)
+    list_display = ('id', 'device', 'equipment_name', 'count', 'power', 'data_arrival_time')
+    list_filter = ('device__ip_address', 'equipment_name', 'data_arrival_time')
+    search_fields = ('device__ip_address', 'equipment_name', 'data_point')
+
+
 class DevicePropertyAdmin(SafeDeviceAdminMixin):
     ordering = ('device__ip_address',)
     list_display = ('id', 'name', 'value', 'Device')
@@ -177,6 +184,7 @@ admin.site.register(User, UserAdmin)
 admin.site.register(AssetStatus, AssetStatusAdmin)
 admin.site.register(AssetDocument, DjongoSafeModelAdmin)
 admin.site.register(Meter, MeterAdmin)
+admin.site.register(MeterLoad, MeterLoadAdmin)
 admin.site.register(Command, CommandAdmin)
 admin.site.register(Permission, DjongoSafeModelAdmin)
 admin.site.register(DeviceFirmware, DjongoSafeModelAdmin)
