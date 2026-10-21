@@ -93,7 +93,7 @@ def daily_energy_report(action_id):
     data = device_event.device.get_last_data_point()
     if device_event.eval_equation(data):
         if get_report_status_type_for_period(device_event.device, 'yesterday') is None:
-            calculate_report_status_for_period(device_event.device, 'yesterday')
+            calculate_report_status_for_period(device_event.device, 'yesterday', force_refresh=True)
         report_data = get_daily_report(device_event.device)
         result = {
             "daily_report": report_data

@@ -6,6 +6,7 @@ from django.contrib.admin.sites import NotRegistered
 from pymongo import MongoClient
 from typing import Any
 
+from device.admin_filters import DeviceIpAddressAdminFilter
 from device.models import DeviceFirmware, Meter, RawData, UserDeviceType, StatusType, StatusCache, DeviceConfig
 from device.models.device import *
 from iot_server.admin_utils import DjongoSafeModelAdmin
@@ -101,7 +102,30 @@ class CommandAdmin(SafeDeviceAdminMixin):
 class AssetStatusAdmin(SafeDeviceAdminMixin):
     ordering = ('-created_at',)
     list_display = ('id', 'name', 'device', 'asset', 'created_at')
-    list_filter = ('device__ip_address', 'asset__name', 'name')
+    list_filter = (DeviceIpAddressAdminFilter, 'name')
+    search_fields = ('name', 'device__ip_address', 'asset__name')
+    show_full_result_count = False
+    list_per_page = 50
+
+    def get_queryset(self, request):
+        legacy_ip = request.GET.get('device__ip_address')
+        if legacy_ip:
+            device = Device.objects.filter(ip_address=legacy_ip).only('id').first()
+            qs = AssetStatus.objects.all()
+            if device:
+                qs = qs.filter(device_id=device.pk)
+            else:
+                qs = qs.none()
+            name = request.GET.get('name')
+            if name:
+                qs = qs.filter(name=name)
+            return qs.defer('status').order_by('-created_at')
+        return (
+            super()
+            .get_queryset(request)
+            .select_related('device', 'asset')
+            .defer('status')
+        )
 
 
 class MeterAdmin(SafeDeviceAdminMixin):
