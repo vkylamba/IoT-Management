@@ -1,6 +1,7 @@
 import json
 import logging
 
+import sentry_sdk
 from api.utils import DEVICE_MONTHLY_REPORT_QUEUE_KEY
 from api.viewsets.device_details_views import _update_monthly_report_job_status
 from django.conf import settings
@@ -130,6 +131,12 @@ class Command(BaseCommand):
             })
         except Exception as exc:
             logger.exception('Monthly report job failed for device %s: %s', device_id, exc)
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag('monthly_report_job', 'true')
+                scope.set_extra('device_id', device_id)
+                scope.set_extra('report_month', report_month)
+                scope.set_extra('job_id', job_id)
+                sentry_sdk.capture_exception(exc)
             _update_monthly_report_job_status(job_id, {
                 'status': 'failed',
                 'message': str(exc),
