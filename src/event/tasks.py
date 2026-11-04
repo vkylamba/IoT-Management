@@ -1,11 +1,15 @@
 import logging
 
 # from celery.decorators import task
+from api.monthly_report_jobs import (
+    current_report_month,
+    enqueue_monthly_report_job,
+    is_last_day_of_month,
+)
 from device.models import AssetStatus, User
 from django.db.models import Q
 from event.models import Action, EventHistory
 from utils.reports.daily_reports import get_daily_report
-from utils.reports.monthly_reports import get_monthly_report
 from utils.reports.report_helpers import calculate_report_status_for_period, get_report_status_type_for_period
 from utils.reports.weekly_reports import get_weekly_report
 
@@ -50,22 +54,32 @@ def periodic_system_check(action_id):
 
 # @task
 def monthly_energy_report(action_id):
+    if not is_last_day_of_month():
+        return
+
     action = Action.objects.get(id=action_id)
     device_event = action.device_event
     data = device_event.device.get_last_data_point()
     if device_event.eval_equation(data):
-        if get_report_status_type_for_period(device_event.device, 'month') is None:
-            calculate_report_status_for_period(device_event.device, 'month')
-        report_data = get_monthly_report(device_event.device)
+        device = device_event.device
+        if get_report_status_type_for_period(device, 'month') is None:
+            calculate_report_status_for_period(device, 'month')
+        report_month = current_report_month()
+        job_id = enqueue_monthly_report_job(device, report_month, force_refresh=False)
         result = {
-            "monthly_report": report_data
+            'month': report_month,
+            'monthly_report_job_id': job_id,
+            'queued': job_id is not None,
         }
+        if job_id is None:
+            result['error'] = 'Failed to enqueue monthly HTML report job.'
         event_history = EventHistory(
             device_event=device_event,
             action=action,
             result=result
         )
         event_history.save()
+
 
 # @task
 def weekly_energy_report(action_id):
@@ -85,6 +99,7 @@ def weekly_energy_report(action_id):
             result=result
         )
         event_history.save()
+
 
 # @task
 def daily_energy_report(action_id):
