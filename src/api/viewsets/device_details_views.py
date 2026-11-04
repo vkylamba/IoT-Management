@@ -50,6 +50,12 @@ PERMISSIONS_ADMIN = settings.PERMISSIONS_ADMIN
 
 logger = logging.getLogger('django')
 
+from api.monthly_report_jobs import (
+    current_report_month,
+    enqueue_monthly_report_job as _enqueue_monthly_report_job,
+    load_monthly_report_job_status as _load_monthly_report_job_status,
+    update_monthly_report_job_status as _update_monthly_report_job_status,
+)
 from utils.solar.monthly_report_job import (
     build_device_monthly_report_cache_path,
     generate_device_monthly_report_job,
@@ -60,11 +66,6 @@ REPROCESS_JOB_STATUS_DIR = os.path.join(
     'iot-management-reprocess-jobs',
 )
 REPROCESS_JOB_STATUS_TTL_SECONDS = 6 * 60 * 60
-MONTHLY_REPORT_JOB_STATUS_DIR = os.path.join(
-    tempfile.gettempdir(),
-    'iot-management-monthly-report-jobs',
-)
-MONTHLY_REPORT_JOB_STATUS_TTL_SECONDS = 12 * 60 * 60
 
 REPORT_PERIOD_TO_EVENT_CONFIG = {
     'yesterday': {
@@ -96,10 +97,10 @@ REPORT_PERIOD_TO_EVENT_CONFIG = {
         'event_type_description': 'Auto-generated monthly report event for configured report status.',
         'action_task': 'event.tasks.monthly_energy_report',
         'schedule_defaults': {
-            'minute': '15',
-            'hour': '0',
+            'minute': '45',
+            'hour': '23',
             'day_of_week': '*',
-            'day_of_month': '1',
+            'day_of_month': '28,29,30,31',
             'month_of_year': '*',
         },
     },
@@ -251,11 +252,6 @@ def _get_reprocess_job_status_path(job_id):
     return os.path.join(REPROCESS_JOB_STATUS_DIR, f'{job_id}.json')
 
 
-def _get_monthly_report_job_status_path(job_id):
-    os.makedirs(MONTHLY_REPORT_JOB_STATUS_DIR, exist_ok=True)
-    return os.path.join(MONTHLY_REPORT_JOB_STATUS_DIR, f'{job_id}.json')
-
-
 def _load_reprocess_job_status(job_id):
     status_path = _get_reprocess_job_status_path(job_id)
     if not os.path.exists(status_path):
@@ -266,22 +262,6 @@ def _load_reprocess_job_status(job_id):
             os.remove(status_path)
         except OSError:
             logger.warning('Failed to remove expired reprocess job state: %s', status_path)
-        return None
-
-    with open(status_path, 'r', encoding='utf-8') as handle:
-        return json.load(handle)
-
-
-def _load_monthly_report_job_status(job_id):
-    status_path = _get_monthly_report_job_status_path(job_id)
-    if not os.path.exists(status_path):
-        return None
-
-    if timezone.now().timestamp() - os.path.getmtime(status_path) > MONTHLY_REPORT_JOB_STATUS_TTL_SECONDS:
-        try:
-            os.remove(status_path)
-        except OSError:
-            logger.warning('Failed to remove expired monthly report job state: %s', status_path)
         return None
 
     with open(status_path, 'r', encoding='utf-8') as handle:
@@ -305,69 +285,6 @@ def _update_reprocess_job_status(job_id, patch):
     current_data = _load_reprocess_job_status(job_id) or {}
     current_data.update(patch)
     return _write_reprocess_job_status(job_id, current_data)
-
-
-def _write_monthly_report_job_status(job_id, data):
-    status_path = _get_monthly_report_job_status_path(job_id)
-    serialized_data = _serialize_reprocess_job_value({
-        **data,
-        'updated_at': timezone.now().isoformat(),
-    })
-    temp_path = f'{status_path}.tmp'
-    with open(temp_path, 'w', encoding='utf-8') as handle:
-        json.dump(serialized_data, handle)
-    os.replace(temp_path, status_path)
-    return serialized_data
-
-
-def _enqueue_monthly_report_job(device, report_month, force_refresh=False):
-    if device is None or get_redis_connection is None:
-        return None
-
-    from api.utils import DEVICE_MONTHLY_REPORT_QUEUE_KEY, DEVICE_MONTHLY_REPORT_QUEUE_MAX_LENGTH
-
-    job_id = uuid.uuid4().hex
-    queue_entry = {
-        'job_id': job_id,
-        'device_id': str(getattr(device, 'pk', None) or getattr(device, 'id', '')),
-        'device_identifier': device.ip_address or device.alias or str(device.id),
-        'report_month': report_month,
-        'force_refresh': bool(force_refresh),
-        'queued_at': timezone.now().isoformat(),
-    }
-
-    try:
-        redis_connection = get_redis_connection('default')
-        payload = json.dumps(queue_entry)
-        pipeline = redis_connection.pipeline()
-        pipeline.rpush(DEVICE_MONTHLY_REPORT_QUEUE_KEY, payload)
-        pipeline.ltrim(
-            DEVICE_MONTHLY_REPORT_QUEUE_KEY,
-            -DEVICE_MONTHLY_REPORT_QUEUE_MAX_LENGTH,
-            -1,
-        )
-        pipeline.execute()
-    except Exception as exc:
-        logger.exception('Failed to enqueue monthly report job for device %s: %s', getattr(device, 'ip_address', 'unknown'), exc)
-        return None
-
-    _write_monthly_report_job_status(job_id, {
-        'job_id': job_id,
-        'status': 'queued',
-        'message': 'Monthly report generation queued.',
-        'month': report_month,
-        'device_id': str(getattr(device, 'pk', None) or getattr(device, 'id', '')),
-        'device_identifier': device.ip_address or device.alias or str(device.id),
-        'progress_percent': 0,
-        'queued_at': timezone.now().isoformat(),
-    })
-    return job_id
-
-
-def _update_monthly_report_job_status(job_id, patch):
-    current_data = _load_monthly_report_job_status(job_id) or {}
-    current_data.update(patch)
-    return _write_monthly_report_job_status(job_id, current_data)
 
 
 def _invalidate_device_static_data_cache(device, requested_device_id):
@@ -1905,7 +1822,7 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
         report_month = str(report_month_source or '').strip()
         if report_month and not __import__('re').match(r'^\d{4}-\d{2}$', report_month):
             return Response({'error': 'month must be in YYYY-MM format.'}, status=status.HTTP_400_BAD_REQUEST)
-        report_month = report_month or datetime.utcnow().strftime('%Y-%m')
+        report_month = report_month or current_report_month()
 
         force_refresh = str(request.GET.get('force', request.data.get('force', '')) or '').lower() in {'1', 'true', 'yes', 'y'}
         report_path = _build_device_monthly_report_cache_path(device.ip_address or str(device.id), report_month)

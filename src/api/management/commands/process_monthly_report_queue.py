@@ -1,8 +1,8 @@
 import json
 import logging
 
+from api.monthly_report_jobs import report_monthly_report_failure, update_monthly_report_job_status
 from api.utils import DEVICE_MONTHLY_REPORT_QUEUE_KEY
-from api.viewsets.device_details_views import _update_monthly_report_job_status
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
@@ -52,7 +52,7 @@ class Command(BaseCommand):
                 try:
                     payload = json.loads(raw_payload)
                 except Exception as exc:
-                    logger.exception('Dropping invalid monthly report job payload: %s', exc)
+                    report_monthly_report_failure(exc, source='worker_invalid_payload')
                     continue
                 logger.info('Processing monthly report job: %s', payload)
                 self._process_job(payload)
@@ -69,12 +69,19 @@ class Command(BaseCommand):
 
         if not job_id or not device_id or not report_month:
             logger.warning('Skipping invalid monthly report job payload: %s', payload)
+            report_monthly_report_failure(
+                ValueError('Invalid monthly report job payload'),
+                device_id=device_id,
+                report_month=report_month,
+                job_id=job_id,
+                source='worker',
+            )
             return
 
         try:
-            _update_monthly_report_job_status(job_id, {
+            update_monthly_report_job_status(job_id, {
                 'status': 'running',
-                'message': 'Monthly report generation queued.',
+                'message': 'Monthly report generation in progress.',
                 'month': report_month,
                 'progress_percent': 0,
             })
@@ -83,7 +90,7 @@ class Command(BaseCommand):
                 device_pk=device_id,
                 report_month=report_month,
                 force_refresh=force_refresh,
-                progress_callback=lambda progress_patch: _update_monthly_report_job_status(
+                progress_callback=lambda progress_patch: update_monthly_report_job_status(
                     job_id,
                     {
                         'status': 'running',
@@ -97,7 +104,7 @@ class Command(BaseCommand):
             report_url = f"{settings.MEDIA_URL}device-reports/{report_path.parent.name}/{report_path.name}"
 
             if result['cached'] and not force_refresh:
-                _update_monthly_report_job_status(job_id, {
+                update_monthly_report_job_status(job_id, {
                     'status': 'completed',
                     'message': 'Monthly report already cached.',
                     'month': report_month,
@@ -113,7 +120,7 @@ class Command(BaseCommand):
                 })
                 return
 
-            _update_monthly_report_job_status(job_id, {
+            update_monthly_report_job_status(job_id, {
                 'status': 'completed',
                 'message': 'Monthly report generated successfully.',
                 'month': report_month,
@@ -129,8 +136,14 @@ class Command(BaseCommand):
                 'finished_at': timezone.now().isoformat(),
             })
         except Exception as exc:
-            logger.exception('Monthly report job failed for device %s: %s', device_id, exc)
-            _update_monthly_report_job_status(job_id, {
+            report_monthly_report_failure(
+                exc,
+                device_id=device_id,
+                report_month=report_month,
+                job_id=job_id,
+                source='worker',
+            )
+            update_monthly_report_job_status(job_id, {
                 'status': 'failed',
                 'message': str(exc),
                 'error': str(exc),

@@ -39,6 +39,27 @@ Purpose: give coding agents enough repository context to start making correct ed
 
 ### Typical side processes
 
+Supervisord in the `app` container autostarts:
+
+- **API (Daphne)** — `[program:server]`
+- **Scheduled report events** — `[program:event-checker]` (`check_and_fire_events` every 5 minutes; end-of-month HTML reports enqueue here)
+- **Monthly report queue** — `[program:monthly-report-worker]` (`process_monthly_report_queue`; required for UI “Generate report” jobs)
+
+Check processes after `docker compose up`:
+
+```bash
+docker compose exec app supervisorctl status
+```
+
+Monthly report troubleshooting (Redis service must be up; `REDIS_HOST=redis` in `.env`):
+
+```bash
+docker compose logs -f app
+docker compose exec app python manage.py process_monthly_report_queue --purge  # optional: clear stuck queue
+```
+
+One-off commands (when not using supervisord programs):
+
 - Celery worker: `docker-compose exec app celery -A iot_server worker -l info`
 - Celery beat: `docker-compose exec app celery -A iot_server beat -l info`
 - MQTT listener: `docker-compose exec app python manage.py mqtt`
