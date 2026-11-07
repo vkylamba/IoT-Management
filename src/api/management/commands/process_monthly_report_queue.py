@@ -90,6 +90,7 @@ class Command(BaseCommand):
                 device_pk=device_id,
                 report_month=report_month,
                 force_refresh=force_refresh,
+                bypass_generation_gate=force_refresh,
                 progress_callback=lambda progress_patch: update_monthly_report_job_status(
                     job_id,
                     {

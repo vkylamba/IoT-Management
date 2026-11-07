@@ -339,6 +339,7 @@ def _generate_device_monthly_report_job(job_id, device_pk, report_month, force_r
             device_pk=device_pk,
             report_month=report_month,
             force_refresh=force_refresh,
+            bypass_generation_gate=force_refresh,
             progress_callback=lambda progress_patch: _update_monthly_report_job_status(
                 job_id,
                 {

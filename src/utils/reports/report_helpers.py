@@ -9,7 +9,11 @@ from device.models import AssetStatus, DeviceProperty, StatusType
 from utils.solar.monthly_report_job import get_or_generate_device_day_summary
 from utils.solar.solar_day_html import NoDayData
 
-logger = logging.getLogger('django') 
+logger = logging.getLogger('django')
+
+
+class ReportGenerationDisabled(Exception):
+    """Raised when report HTML or snapshots are requested but generation is turned off."""
 
 
 REPORT_PERIOD_TO_LEGACY_NAME = {
@@ -61,6 +65,13 @@ def get_report_status_type_for_period(device, report_period):
                     return candidate
 
     return None
+
+
+def is_report_data_generation_enabled(device, report_period):
+    normalized_period = _normalize_report_period(report_period)
+    if normalized_period is None:
+        return False
+    return get_report_status_type_for_period(device, normalized_period) is not None
 
 
 def get_report_status_names_for_period(device, report_period):
@@ -366,6 +377,7 @@ def _report_window_for_period(device_timezone, normalized_period, selection=None
 
 
 def _calculate_report_from_raw_data(device, normalized_period, selection=None, force_refresh=False):
+    bypass_generation_gate = bool(force_refresh)
     device_timezone = _get_device_timezone(device)
     from_local, to_local, parsed_selection = _report_window_for_period(device_timezone, normalized_period, selection=selection)
     from_utc, to_utc = _to_local_window_utc(from_local, to_local)
@@ -378,7 +390,12 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None, f
 
     for day_date in day_windows:
         try:
-            day_result = get_or_generate_device_day_summary(device, day_date, force_refresh=force_refresh)
+            day_result = get_or_generate_device_day_summary(
+                device,
+                day_date,
+                force_refresh=force_refresh,
+                bypass_generation_gate=bypass_generation_gate,
+            )
             summary = day_result['summary']
             totals = summary.get('totals', {})
             report_link = _report_day_html_url(device, day_date)
@@ -403,6 +420,8 @@ def _calculate_report_from_raw_data(device, normalized_period, selection=None, f
             report_link = _report_day_html_url(device, day_date)
             day_row = _build_meter_row(0, 0, 0, 0, report_html_path=report_link['path'], report_html_url=report_link['url'])
             by_time[day_date.strftime('%Y-%m-%d')] = day_row
+        except ReportGenerationDisabled:
+            raise
         except Exception:
             logger.exception('Failed to build solar summary for %s (%s)', device.ip_address, day_date)
             report_link = _report_day_html_url(device, day_date)
@@ -446,6 +465,9 @@ def calculate_report_status_for_period(device, report_period, selection=None, pe
 
     report_name = get_report_status_name_for_period(device, normalized_period)
     if report_name is None or not persist:
+        return report_payload
+
+    if not is_report_data_generation_enabled(device, normalized_period) and not force_refresh:
         return report_payload
 
     AssetStatus.objects.create(
