@@ -257,6 +257,18 @@ else:
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SUPERSET_ENABLED = os.getenv("SUPERSET_ENABLED", "False") == 'True'
 
+EMAIL_BACKEND = os.getenv(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'iot-reports@localhost')
+REPORT_PUBLIC_BASE_URL = os.getenv('REPORT_PUBLIC_BASE_URL', '')
+
 sentry_sdk.init(
     dsn=os.getenv("SENTRY_DSN", ""),
     integrations=[DjangoIntegration()],

@@ -101,31 +101,57 @@ class CommandAdmin(SafeDeviceAdminMixin):
 
 class AssetStatusAdmin(SafeDeviceAdminMixin):
     ordering = ('-created_at',)
-    list_display = ('id', 'name', 'device', 'asset', 'created_at')
+    list_display = ('id', 'name', 'device_ip', 'asset_id', 'created_at')
     list_filter = (DeviceIpAddressAdminFilter, 'name')
-    search_fields = ('name', 'device__ip_address', 'asset__name')
+    search_fields = ('name',)
     show_full_result_count = False
     list_per_page = 50
+    list_max_show_all = 0
+
+    @admin.display(description='Device')
+    def device_ip(self, obj):
+        cached = getattr(self, '_list_device_ip', None)
+        if cached:
+            return cached
+        if obj.device_id:
+            return str(obj.device_id)
+        return '-'
+
+    def _selected_device_ip(self, request):
+        return (request.GET.get('device_ip') or request.GET.get('device__ip_address') or '').strip()
 
     def get_queryset(self, request):
-        legacy_ip = request.GET.get('device__ip_address')
-        if legacy_ip:
-            device = Device.objects.filter(ip_address=legacy_ip).only('id').first()
-            qs = AssetStatus.objects.all()
-            if device:
-                qs = qs.filter(device_id=device.pk)
-            else:
-                qs = qs.none()
-            name = request.GET.get('name')
-            if name:
-                qs = qs.filter(name=name)
-            return qs.defer('status').order_by('-created_at')
-        return (
-            super()
-            .get_queryset(request)
-            .select_related('device', 'asset')
+        self._list_device_ip = None
+        ip = self._selected_device_ip(request)
+        if not ip:
+            return AssetStatus.objects.none()
+
+        device = Device.objects.filter(ip_address=ip).only('id', 'ip_address').first()
+        if not device:
+            return AssetStatus.objects.none()
+
+        self._list_device_ip = device.ip_address
+        qs = (
+            AssetStatus.objects.filter(device_id=device.pk)
             .defer('status')
+            .only('id', 'name', 'device_id', 'asset_id', 'created_at')
         )
+
+        name = request.GET.get('name')
+        if name:
+            qs = qs.filter(name=name)
+
+        return qs.order_by('-created_at')
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        if not self._selected_device_ip(request):
+            from django.contrib import messages
+            messages.warning(
+                request,
+                'Select a Device IP filter before loading statuses. This collection is a large MongoDB time series.',
+            )
+        return super().changelist_view(request, extra_context=extra_context)
 
 
 class MeterAdmin(SafeDeviceAdminMixin):

@@ -12,6 +12,7 @@ from time import perf_counter
 import pytz
 import simplejson as json
 from api.permissions import IsDevice, IsDeviceUser
+from api.report_settings_helpers import get_device_report_settings, update_device_report_settings
 from api.serializers import StatusTypeSerializer
 from api.utils import get_existing_status_data_for_today, get_or_create_user_device, get_status_processing_context_from_status_cache, invalidate_alarm_evaluation_cache, merge_device_other_data, process_raw_data, replay_stored_raw_data
 from django.conf import settings
@@ -1862,6 +1863,34 @@ class DeviceDetailsViewSet(viewsets.ViewSet):
             return Response({'error': 'Monthly report job not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(job_data)
+
+    def get_report_settings(self, request, device_id):
+        dev_user = request.user
+        device = dev_user.device_list(return_objects=True, device_id=device_id)
+        if isinstance(device, list):
+            device = [x for x in device if x.ip_address == device_id]
+            if len(device) == 0:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            device = device[0]
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(get_device_report_settings(device))
+
+    @device_admin
+    def update_report_settings(self, request, device_id):
+        device, _ = is_device_admin(request.user, device_id)
+        if device is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        try:
+            payload = update_device_report_settings(
+                device,
+                request.user,
+                request.data,
+                sync_report_events=_sync_report_events_for_device,
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
 
     @device_admin
     def recalculate_reports(self, request, device_id):

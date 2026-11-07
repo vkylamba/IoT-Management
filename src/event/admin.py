@@ -18,8 +18,27 @@ else:
     MeterData = None
 
 admin.site.register(EventType, DjongoSafeModelAdmin)
-# admin.site.register(DeviceEvent)
-admin.site.register(EventHistory, DjongoSafeModelAdmin)
+
+
+class EventHistoryAdmin(DjongoSafeModelAdmin):
+    list_display = ('id', 'device_event_id', 'action_id', 'trigger_time')
+    list_filter = ('trigger_time',)
+    search_fields = ('device_event_id',)
+    show_full_result_count = False
+    list_per_page = 50
+
+    def get_deleted_objects(self, objs, request):
+        deleted_objects = []
+        for obj in objs:
+            try:
+                deleted_objects.append(str(obj))
+            except Exception:
+                deleted_objects.append(f'EventHistory {obj.pk}')
+        model_count = {self.model._meta.verbose_name_plural: len(deleted_objects)}
+        return deleted_objects, model_count, set(), []
+
+
+admin.site.register(EventHistory, EventHistoryAdmin)
 admin.site.register(Action, DjongoSafeModelAdmin)
 
 

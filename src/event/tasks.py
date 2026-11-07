@@ -99,6 +99,16 @@ def weekly_energy_report(action_id):
             result=result
         )
         event_history.save()
+        from utils.reports.report_delivery import deliver_scheduled_report_email
+        email_result = deliver_scheduled_report_email(
+            device_event,
+            'week',
+            fallback_summary=report_data if isinstance(report_data, dict) else None,
+        )
+        if email_result.get('sent'):
+            result['email_delivery'] = email_result
+            event_history.result = result
+            event_history.save(update_fields=['result'])
 
 
 # @task
@@ -119,3 +129,13 @@ def daily_energy_report(action_id):
             result=result
         )
         event_history.save()
+        from utils.reports.report_delivery import deliver_scheduled_report_email
+        email_result = deliver_scheduled_report_email(
+            device_event,
+            'yesterday',
+            fallback_summary=report_data if isinstance(report_data, dict) else None,
+        )
+        if email_result.get('sent'):
+            result['email_delivery'] = email_result
+            event_history.result = result
+            event_history.save(update_fields=['result'])
