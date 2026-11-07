@@ -90,6 +90,7 @@ class Command(BaseCommand):
                 device_pk=device_id,
                 report_month=report_month,
                 force_refresh=force_refresh,
+                bypass_generation_gate=force_refresh,
                 progress_callback=lambda progress_patch: update_monthly_report_job_status(
                     job_id,
                     {
@@ -118,6 +119,7 @@ class Command(BaseCommand):
                     'missing_days': [],
                     'finished_at': timezone.now().isoformat(),
                 })
+                self._deliver_monthly_report_email(device, report_month)
                 return
 
             update_monthly_report_job_status(job_id, {
@@ -135,6 +137,7 @@ class Command(BaseCommand):
                 'records_collected': result['records_collected'],
                 'finished_at': timezone.now().isoformat(),
             })
+            self._deliver_monthly_report_email(device, report_month)
         except Exception as exc:
             report_monthly_report_failure(
                 exc,
@@ -152,3 +155,20 @@ class Command(BaseCommand):
             })
         finally:
             close_old_connections()
+
+    def _deliver_monthly_report_email(self, device, report_month):
+        from event.models import DeviceEvent
+        from utils.reports.report_delivery import deliver_scheduled_report_email
+
+        marker = 'AUTO_REPORT_STATUS:month'
+        device_event = DeviceEvent.objects.filter(device=device, equation_threshold=marker).first()
+        if device_event is None:
+            return
+        try:
+            deliver_scheduled_report_email(
+                device_event,
+                'month',
+                selection={'month': report_month},
+            )
+        except Exception as exc:
+            logger.exception('Monthly report email delivery failed for %s: %s', device.ip_address, exc)

@@ -280,8 +280,32 @@ class EventHistory(models.Model):
         verbose_name_plural = 'Events history'
 
     def __str__(self):
+        trigger = (
+            self.trigger_time.strftime("%d-%m-%Y %H:%M:%S")
+            if self.trigger_time is not None
+            else ""
+        )
+        if not self.device_event_id:
+            return f"Event history — {trigger}"
+
+        try:
+            device_event = self.device_event
+        except DeviceEvent.DoesNotExist:
+            return f"Missing event {self.device_event_id} — {trigger}"
+
+        device_ip = None
+        if device_event.device is not None:
+            device_ip = device_event.device.ip_address
+
+        typ_name = None
+        try:
+            if device_event.typ is not None:
+                typ_name = device_event.typ.name
+        except Exception:
+            typ_name = None
+
         return "{dev} - {typ} - {time}".format(
-            dev=self.device_event.device.ip_address,
-            typ=self.device_event.typ.name,
-            time=self.trigger_time.strftime("%d-%m-%Y %H:%M:%S")
+            dev=device_ip or str(device_event.pk),
+            typ=typ_name or "unknown type",
+            time=trigger,
         )

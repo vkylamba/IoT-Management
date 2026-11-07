@@ -44,6 +44,7 @@ Supervisord in the `app` container autostarts:
 - **API (Daphne)** — `[program:server]`
 - **Scheduled report events** — `[program:event-checker]` (`check_and_fire_events` every 5 minutes; end-of-month HTML reports enqueue here)
 - **Monthly report queue** — `[program:monthly-report-worker]` (`process_monthly_report_queue`; required for UI “Generate report” jobs)
+- **Weekly DB cleanup** — `[program:weekly-data-cleanup]` (`weekly_data_cleanup --apply` every 7 days; event history + job JSON only)
 
 Check processes after `docker compose up`:
 
@@ -63,6 +64,8 @@ One-off commands (when not using supervisord programs):
 - Celery worker: `docker-compose exec app celery -A iot_server worker -l info`
 - Celery beat: `docker-compose exec app celery -A iot_server beat -l info`
 - MQTT listener: `docker-compose exec app python manage.py mqtt`
+- Weekly DB cleanup (dry-run): `docker-compose exec app python manage.py weekly_data_cleanup`
+- Weekly DB cleanup (apply): `docker-compose exec app python manage.py weekly_data_cleanup --apply`
 
 ### Agent rule
 

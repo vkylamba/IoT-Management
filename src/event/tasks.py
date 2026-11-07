@@ -10,7 +10,7 @@ from device.models import AssetStatus, User
 from django.db.models import Q
 from event.models import Action, EventHistory
 from utils.reports.daily_reports import get_daily_report
-from utils.reports.report_helpers import calculate_report_status_for_period, get_report_status_type_for_period
+from utils.reports.report_helpers import calculate_report_status_for_period, is_report_data_generation_enabled
 from utils.reports.weekly_reports import get_weekly_report
 
 logger = logging.getLogger('django')
@@ -62,17 +62,20 @@ def monthly_energy_report(action_id):
     data = device_event.device.get_last_data_point()
     if device_event.eval_equation(data):
         device = device_event.device
-        if get_report_status_type_for_period(device, 'month') is None:
-            calculate_report_status_for_period(device, 'month')
         report_month = current_report_month()
-        job_id = enqueue_monthly_report_job(device, report_month, force_refresh=False)
+        job_id = None
+        if is_report_data_generation_enabled(device, 'month'):
+            calculate_report_status_for_period(device, 'month')
+            job_id = enqueue_monthly_report_job(device, report_month, force_refresh=False)
         result = {
             'month': report_month,
             'monthly_report_job_id': job_id,
             'queued': job_id is not None,
         }
-        if job_id is None:
+        if job_id is None and is_report_data_generation_enabled(device, 'month'):
             result['error'] = 'Failed to enqueue monthly HTML report job.'
+        elif job_id is None:
+            result['skipped'] = 'report_generation_disabled'
         event_history = EventHistory(
             device_event=device_event,
             action=action,
@@ -87,7 +90,7 @@ def weekly_energy_report(action_id):
     device_event = action.device_event
     data = device_event.device.get_last_data_point()
     if device_event.eval_equation(data):
-        if get_report_status_type_for_period(device_event.device, 'week') is None:
+        if is_report_data_generation_enabled(device_event.device, 'week'):
             calculate_report_status_for_period(device_event.device, 'week')
         report_data = get_weekly_report(device_event.device)
         result = {
@@ -99,6 +102,17 @@ def weekly_energy_report(action_id):
             result=result
         )
         event_history.save()
+        from utils.reports.report_delivery import deliver_scheduled_report_email
+        email_result = deliver_scheduled_report_email(
+            device_event,
+            'week',
+            fallback_summary=report_data if isinstance(report_data, dict) else None,
+        )
+        if email_result.get('sent'):
+            result['email_delivery'] = email_result
+            event_history.result = result
+            event_history.save(update_fields=['result'])
+
 
 
 # @task
@@ -107,7 +121,7 @@ def daily_energy_report(action_id):
     device_event = action.device_event
     data = device_event.device.get_last_data_point()
     if device_event.eval_equation(data):
-        if get_report_status_type_for_period(device_event.device, 'yesterday') is None:
+        if is_report_data_generation_enabled(device_event.device, 'yesterday'):
             calculate_report_status_for_period(device_event.device, 'yesterday', force_refresh=True)
         report_data = get_daily_report(device_event.device)
         result = {
@@ -119,3 +133,13 @@ def daily_energy_report(action_id):
             result=result
         )
         event_history.save()
+        from utils.reports.report_delivery import deliver_scheduled_report_email
+        email_result = deliver_scheduled_report_email(
+            device_event,
+            'yesterday',
+            fallback_summary=report_data if isinstance(report_data, dict) else None,
+        )
+        if email_result.get('sent'):
+            result['email_delivery'] = email_result
+            event_history.result = result
+            event_history.save(update_fields=['result'])

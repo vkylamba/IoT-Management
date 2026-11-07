@@ -133,6 +133,10 @@ urlpatterns = [
         DeviceDetailsViewSet.as_view({'post': 'recalculate_reports'})
     ),
     re_path(
+        r'^device/report-settings/(?P<device_id>[\w.-]+)$',
+        DeviceDetailsViewSet.as_view({'get': 'get_report_settings', 'patch': 'update_report_settings'})
+    ),
+    re_path(
         r'^device/logs/(?P<device_id>[\w.]+)$',
         DeviceDetailsViewSet.as_view({'get': 'get_logs'})
     ),

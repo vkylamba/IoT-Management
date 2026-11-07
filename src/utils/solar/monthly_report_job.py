@@ -168,7 +168,37 @@ def _device_meter_types_by_name(device):
     return meter_types
 
 
-def get_or_generate_device_day_summary(device, day, force_refresh=False):
+def load_cached_device_day_summary(device, day):
+    day_stamp = day.isoformat()
+    device_id = device.ip_address or str(device.id)
+    raw_dir = build_device_monthly_report_raw_dir(device_id)
+    raw_day_path = build_device_monthly_report_raw_day_path(device_id, day_stamp)
+    daily_html_path = build_device_monthly_report_day_html_path(device_id, day_stamp)
+    if not daily_html_path.exists():
+        raise NoDayData(day_stamp)
+    try:
+        records = load_local_day(raw_dir, day_stamp)
+    except NoDayData:
+        records = []
+    return {
+        'summary': {'totals': {}, 'date': day_stamp},
+        'records_count': len(records),
+        'day_stamp': day_stamp,
+        'raw_path': raw_day_path,
+        'html_path': daily_html_path,
+    }
+
+
+def get_or_generate_device_day_summary(device, day, force_refresh=False, bypass_generation_gate=False):
+    from utils.reports.report_helpers import ReportGenerationDisabled, is_report_data_generation_enabled
+
+    if not bypass_generation_gate and not is_report_data_generation_enabled(device, 'day'):
+        if force_refresh:
+            raise ReportGenerationDisabled(
+                'Report data generation is disabled. Configure an active report status type and enable generation.'
+            )
+        return load_cached_device_day_summary(device, day)
+
     day_stamp = day.isoformat()
     day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
     day_end = day_start + timedelta(days=1)
@@ -207,7 +237,15 @@ def get_or_generate_device_day_summary(device, day, force_refresh=False):
     }
 
 
-def generate_device_monthly_report_job(device_pk, report_month, force_refresh=False, progress_callback=None):
+def generate_device_monthly_report_job(
+    device_pk,
+    report_month,
+    force_refresh=False,
+    progress_callback=None,
+    bypass_generation_gate=False,
+):
+    from utils.reports.report_helpers import ReportGenerationDisabled, is_report_data_generation_enabled
+
     close_old_connections()
     try:
         device = Device.objects.filter(pk=device_pk).first()
@@ -215,6 +253,24 @@ def generate_device_monthly_report_job(device_pk, report_month, force_refresh=Fa
             raise ValueError('Device not found.')
 
         report_path = build_device_monthly_report_cache_path(device.ip_address or str(device.id), report_month)
+        generation_allowed = bypass_generation_gate or is_report_data_generation_enabled(device, 'month')
+
+        if not generation_allowed:
+            if force_refresh:
+                raise ReportGenerationDisabled(
+                    'Monthly report generation is disabled. Configure an active report status type and enable generation.'
+                )
+            if report_path.exists():
+                return {
+                    'device': device,
+                    'report_path': report_path,
+                    'cached': True,
+                    'generated': False,
+                    'daily_reports_generated': 0,
+                    'missing_days': [],
+                    'records_collected': 0,
+                }
+            raise ReportGenerationDisabled('Monthly report generation is disabled for this device.')
 
         if report_path.exists() and not force_refresh:
             return {
@@ -237,7 +293,12 @@ def generate_device_monthly_report_job(device_pk, report_month, force_refresh=Fa
 
         for day_index, day in enumerate(day_list):
             try:
-                day_result = get_or_generate_device_day_summary(device, day, force_refresh=force_refresh)
+                day_result = get_or_generate_device_day_summary(
+                    device,
+                    day,
+                    force_refresh=force_refresh,
+                    bypass_generation_gate=bypass_generation_gate or force_refresh,
+                )
                 summaries.append(day_result['summary'])
                 total_records_loaded += day_result['records_count']
             except NoDayData:
