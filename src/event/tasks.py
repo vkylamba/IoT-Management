@@ -111,6 +111,7 @@ def weekly_energy_report(action_id):
             event_history.save(update_fields=['result'])
 
 
+
 # @task
 def daily_energy_report(action_id):
     action = Action.objects.get(id=action_id)
