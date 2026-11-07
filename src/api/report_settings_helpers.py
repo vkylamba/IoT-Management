@@ -159,12 +159,15 @@ def update_device_report_settings(device, user, payload, sync_report_events=None
 
         status_type = _get_report_status_type(device, report_period)
         if 'generation_enabled' in period_patch:
+            requested_enabled = bool(period_patch['generation_enabled'])
             if status_type is None:
-                raise ValueError(
-                    f'No report status type configured for {api_period}. Add one under Device Details first.'
-                )
-            status_type.active = bool(period_patch['generation_enabled'])
-            status_type.save(update_fields=['active'])
+                if requested_enabled:
+                    raise ValueError(
+                        f'No report status type configured for {api_period}. Add one under Device Details first.'
+                    )
+            else:
+                status_type.active = requested_enabled
+                status_type.save(update_fields=['active'])
 
         device_event = _get_report_event(device, report_period)
         if device_event is None and (
