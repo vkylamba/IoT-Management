@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     # Yet another Swagger generator
     'drf_yasg',
     'corsheaders',
+    'anymail',
 
     # Local apps
     'device',
@@ -257,17 +258,31 @@ else:
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SUPERSET_ENABLED = os.getenv("SUPERSET_ENABLED", "False") == 'True'
 
-EMAIL_BACKEND = os.getenv(
-    'EMAIL_BACKEND',
-    'django.core.mail.backends.console.EmailBackend',
-)
+MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY', '')
+MAILGUN_SENDER_DOMAIN = os.getenv('MAILGUN_SENDER_DOMAIN', '')
+MAILGUN_API_URL = os.getenv('MAILGUN_API_URL', 'https://api.mailgun.net/v3')
+
+if MAILGUN_API_KEY and MAILGUN_SENDER_DOMAIN:
+    _default_email_backend = 'anymail.backends.mailgun.EmailBackend'
+else:
+    _default_email_backend = 'django.core.mail.backends.console.EmailBackend'
+
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', _default_email_backend)
 EMAIL_HOST = os.getenv('EMAIL_HOST', '')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'iot-reports@localhost')
+SERVER_EMAIL = os.getenv('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
 REPORT_PUBLIC_BASE_URL = os.getenv('REPORT_PUBLIC_BASE_URL', '')
+
+ANYMAIL = {
+    'MAILGUN_API_KEY': MAILGUN_API_KEY,
+    'MAILGUN_SENDER_DOMAIN': MAILGUN_SENDER_DOMAIN,
+}
+if MAILGUN_API_URL:
+    ANYMAIL['MAILGUN_API_URL'] = MAILGUN_API_URL
 
 sentry_sdk.init(
     dsn=os.getenv("SENTRY_DSN", ""),
