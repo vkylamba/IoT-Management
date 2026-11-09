@@ -283,7 +283,6 @@ ANYMAIL = {
 }
 if MAILGUN_API_URL:
     ANYMAIL['MAILGUN_API_URL'] = MAILGUN_API_URL
-
 sentry_sdk.init(
     dsn=os.getenv("SENTRY_DSN", ""),
     integrations=[DjangoIntegration()],
