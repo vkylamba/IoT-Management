@@ -86,8 +86,51 @@ class DeviceAdmin(SafeDeviceAdminMixin):
 
 class RawDataAdmin(SafeDeviceAdminMixin):
     ordering = ('-data_arrival_time',)
-    list_display = ('id', 'device', 'channel', 'data_type', 'data_arrival_time')
-    list_filter = ('device__ip_address', 'device__alias', 'data_type', 'channel')
+    list_display = ('id', 'device_ip', 'channel', 'data_type', 'data_arrival_time')
+    list_filter = (DeviceIpAddressAdminFilter, 'data_type', 'channel')
+    show_full_result_count = False
+    list_per_page = 50
+    list_max_show_all = 0
+
+    @admin.display(description='Device')
+    def device_ip(self, obj):
+        cached = getattr(self, '_list_device_ip', None)
+        if cached:
+            return cached
+        if obj.device_id:
+            return str(obj.device_id)
+        return '-'
+
+    def _selected_device_ip(self, request):
+        return (request.GET.get('device_ip') or request.GET.get('device__ip_address') or '').strip()
+
+    def get_queryset(self, request):
+        self._list_device_ip = None
+        ip = self._selected_device_ip(request)
+        if not ip:
+            return RawData.objects.none()
+
+        device = Device.objects.filter(ip_address=ip).only('id', 'ip_address').first()
+        if not device:
+            return RawData.objects.none()
+
+        self._list_device_ip = device.ip_address
+        return (
+            RawData.objects.filter(device_id=device.pk)
+            .defer('data')
+            .only('id', 'device_id', 'channel', 'data_type', 'data_arrival_time')
+            .order_by('-data_arrival_time')
+        )
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        if not self._selected_device_ip(request):
+            from django.contrib import messages
+            messages.warning(
+                request,
+                'Select a Device IP filter before loading raw data. This collection is a large MongoDB time series.',
+            )
+        return super().changelist_view(request, extra_context=extra_context)
 
 class CommandAdmin(SafeDeviceAdminMixin):
     ordering = ('-command_in_time',)
