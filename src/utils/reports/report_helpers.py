@@ -24,54 +24,27 @@ REPORT_PERIOD_TO_LEGACY_NAME = {
 
 
 def _normalize_report_period(report_period):
-    if report_period is None:
-        return None
-    normalized_period = str(report_period).strip().lower()
-    if normalized_period == 'yesterday':
-        return 'day'
-    if normalized_period in REPORT_PERIOD_TO_LEGACY_NAME:
-        return normalized_period
-    return None
+    from utils.reports.report_status import normalize_compute_period
+
+    return normalize_compute_period(report_period)
 
 
 def _status_type_period_candidates(normalized_period):
-    if normalized_period == 'day':
-        return ['day', 'yesterday']
-    return [normalized_period]
+    from utils.reports.report_status import status_type_lookup_periods
+
+    return status_type_lookup_periods(normalized_period)
 
 
 def get_report_status_type_for_period(device, report_period):
-    normalized_period = _normalize_report_period(report_period)
-    if normalized_period is None:
-        return None
+    from utils.reports.report_status import get_active_report_status_type
 
-    period_candidates = _status_type_period_candidates(normalized_period)
-    for period_candidate in period_candidates:
-        query = {
-            'target_type': StatusType.STATUS_TARGET_REPORT,
-            'report_period': period_candidate,
-        }
-
-        status_type = StatusType.objects.filter(device=device, **query).order_by('-created_at')
-        for candidate in status_type:
-            if getattr(candidate, 'active', False):
-                return candidate
-
-        device_type = getattr(device, 'type', None)
-        if device_type is not None:
-            status_type = StatusType.objects.filter(device_type=device_type, **query).order_by('-created_at')
-            for candidate in status_type:
-                if getattr(candidate, 'active', False):
-                    return candidate
-
-    return None
+    return get_active_report_status_type(device, report_period)
 
 
 def is_report_data_generation_enabled(device, report_period):
-    normalized_period = _normalize_report_period(report_period)
-    if normalized_period is None:
-        return False
-    return get_report_status_type_for_period(device, normalized_period) is not None
+    from utils.reports.report_status import is_report_data_generation_enabled as check_enabled
+
+    return check_enabled(device, report_period)
 
 
 def get_report_status_names_for_period(device, report_period):

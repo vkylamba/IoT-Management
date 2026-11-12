@@ -18,6 +18,7 @@ from api.utils import get_existing_status_data_for_today, get_or_create_user_dev
 from django.conf import settings
 from django_redis import get_redis_connection
 from utils.reports.report_helpers import calculate_report_status_for_period, get_latest_report_data_for_period
+from utils.reports.report_status import canonical_event_period, coerce_active, get_report_event_marker
 
 if getattr(settings, 'CLICKHOUSE_ENABLED', False):
     from device.clickhouse_models import DerivedData
@@ -107,15 +108,8 @@ REPORT_PERIOD_TO_EVENT_CONFIG = {
     },
 }
 
-REPORT_EVENT_MARKER_PREFIX = 'AUTO_REPORT_STATUS'
-
-
 def _build_device_monthly_report_cache_path(device_id, report_month=None):
     return build_device_monthly_report_cache_path(device_id, report_month)
-
-
-def _get_report_event_marker(report_period):
-    return f'{REPORT_EVENT_MARKER_PREFIX}:{report_period}'
 
 
 def _get_or_create_report_event_type(report_period):
@@ -159,20 +153,20 @@ def _sync_report_events_for_device(device, user):
     ).order_by('-created_at')
     has_active_running_status = False
     for running_status in running_status_types:
-        if getattr(running_status, 'active', False):
+        if coerce_active(getattr(running_status, 'active', False)):
             has_active_running_status = True
             break
 
     preferred_status_by_period = {}
     for status_type in report_status_types:
-        if not getattr(status_type, 'active', False):
+        if not coerce_active(getattr(status_type, 'active', False)):
             continue
-        report_period = (status_type.report_period or '').strip().lower()
+        report_period = canonical_event_period(status_type.report_period)
         if report_period in REPORT_PERIOD_TO_EVENT_CONFIG and report_period not in preferred_status_by_period:
             preferred_status_by_period[report_period] = status_type
 
     for report_period, event_config in REPORT_PERIOD_TO_EVENT_CONFIG.items():
-        marker = _get_report_event_marker(report_period)
+        marker = get_report_event_marker(report_period)
         existing_events = DeviceEvent.objects.filter(
             device=device,
             equation_threshold=marker,
