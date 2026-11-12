@@ -119,14 +119,27 @@ def weekly_energy_report(action_id):
 def daily_energy_report(action_id):
     action = Action.objects.get(id=action_id)
     device_event = action.device_event
-    data = device_event.device.get_last_data_point()
+    device = device_event.device
+    data = device.get_last_data_point()
     if device_event.eval_equation(data):
-        if is_report_data_generation_enabled(device_event.device, 'yesterday'):
-            calculate_report_status_for_period(device_event.device, 'yesterday', force_refresh=True)
-        report_data = get_daily_report(device_event.device)
+        generation_enabled = is_report_data_generation_enabled(device, 'yesterday')
+        refreshed = False
+        if generation_enabled:
+            calculate_report_status_for_period(device, 'yesterday', force_refresh=True)
+            refreshed = True
+        else:
+            logger.info(
+                'Skipping daily report generation for %s (generation disabled or no active report status type).',
+                getattr(device, 'ip_address', device),
+            )
+        report_data = get_daily_report(device)
         result = {
-            "daily_report": report_data
+            'daily_report': report_data,
+            'report_generation_enabled': generation_enabled,
+            'report_data_refreshed': refreshed,
         }
+        if not generation_enabled:
+            result['report_generation_skipped'] = 'generation_disabled'
         event_history = EventHistory(
             device_event=device_event,
             action=action,

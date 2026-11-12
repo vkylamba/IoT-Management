@@ -22,10 +22,10 @@ from api.utils import (
 )
 from api.viewsets.device_details_views import (
 	DeviceDetailsViewSet,
-	_get_report_event_marker,
 	_build_device_monthly_report_cache_path,
 	_sync_report_events_for_device,
 )
+from utils.reports.report_status import get_report_event_marker
 from api.viewsets.device_views import _normalize_favorite_device_ids
 from device.models import AssetStatus, Device, Meter, RawData, StatusCache, StatusType
 from event.models import Action, DeviceEvent, EventType
@@ -1217,19 +1217,19 @@ class ReportEventSyncTests(TestCase):
 		self.assertTrue(
 			DeviceEvent.objects.filter(
 				device=device,
-				equation_threshold=_get_report_event_marker("yesterday"),
+				equation_threshold=get_report_event_marker("yesterday"),
 			).exists()
 		)
 		self.assertTrue(
 			DeviceEvent.objects.filter(
 				device=device,
-				equation_threshold=_get_report_event_marker("week"),
+				equation_threshold=get_report_event_marker("week"),
 			).exists()
 		)
 		self.assertTrue(
 			DeviceEvent.objects.filter(
 				device=device,
-				equation_threshold=_get_report_event_marker("month"),
+				equation_threshold=get_report_event_marker("month"),
 			).exists()
 		)
 
@@ -1267,7 +1267,7 @@ class ReportEventSyncTests(TestCase):
 
 		event = DeviceEvent.objects.filter(
 			device=device,
-			equation_threshold=_get_report_event_marker("week"),
+			equation_threshold=get_report_event_marker("week"),
 		).first()
 		self.assertIsNotNone(event)
 		self.assertEqual(event.typ.name, "Weekly Report")
@@ -1292,7 +1292,7 @@ class ReportEventSyncTests(TestCase):
 		self.assertTrue(
 			DeviceEvent.objects.filter(
 				device=device,
-				equation_threshold=_get_report_event_marker("yesterday"),
+				equation_threshold=get_report_event_marker("yesterday"),
 			).exists()
 		)
 
@@ -1304,7 +1304,7 @@ class ReportEventSyncTests(TestCase):
 		self.assertFalse(
 			DeviceEvent.objects.filter(
 				device=device,
-				equation_threshold=_get_report_event_marker("yesterday"),
+				equation_threshold=get_report_event_marker("yesterday"),
 			).exists()
 		)
 		self.assertFalse(
@@ -1316,7 +1316,7 @@ class ReportEventSyncTests(TestCase):
 
 
 class ReportTaskOverrideTests(SimpleTestCase):
-	def test_daily_report_task_skips_auto_calculation_when_explicit_status_exists(self):
+	def test_daily_report_task_generates_when_generation_enabled(self):
 		action = Mock()
 		action.id = "action-1"
 		device_event = Mock()
@@ -1325,9 +1325,29 @@ class ReportTaskOverrideTests(SimpleTestCase):
 		action.device_event = device_event
 
 		with patch('event.tasks.Action.objects.get', return_value=action), \
-			 patch('event.tasks.get_report_status_type_for_period', return_value=Mock()), \
+			 patch('event.tasks.is_report_data_generation_enabled', return_value=True), \
 			 patch('event.tasks.calculate_report_status_for_period') as calculate_mock, \
 			 patch('event.tasks.get_daily_report', return_value={'ok': True}), \
+			 patch('utils.reports.report_delivery.deliver_scheduled_report_email', return_value={'sent': False}), \
+			 patch('event.tasks.EventHistory') as event_history_mock:
+			daily_energy_report("action-1")
+
+		calculate_mock.assert_called_once()
+		event_history_mock.return_value.save.assert_called_once()
+
+	def test_daily_report_task_skips_auto_calculation_when_generation_disabled(self):
+		action = Mock()
+		action.id = "action-1"
+		device_event = Mock()
+		device_event.device = Mock()
+		device_event.eval_equation.return_value = True
+		action.device_event = device_event
+
+		with patch('event.tasks.Action.objects.get', return_value=action), \
+			 patch('event.tasks.is_report_data_generation_enabled', return_value=False), \
+			 patch('event.tasks.calculate_report_status_for_period') as calculate_mock, \
+			 patch('event.tasks.get_daily_report', return_value={'ok': True}), \
+			 patch('utils.reports.report_delivery.deliver_scheduled_report_email', return_value={'sent': False}), \
 			 patch('event.tasks.EventHistory') as event_history_mock:
 			daily_energy_report("action-1")
 

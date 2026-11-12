@@ -1,4 +1,3 @@
-from device.models import StatusType
 from event.models import Action, DeviceEvent
 from utils.reports.report_delivery import (
     get_report_email_action,
@@ -6,8 +5,15 @@ from utils.reports.report_delivery import (
     serialize_report_email_action,
     upsert_report_email_action,
 )
-
-REPORT_EVENT_MARKER_PREFIX = 'AUTO_REPORT_STATUS'
+from utils.reports.report_status import (
+    API_PERIOD_TO_EVENT_PERIOD,
+    EVENT_PERIOD_TO_API_PERIOD,
+    coerce_active,
+    get_configured_report_status_type,
+    get_report_event_marker,
+    has_report_status_type_configured,
+    is_report_data_generation_enabled,
+)
 
 REPORT_PERIOD_META = {
     'yesterday': {
@@ -24,23 +30,11 @@ REPORT_PERIOD_META = {
     },
 }
 
-API_PERIOD_TO_REPORT_PERIOD = {
-    'day': 'yesterday',
-    'week': 'week',
-    'month': 'month',
-}
-
-REPORT_PERIOD_TO_API_PERIOD = {value: key for key, value in API_PERIOD_TO_REPORT_PERIOD.items()}
-
 SCHEDULE_HINTS = {
     'yesterday': 'Runs every day at 00:05 (server time).',
     'week': 'Runs every Monday at 00:10 (server time).',
     'month': 'Runs on the last day of each month at 23:45 (server time).',
 }
-
-
-def _get_report_event_marker(report_period):
-    return f'{REPORT_EVENT_MARKER_PREFIX}:{report_period}'
 
 
 def _format_crontab(schedule):
@@ -56,43 +50,8 @@ def _format_crontab(schedule):
     }
 
 
-def _get_report_status_type(device, report_period):
-    from utils.reports.report_helpers import _normalize_report_period, _status_type_period_candidates
-
-    normalized_period = _normalize_report_period(report_period)
-    if normalized_period is None:
-        normalized_period = str(report_period or '').strip().lower()
-
-    period_candidates = _status_type_period_candidates(normalized_period)
-    if not period_candidates:
-        period_candidates = [normalized_period]
-
-    matches = []
-    seen_ids = set()
-    for period_candidate in period_candidates:
-        status_types = StatusType.objects.filter(
-            device=device,
-            target_type=StatusType.STATUS_TARGET_REPORT,
-            report_period=period_candidate,
-        ).order_by('-created_at')
-        for status_type in status_types:
-            status_id = str(status_type.id)
-            if status_id in seen_ids:
-                continue
-            seen_ids.add(status_id)
-            matches.append(status_type)
-
-    if not matches:
-        return None
-
-    for status_type in matches:
-        if getattr(status_type, 'active', False):
-            return status_type
-    return matches[0]
-
-
 def _get_report_event(device, report_period):
-    marker = _get_report_event_marker(report_period)
+    marker = get_report_event_marker(report_period)
     return DeviceEvent.objects.filter(device=device, equation_threshold=marker).order_by('-created_at').first()
 
 
@@ -106,7 +65,7 @@ def _get_report_action(device_event, report_period):
 
 
 def build_period_settings(device, report_period):
-    status_type = _get_report_status_type(device, report_period)
+    status_type = get_configured_report_status_type(device, report_period)
     device_event = _get_report_event(device, report_period)
     action = _get_report_action(device_event, report_period)
     email_meta = serialize_report_email_action(get_report_email_action(device_event) if device_event else None)
@@ -114,13 +73,15 @@ def build_period_settings(device, report_period):
     schedule = device_event.schedule if device_event else None
     crontab = _format_crontab(schedule)
 
-    generation_configured = status_type is not None
+    generation_configured = has_report_status_type_configured(device, report_period)
+    generation_enabled = is_report_data_generation_enabled(device, report_period)
+
     return {
         'report_period': report_period,
-        'api_period': REPORT_PERIOD_TO_API_PERIOD.get(report_period, report_period),
+        'api_period': EVENT_PERIOD_TO_API_PERIOD.get(report_period, report_period),
         'label': REPORT_PERIOD_META.get(report_period, {}).get('event_type_name', report_period),
         'generation_configured': generation_configured,
-        'generation_enabled': bool(generation_configured and getattr(status_type, 'active', False)),
+        'generation_enabled': generation_enabled,
         'status_type_id': str(status_type.id) if status_type else None,
         'status_type_name': status_type.name if status_type else None,
         'schedule_enabled': bool(
@@ -140,7 +101,7 @@ def build_period_settings(device, report_period):
 
 def get_device_report_settings(device):
     periods = {}
-    for api_period, report_period in API_PERIOD_TO_REPORT_PERIOD.items():
+    for api_period, report_period in API_PERIOD_TO_EVENT_PERIOD.items():
         periods[api_period] = build_period_settings(device, report_period)
     return {
         'device_id': device.ip_address or str(device.id),
@@ -153,11 +114,11 @@ def update_device_report_settings(device, user, payload, sync_report_events=None
     updated = []
 
     for api_period, period_patch in periods_payload.items():
-        report_period = API_PERIOD_TO_REPORT_PERIOD.get(api_period)
+        report_period = API_PERIOD_TO_EVENT_PERIOD.get(api_period)
         if report_period is None or not isinstance(period_patch, dict):
             continue
 
-        status_type = _get_report_status_type(device, report_period)
+        status_type = get_configured_report_status_type(device, report_period)
         if 'generation_enabled' in period_patch:
             requested_enabled = bool(period_patch['generation_enabled'])
             if status_type is None:
